@@ -1,0 +1,10 @@
+/** UI 组件统一导出。页面里：import { Panel, Button, Badge, PageHeader } from '@/components/ui' */
+export { default as Card } from './Card.vue'
+export { default as Panel } from './Panel.vue'
+export { default as PageHeader } from './PageHeader.vue'
+export { default as Button } from './Button.vue'
+export { default as Badge } from './Badge.vue'
+export { default as Select } from './Select.vue'
+export { default as DatePicker } from './DatePicker.vue'
+export { default as DateRange } from './DateRange.vue'
+export { default as Pagination } from './Pagination.vue'
