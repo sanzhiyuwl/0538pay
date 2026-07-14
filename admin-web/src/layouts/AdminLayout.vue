@@ -131,16 +131,16 @@ const currentParent = computed(
               >
                 <ul
                   v-show="openKeys.has(node.title)"
-                  class="mt-0.5 space-y-0.5 overflow-hidden pl-4"
+                  class="mt-0.5 space-y-0.5 overflow-hidden pl-3.5"
                 >
                   <li v-for="leaf in node.children" :key="leaf.to">
                     <RouterLink
                       :to="leaf.to"
-                      class="flex items-center gap-2 rounded-lg py-2 pl-6 pr-3 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      class="flex items-center gap-2 rounded-lg py-2 pl-3 pr-2 text-[13px] text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                       active-class="!bg-sidebar-accent !text-sidebar-accent-foreground font-medium"
                       exact-active-class="!bg-sidebar-accent !text-sidebar-accent-foreground font-medium"
                     >
-                      <span class="flex-1">{{ leaf.title }}</span>
+                      <span class="flex-1 truncate">{{ leaf.title }}</span>
                       <span
                         v-if="leaf.badge"
                         class="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary"

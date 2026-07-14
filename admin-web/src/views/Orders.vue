@@ -14,7 +14,7 @@ import {
   FilePlus2,
   Trash2,
 } from 'lucide-vue-next'
-import { Panel, Button, Badge, Select, DateRange, Pagination } from '@/components/ui'
+import { Panel, Button, Badge, Select, DateRange, Pagination, Drawer } from '@/components/ui'
 import {
   orders as allOrders,
   orderStatus,
@@ -130,6 +130,43 @@ const actionIcons: Record<string, any> = {
   授权资金支付: CheckCircle2,
   授权资金解冻: Sun,
 }
+
+// ===== 高级导出（对齐 epay export.php + download.php?act=order）=====
+const exportOpen = ref(false)
+const exportForm = ref({
+  starttime: '',
+  endtime: '',
+  uid: '',
+  type: 0,
+  channel: '',
+  dstatus: -1,
+})
+// 导出预估命中条数（按导出条件即时过滤，给用户导出前的量级参考）
+const exportCount = computed(() => {
+  return allOrders.filter((o) => {
+    if (exportForm.value.uid && String(o.uid) !== exportForm.value.uid.trim()) return false
+    if (exportForm.value.type && o.type !== exportForm.value.type) return false
+    if (exportForm.value.channel && String(o.channel) !== exportForm.value.channel.trim()) return false
+    if (exportForm.value.dstatus > -1 && o.status !== exportForm.value.dstatus) return false
+    return true
+  }).length
+})
+function openExport() {
+  // 带入当前列表筛选条件作为默认导出条件，减少重复输入
+  exportForm.value = {
+    starttime: filters.value.starttime,
+    endtime: filters.value.endtime,
+    uid: filters.value.uid,
+    type: filters.value.type,
+    channel: filters.value.channel,
+    dstatus: filters.value.dstatus,
+  }
+  exportOpen.value = true
+}
+function submitExport() {
+  // 原型阶段：仅关闭抽屉（真实环境跳转 download.php?act=order 下载 CSV）
+  exportOpen.value = false
+}
 </script>
 
 <template>
@@ -140,7 +177,7 @@ const actionIcons: Record<string, any> = {
         <Button variant="outline" size="sm" @click="showStats = !showStats">
           <BarChart3 />统计
         </Button>
-        <Button variant="outline" size="sm"><Download />导出列表</Button>
+        <Button variant="outline" size="sm" @click="openExport"><Download />导出订单</Button>
       </template>
       <div class="space-y-3">
         <!-- 第一行 -->
@@ -310,5 +347,41 @@ const actionIcons: Record<string, any> = {
         <Pagination :page="safePage" :page-count="pageCount" :total="total" :page-size="pageSize" @change="go" />
       </div>
     </Panel>
+
+    <!-- 高级导出抽屉（对齐 epay export.php：按时间/商户/方式/通道/状态组合导出 CSV）-->
+    <Drawer v-model="exportOpen" title="导出订单" subtitle="按条件批量导出订单为 CSV 文件" width="max-w-md">
+      <div class="space-y-3.5">
+        <div class="row-field">
+          <label class="lbl">时间范围<span class="text-destructive">*</span></label>
+          <DateRange v-model:start="exportForm.starttime" v-model:end="exportForm.endtime" class="flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">商户号</label>
+          <input v-model="exportForm.uid" placeholder="留空为全部商户" class="field-input flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">支付方式</label>
+          <Select v-model="exportForm.type" :options="typeOptions" class="flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">通道 ID</label>
+          <input v-model="exportForm.channel" placeholder="留空为全部通道" class="field-input flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">订单状态</label>
+          <Select v-model="exportForm.dstatus" :options="statusOptions" class="flex-1" />
+        </div>
+        <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          时间范围为必填。按当前条件预计导出
+          <b class="text-foreground tabular-nums">{{ exportCount }}</b> 条订单。
+        </p>
+      </div>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="exportOpen = false">取消</Button>
+        <Button size="sm" :disabled="!exportForm.starttime || !exportForm.endtime" @click="submitExport">
+          <Download />导出 CSV
+        </Button>
+      </template>
+    </Drawer>
   </div>
 </template>

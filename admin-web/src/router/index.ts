@@ -10,6 +10,8 @@ import ProfitSharing from '@/views/ProfitSharing.vue'
 import Groups from '@/views/Groups.vue'
 import Records from '@/views/Records.vue'
 import MerchantStats from '@/views/MerchantStats.vue'
+import InviteCodes from '@/views/InviteCodes.vue'
+import BuyerStats from '@/views/BuyerStats.vue'
 import Domains from '@/views/Domains.vue'
 import Channels from '@/views/Channels.vue'
 import PayTypes from '@/views/PayTypes.vue'
@@ -26,6 +28,16 @@ import PaySettings from '@/views/PaySettings.vue'
 import RegSettings from '@/views/RegSettings.vue'
 import RiskSettings from '@/views/RiskSettings.vue'
 import SettleSettings from '@/views/SettleSettings.vue'
+import OAuthSettings from '@/views/OAuthSettings.vue'
+import NoticeSettings from '@/views/NoticeSettings.vue'
+import CertSettings from '@/views/CertSettings.vue'
+import TemplateSettings from '@/views/TemplateSettings.vue'
+import MailSettings from '@/views/MailSettings.vue'
+import CronSettings from '@/views/CronSettings.vue'
+import OtherSettings from '@/views/OtherSettings.vue'
+import Wework from '@/views/Wework.vue'
+import WxkfSettings from '@/views/WxkfSettings.vue'
+import GetToken from '@/views/GetToken.vue'
 import Announcements from '@/views/Announcements.vue'
 import Logs from '@/views/Logs.vue'
 import Clean from '@/views/Clean.vue'
@@ -49,6 +61,8 @@ const realPages: Record<string, any> = {
   '/groups': Groups,
   '/records': Records,
   '/merchant-stats': MerchantStats,
+  '/invite-codes': InviteCodes,
+  '/buyer-stats': BuyerStats,
   '/domains': Domains,
   '/channels': Channels,
   '/pay-types': PayTypes,
@@ -71,6 +85,16 @@ const realPages: Record<string, any> = {
   '/pay-settings': PaySettings,
   '/risk-settings': RiskSettings,
   '/settle-settings': SettleSettings,
+  '/oauth-settings': OAuthSettings,
+  '/notice-settings': NoticeSettings,
+  '/cert-settings': CertSettings,
+  '/template-settings': TemplateSettings,
+  '/mail-settings': MailSettings,
+  '/cron-settings': CronSettings,
+  '/other-settings': OtherSettings,
+  '/wework': Wework,
+  '/wxkf-settings': WxkfSettings,
+  '/gettoken': GetToken,
 }
 
 // 控制台独立后台的正式页面（其余子页暂用占位）
