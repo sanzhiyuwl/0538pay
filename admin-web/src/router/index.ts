@@ -74,6 +74,11 @@ import MerchantFindpwd from '@/views/merchant/MerchantFindpwd.vue'
 import MerchantComplete from '@/views/merchant/MerchantComplete.vue'
 import SiteLayout from '@/layouts/SiteLayout.vue'
 import SiteHome from '@/views/site/SiteHome.vue'
+import ClassicDocs from '@/views/site/templates/classic/ClassicDocs.vue'
+import ClassicAbout from '@/views/site/templates/classic/ClassicAbout.vue'
+import ClassicAgreement from '@/views/site/templates/classic/ClassicAgreement.vue'
+import ClassicPayok from '@/views/site/templates/classic/ClassicPayok.vue'
+import ClassicPayerr from '@/views/site/templates/classic/ClassicPayerr.vue'
 import { allLeaves, consoleLeaves, merchantLeaves } from '@/config/nav'
 
 // 已实现的正式页面（其余菜单项暂用占位页）
@@ -185,8 +190,14 @@ const router = createRouter({
       component: SiteLayout,
       children: [
         { path: '', name: 'site-home', component: SiteHome },
+        { path: 'docs', name: 'site-docs', component: ClassicDocs },
+        { path: 'about', name: 'site-about', component: ClassicAbout },
+        { path: 'agreement', name: 'site-agreement', component: ClassicAgreement },
       ],
     },
+    // 支付结果页（独立，无官网导航/页脚）
+    { path: '/payok', name: 'payok', component: ClassicPayok },
+    { path: '/payerr', name: 'payerr', component: ClassicPayerr },
     // 管理后台（运营端）
     {
       path: '/admin',
