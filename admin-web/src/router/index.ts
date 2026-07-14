@@ -50,7 +50,16 @@ import ConsolePlans from '@/views/ConsolePlans.vue'
 import ConsoleBilling from '@/views/ConsoleBilling.vue'
 import ConsoleOverview from '@/views/ConsoleOverview.vue'
 import ConsoleLogs from '@/views/ConsoleLogs.vue'
-import { allLeaves, consoleLeaves } from '@/config/nav'
+import MerchantLayout from '@/layouts/MerchantLayout.vue'
+import MerchantLogin from '@/views/merchant/MerchantLogin.vue'
+import MerchantPlaceholder from '@/views/merchant/MerchantPlaceholder.vue'
+import MerchantHome from '@/views/merchant/MerchantHome.vue'
+import MerchantOrders from '@/views/merchant/MerchantOrders.vue'
+import MerchantRecords from '@/views/merchant/MerchantRecords.vue'
+import MerchantSettle from '@/views/merchant/MerchantSettle.vue'
+import MerchantApply from '@/views/merchant/MerchantApply.vue'
+import MerchantApi from '@/views/merchant/MerchantApi.vue'
+import { allLeaves, consoleLeaves, merchantLeaves } from '@/config/nav'
 
 // 已实现的正式页面（其余菜单项暂用占位页）
 const realPages: Record<string, any> = {
@@ -123,6 +132,24 @@ const consoleChildren = consoleLeaves.map((i) => ({
   component: consolePages[i.to] ?? Placeholder,
 }))
 
+// 商户中心已实现的正式页面（其余子页暂用商户占位页）
+const merchantPages: Record<string, any> = {
+  '/m': MerchantHome,
+  '/m/orders': MerchantOrders,
+  '/m/records': MerchantRecords,
+  '/m/settle': MerchantSettle,
+  '/m/apply': MerchantApply,
+  '/m/api': MerchantApi,
+}
+
+// 商户中心子路由（父 path=/m，children 用相对路径）
+const merchantChildren = merchantLeaves.map((i) => ({
+  // '/m' → ''，'/m/orders' → 'orders'
+  path: i.to === '/m' ? '' : i.to.replace('/m/', ''),
+  name: i.to,
+  component: merchantPages[i.to] ?? MerchantPlaceholder,
+}))
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -139,6 +166,14 @@ const router = createRouter({
       path: '/console',
       component: ConsoleLayout,
       children: consoleChildren,
+    },
+    // 商户中心登录态独立页（无侧栏）
+    { path: '/m/login', name: 'm-login', component: MerchantLogin },
+    // 商户中心主区（套 MerchantLayout）
+    {
+      path: '/m',
+      component: MerchantLayout,
+      children: merchantChildren,
     },
   ],
 })

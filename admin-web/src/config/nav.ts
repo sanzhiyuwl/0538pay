@@ -14,6 +14,11 @@ import {
   Receipt,
   BarChart3,
   ScrollText,
+  UserCog,
+  ListOrdered,
+  QrCode,
+  Gift,
+  HelpCircle,
 } from 'lucide-vue-next'
 
 export interface NavLeaf {
@@ -145,3 +150,56 @@ export const consoleLeaves: NavLeaf[] = consoleNav.map((n) => ({
   to: n.to!,
   badge: n.badge,
 }))
+
+/**
+ * 商户中心（/m）专属导航。商户自助端，两级折叠分组，独立于主后台 navMenu。
+ * 见 docs/商户中心开发规划.txt。条件功能（提现/充值/代付/购买会员/邀请）在真实环境由平台开关控制，
+ * 原型阶段全部展示。
+ */
+export const merchantNav: NavNode[] = [
+  { title: '工作台', icon: LayoutDashboard, to: '/m' },
+  {
+    title: '账户中心',
+    icon: UserCog,
+    children: [
+      { title: '账户设置', to: '/m/profile' },
+      { title: 'API 信息', to: '/m/api' },
+      { title: '实名认证', to: '/m/certificate' },
+      { title: '保证金', to: '/m/deposit' },
+    ],
+  },
+  {
+    title: '交易查询',
+    icon: ListOrdered,
+    children: [
+      { title: '订单记录', to: '/m/orders' },
+      { title: '资金明细', to: '/m/records' },
+      { title: '结算记录', to: '/m/settle' },
+      { title: '申请提现', to: '/m/apply' },
+      { title: '余额充值', to: '/m/recharge' },
+    ],
+  },
+  {
+    title: '收款工具',
+    icon: QrCode,
+    children: [
+      { title: '授权域名', to: '/m/domains' },
+      { title: '聚合收款码', to: '/m/onecode' },
+      { title: '代付管理', to: '/m/transfer' },
+    ],
+  },
+  {
+    title: '推广增值',
+    icon: Gift,
+    children: [
+      { title: '购买会员', to: '/m/groupbuy' },
+      { title: '邀请返现', to: '/m/invite' },
+    ],
+  },
+  { title: '使用说明', icon: HelpCircle, to: '/m/help' },
+]
+
+/** 商户中心可路由叶子（供路由/面包屑用） */
+export const merchantLeaves: NavLeaf[] = merchantNav.flatMap((n) =>
+  n.children ? n.children : n.to ? [{ title: n.title, to: n.to }] : [],
+)
