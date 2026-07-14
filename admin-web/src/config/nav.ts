@@ -6,8 +6,14 @@ import {
   CreditCard,
   Wallet,
   ShieldAlert,
-  Crown,
   Settings,
+  Server,
+  ShieldCheck,
+  LayoutGrid,
+  Package,
+  Receipt,
+  BarChart3,
+  ScrollText,
 } from 'lucide-vue-next'
 
 export interface NavLeaf {
@@ -20,6 +26,7 @@ export interface NavNode {
   title: string
   icon: Component
   to?: string // 单项（无子菜单）
+  badge?: string
   children?: NavLeaf[]
 }
 
@@ -33,6 +40,7 @@ export const navMenu: NavNode[] = [
       { title: '订单管理', to: '/orders' },
       { title: '结算管理', to: '/settle' },
       { title: '分账记录', to: '/profit-sharing' },
+      { title: '结算设置', to: '/settle-settings' },
     ],
   },
   {
@@ -55,6 +63,7 @@ export const navMenu: NavNode[] = [
       { title: '支付插件', to: '/plugins' },
       { title: '通道轮询', to: '/rolls' },
       { title: '公众号 / 小程序', to: '/wechat' },
+      { title: '支付设置', to: '/pay-settings' },
     ],
   },
   {
@@ -72,22 +81,24 @@ export const navMenu: NavNode[] = [
     children: [
       { title: '风控记录', to: '/risk' },
       { title: '黑名单', to: '/blacklist' },
+      { title: '风控设置', to: '/risk-settings' },
     ],
   },
   {
-    title: 'SaaS 运营',
-    icon: Crown,
+    title: '权限管理',
+    icon: ShieldCheck,
     children: [
-      { title: '套餐订阅', to: '/subscriptions', badge: 'New' },
-      { title: '收入分析', to: '/analytics', badge: 'New' },
-      { title: '定价配置', to: '/pricing', badge: 'New' },
+      { title: '管理员', to: '/admins' },
+      { title: '角色管理', to: '/roles' },
+      { title: '操作日志', to: '/oplogs' },
     ],
   },
   {
     title: '系统设置',
     icon: Settings,
     children: [
-      { title: '系统设置', to: '/settings' },
+      { title: '网站设置', to: '/settings' },
+      { title: '注册登录', to: '/reg-settings' },
       { title: '网站公告', to: '/announcements' },
       { title: '登录日志', to: '/logs' },
       { title: '数据清理', to: '/clean' },
@@ -95,7 +106,30 @@ export const navMenu: NavNode[] = [
   },
 ]
 
-/** 扁平化所有可路由的叶子（供路由/面包屑用） */
-export const allLeaves: NavLeaf[] = navMenu.flatMap((n) =>
-  n.children ? n.children : n.to ? [{ title: n.title, to: n.to }] : [],
-)
+/** 控制台入口（SaaS 独立后台）——单独固定在主后台侧栏最底部，不参与菜单流式排列 */
+export const consoleEntry: NavNode = { title: '控制台', icon: Server, to: '/console', badge: 'SaaS' }
+
+/** 扁平化所有可路由的叶子（供路由/面包屑用）。含控制台入口 */
+export const allLeaves: NavLeaf[] = [
+  ...navMenu.flatMap((n) => (n.children ? n.children : n.to ? [{ title: n.title, to: n.to }] : [])),
+  { title: consoleEntry.title, to: consoleEntry.to!, badge: consoleEntry.badge },
+]
+
+/**
+ * 控制台（SaaS 独立后台）专属导航。一级平铺，独立于主后台 navMenu。
+ * 租户管理已实现，其余为规划中（见 docs/saas开发规划.txt），暂用占位页。
+ */
+export const consoleNav: NavNode[] = [
+  { title: '租户管理', icon: LayoutGrid, to: '/console' },
+  { title: '租户套餐', icon: Package, to: '/console/plans' },
+  { title: '租户计费', icon: Receipt, to: '/console/billing' },
+  { title: '分站总览', icon: BarChart3, to: '/console/overview' },
+  { title: '操作审计', icon: ScrollText, to: '/console/logs' },
+]
+
+/** 控制台可路由叶子 */
+export const consoleLeaves: NavLeaf[] = consoleNav.map((n) => ({
+  title: n.title,
+  to: n.to!,
+  badge: n.badge,
+}))

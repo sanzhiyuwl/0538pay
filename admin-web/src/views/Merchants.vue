@@ -133,7 +133,7 @@ function settlePrefix(m: Merchant) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="m in pageRows" :key="m.uid">
+            <tr v-for="(m, si) in pageRows" :key="m.uid">
               <td>
                 <div class="font-medium">{{ m.uid }}</div>
                 <div class="cursor-pointer truncate text-xs text-primary">{{ m.groupname }}</div>
@@ -190,7 +190,10 @@ function settlePrefix(m: Merchant) {
                   </Button>
                   <div
                     v-if="openMenu === m.uid"
-                    class="menu-panel absolute right-0 top-full z-20 mt-1.5 w-36"
+                    class="menu-panel absolute right-0 z-20 w-36"
+                    :class="si >= pageRows.length - 3 && pageRows.length > 3
+                      ? 'bottom-full mb-1.5'
+                      : 'top-full mt-1.5'"
                     @click.stop
                   >
                     <template v-for="a in menuActions" :key="a.key">

@@ -164,33 +164,29 @@ const typeNames: Record<string, string> = { alipay: '支付宝', wxpay: '微信'
       <div class="border-t border-border/70" />
       <div class="px-6 py-4">
         <div class="overflow-x-auto">
-          <table class="w-full table-fixed text-sm">
+          <table class="tbl w-full table-fixed">
             <thead>
-              <tr class="border-b border-border text-left text-muted-foreground">
-                <th class="pb-2.5 font-medium">商户</th>
-                <th class="pb-2.5 font-medium">订单号</th>
-                <th class="pb-2.5 font-medium">支付方式</th>
-                <th class="pb-2.5 font-medium">金额</th>
-                <th class="pb-2.5 font-medium">状态</th>
-                <th class="pb-2.5 font-medium">时间</th>
+              <tr>
+                <th>商户</th>
+                <th>订单号</th>
+                <th>支付方式</th>
+                <th>金额</th>
+                <th class="col-center">状态</th>
+                <th>时间</th>
               </tr>
             </thead>
             <tbody>
-              <tr
-                v-for="o in recentOrders"
-                :key="o.trade_no"
-                class="border-b border-border/50 text-left last:border-0 hover:bg-accent/40"
-              >
-                <td class="py-3 font-medium">{{ o.merchant }}</td>
-                <td class="py-3 text-xs tabular-nums tracking-wide text-muted-foreground">{{ o.trade_no }}</td>
-                <td class="py-3 text-muted-foreground">{{ typeNames[o.type] }}</td>
-                <td class="py-3 tabular-nums font-medium whitespace-nowrap">
+              <tr v-for="o in recentOrders" :key="o.trade_no">
+                <td class="font-medium">{{ o.merchant }}</td>
+                <td class="text-xs tabular-nums tracking-wide text-muted-foreground">{{ o.trade_no }}</td>
+                <td class="text-muted-foreground">{{ typeNames[o.type] }}</td>
+                <td class="tabular-nums font-medium whitespace-nowrap">
                   <span class="mr-0.5 text-xs font-normal text-muted-foreground">¥</span>{{ o.money }}
                 </td>
-                <td class="py-3">
+                <td class="col-center">
                   <Badge :variant="statusMap[o.status].variant">{{ statusMap[o.status].text }}</Badge>
                 </td>
-                <td class="py-3 text-muted-foreground tabular-nums whitespace-nowrap">{{ o.time }}</td>
+                <td class="text-muted-foreground tabular-nums whitespace-nowrap">{{ o.time }}</td>
               </tr>
             </tbody>
           </table>
@@ -207,24 +203,19 @@ const typeNames: Record<string, string> = { alipay: '支付宝', wxpay: '微信'
         <div class="border-t border-border/70" />
         <div class="px-6 py-4">
           <div class="overflow-x-auto">
-            <table class="w-full text-sm">
+            <table class="tbl w-full">
               <thead>
-                <tr class="border-b border-border text-left text-muted-foreground">
-                  <th class="pb-2 pr-4 font-medium">日期</th>
-                  <th v-for="k in paytypeKeys" :key="k" class="pb-2 pr-4 font-medium">{{ d.paytype[k] }}</th>
-                  <th class="pb-2 font-medium">总计</th>
+                <tr>
+                  <th>日期</th>
+                  <th v-for="k in paytypeKeys" :key="k" class="num">{{ d.paytype[k] }}</th>
+                  <th class="num">总计</th>
                 </tr>
               </thead>
               <tbody>
-                <tr
-                  v-for="(r, i) in paytypeRows('paytype')"
-                  :key="i"
-                  class="border-b border-border/50 last:border-0"
-                  :class="i === 0 && 'border-b-2 border-border'"
-                >
-                  <td class="py-2.5 pr-4" :class="i === 0 ? 'font-medium text-foreground' : 'text-muted-foreground'">{{ r.label }}</td>
-                  <td v-for="(c, ci) in r.cells" :key="ci" class="py-2.5 pr-4 tabular-nums" :class="i === 0 ? 'font-medium text-foreground' : 'text-foreground/70'">{{ formatMoney(c) }}</td>
-                  <td class="py-2.5 font-semibold tabular-nums text-foreground">{{ formatMoney(r.total) }}</td>
+                <tr v-for="(r, i) in paytypeRows('paytype')" :key="i" :class="i === 0 && 'border-b-2 border-border'">
+                  <td :class="i === 0 ? 'font-medium text-foreground' : 'text-muted-foreground'">{{ r.label }}</td>
+                  <td v-for="(c, ci) in r.cells" :key="ci" class="num tabular-nums" :class="i === 0 ? 'font-medium text-foreground' : 'text-foreground/70'">{{ formatMoney(c) }}</td>
+                  <td class="num font-semibold tabular-nums text-foreground">{{ formatMoney(r.total) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -239,24 +230,19 @@ const typeNames: Record<string, string> = { alipay: '支付宝', wxpay: '微信'
         <div class="border-t border-border/70" />
         <div class="px-6 py-4">
           <div class="overflow-x-auto">
-            <table class="w-full text-sm">
+            <table class="tbl w-full">
               <thead>
-                <tr class="border-b border-border text-left text-muted-foreground">
-                  <th class="pb-2 pr-4 font-medium">日期</th>
-                  <th v-for="k in channelKeys" :key="k" class="pb-2 pr-4 font-medium">{{ d.channel[k] }}</th>
-                  <th class="pb-2 font-medium">总计</th>
+                <tr>
+                  <th>日期</th>
+                  <th v-for="k in channelKeys" :key="k" class="num">{{ d.channel[k] }}</th>
+                  <th class="num">总计</th>
                 </tr>
               </thead>
               <tbody>
-                <tr
-                  v-for="(r, i) in channelRows()"
-                  :key="i"
-                  class="border-b border-border/50 last:border-0"
-                  :class="i === 0 && 'border-b-2 border-border'"
-                >
-                  <td class="py-2.5 pr-4" :class="i === 0 ? 'font-medium text-foreground' : 'text-muted-foreground'">{{ r.label }}</td>
-                  <td v-for="(c, ci) in r.cells" :key="ci" class="py-2.5 pr-4 tabular-nums" :class="i === 0 ? 'font-medium text-foreground' : 'text-foreground/70'">{{ formatMoney(c) }}</td>
-                  <td class="py-2.5 font-semibold tabular-nums text-foreground">{{ formatMoney(r.total) }}</td>
+                <tr v-for="(r, i) in channelRows()" :key="i" :class="i === 0 && 'border-b-2 border-border'">
+                  <td :class="i === 0 ? 'font-medium text-foreground' : 'text-muted-foreground'">{{ r.label }}</td>
+                  <td v-for="(c, ci) in r.cells" :key="ci" class="num tabular-nums" :class="i === 0 ? 'font-medium text-foreground' : 'text-foreground/70'">{{ formatMoney(c) }}</td>
+                  <td class="num font-semibold tabular-nums text-foreground">{{ formatMoney(r.total) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -272,24 +258,19 @@ const typeNames: Record<string, string> = { alipay: '支付宝', wxpay: '微信'
         <div class="border-t border-border/70" />
         <div class="px-6 py-4">
           <div class="overflow-x-auto">
-            <table class="w-full text-sm">
+            <table class="tbl w-full">
               <thead>
-                <tr class="border-b border-border text-left text-muted-foreground">
-                  <th class="pb-2 pr-4 font-medium">日期</th>
-                  <th v-for="k in paytypeKeys" :key="k" class="pb-2 pr-4 font-medium">{{ d.paytype[k] }}</th>
-                  <th class="pb-2 font-medium">利润合计</th>
+                <tr>
+                  <th>日期</th>
+                  <th v-for="k in paytypeKeys" :key="k" class="num">{{ d.paytype[k] }}</th>
+                  <th class="num">利润合计</th>
                 </tr>
               </thead>
               <tbody>
-                <tr
-                  v-for="(r, i) in paytypeRows('profit_paytype')"
-                  :key="i"
-                  class="border-b border-border/50 last:border-0"
-                  :class="i === 0 && 'border-b-2 border-border'"
-                >
-                  <td class="py-2.5 pr-4" :class="i === 0 ? 'font-medium text-foreground' : 'text-muted-foreground'">{{ r.label }}</td>
-                  <td v-for="(c, ci) in r.cells" :key="ci" class="py-2.5 pr-4 tabular-nums" :class="i === 0 ? 'font-medium text-foreground' : 'text-foreground/70'">{{ formatMoney(c) }}</td>
-                  <td class="py-2.5 font-semibold tabular-nums text-success">{{ formatMoney(r.total) }}</td>
+                <tr v-for="(r, i) in paytypeRows('profit_paytype')" :key="i" :class="i === 0 && 'border-b-2 border-border'">
+                  <td :class="i === 0 ? 'font-medium text-foreground' : 'text-muted-foreground'">{{ r.label }}</td>
+                  <td v-for="(c, ci) in r.cells" :key="ci" class="num tabular-nums" :class="i === 0 ? 'font-medium text-foreground' : 'text-foreground/70'">{{ formatMoney(c) }}</td>
+                  <td class="num font-semibold tabular-nums text-success">{{ formatMoney(r.total) }}</td>
                 </tr>
               </tbody>
             </table>

@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { Panel, PageHeader, Button, Badge } from '@/components/ui'
+import { ref } from 'vue'
+import { Panel, PageHeader, Button, Badge, Switch } from '@/components/ui'
 import { Plus, Download, Trash2 } from 'lucide-vue-next'
+
+const sw1 = ref(true)
+const sw2 = ref(false)
+const sw3 = ref(true)
 
 const colors = [
   { name: 'primary', cls: 'bg-primary', label: '主色（亮蓝）' },
@@ -62,6 +67,24 @@ const rows = [
         <Badge variant="destructive">已退款</Badge>
         <Badge variant="muted">已关闭</Badge>
         <Badge variant="outline">描边</Badge>
+      </div>
+    </Panel>
+
+    <!-- 开关 -->
+    <Panel title="开关 Switch" subtitle="启用/禁用切换，v-model 绑 boolean">
+      <div class="flex flex-wrap items-center gap-8">
+        <div class="flex items-center gap-2">
+          <Switch v-model="sw1" />
+          <span class="text-sm text-muted-foreground">默认尺寸（{{ sw1 ? '开' : '关' }}）</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <Switch v-model="sw2" size="sm" />
+          <span class="text-sm text-muted-foreground">小尺寸 size="sm"</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <Switch v-model="sw3" disabled />
+          <span class="text-sm text-muted-foreground">禁用 disabled</span>
+        </div>
       </div>
     </Panel>
 

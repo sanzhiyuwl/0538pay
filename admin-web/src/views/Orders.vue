@@ -186,23 +186,23 @@ const actionIcons: Record<string, any> = {
       <div class="grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
         <div>
           <div class="text-[13px] text-muted-foreground">订单总金额</div>
-          <div class="mt-1.5 text-xl font-normal tabular-nums">¥{{ formatMoney(stats.totalMoney) }}</div>
+          <div class="mt-1.5 text-xl font-normal tabular-nums"><span class="mr-0.5 text-xs font-normal text-muted-foreground">¥</span>{{ formatMoney(stats.totalMoney) }}</div>
         </div>
         <div>
           <div class="text-[13px] text-muted-foreground">已支付金额</div>
-          <div class="mt-1.5 text-xl font-normal tabular-nums text-success">¥{{ formatMoney(stats.successMoney) }}</div>
+          <div class="mt-1.5 text-xl font-normal tabular-nums text-success"><span class="mr-0.5 text-xs font-normal text-muted-foreground">¥</span>{{ formatMoney(stats.successMoney) }}</div>
         </div>
         <div>
           <div class="text-[13px] text-muted-foreground">未支付金额</div>
-          <div class="mt-1.5 text-xl font-normal tabular-nums">¥{{ formatMoney(stats.unpaidMoney) }}</div>
+          <div class="mt-1.5 text-xl font-normal tabular-nums"><span class="mr-0.5 text-xs font-normal text-muted-foreground">¥</span>{{ formatMoney(stats.unpaidMoney) }}</div>
         </div>
         <div>
           <div class="text-[13px] text-muted-foreground">已退款金额</div>
-          <div class="mt-1.5 text-xl font-normal tabular-nums text-destructive">¥{{ formatMoney(stats.refundMoney) }}</div>
+          <div class="mt-1.5 text-xl font-normal tabular-nums text-destructive"><span class="mr-0.5 text-xs font-normal text-muted-foreground">¥</span>{{ formatMoney(stats.refundMoney) }}</div>
         </div>
         <div>
           <div class="text-[13px] text-muted-foreground">总收入利润</div>
-          <div class="mt-1.5 text-xl font-normal tabular-nums text-primary">¥{{ formatMoney(stats.platformProfit) }}</div>
+          <div class="mt-1.5 text-xl font-normal tabular-nums text-primary"><span class="mr-0.5 text-xs font-normal text-muted-foreground">¥</span>{{ formatMoney(stats.platformProfit) }}</div>
         </div>
       </div>
       <div class="mt-5 flex flex-wrap gap-x-8 gap-y-2 border-t border-border/70 pt-4 text-sm">
@@ -231,7 +231,7 @@ const actionIcons: Record<string, any> = {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="o in pageRows" :key="o.trade_no">
+            <tr v-for="(o, si) in pageRows" :key="o.trade_no">
               <td>
                 <div class="truncate font-medium text-primary">{{ o.trade_no }}</div>
                 <div class="truncate text-xs dim">{{ o.out_trade_no }}</div>
@@ -276,7 +276,10 @@ const actionIcons: Record<string, any> = {
                   </Button>
                   <div
                     v-if="openMenu === o.trade_no"
-                    class="menu-panel absolute right-0 top-full z-20 mt-1.5 w-36"
+                    class="menu-panel absolute right-0 z-20 w-36"
+                    :class="si >= pageRows.length - 3 && pageRows.length > 3
+                      ? 'bottom-full mb-1.5'
+                      : 'top-full mt-1.5'"
                     @click.stop
                   >
                     <template v-for="(a, ai) in actionsFor(o)" :key="ai">

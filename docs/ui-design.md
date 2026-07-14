@@ -77,6 +77,11 @@ import { PageHeader, Panel, Button, Badge } from '@/components/ui'
 <Panel title="列表" flush>内容区无内边距（整块表格自控 padding 时用）</Panel>
 ```
 
+⚠️ **列表页的列表 Panel 必守规范**（否则出现孤儿副标题、视觉割裂）：
+- 包表格的 Panel **必须带主标题** `title`（如"订单列表 / 结算记录 / 分账列表 / 资金流水"）+ 条数副标题，**不要加 `flush`**（表格走默认 `px-6 py-4` 内边距，和 Orders 一致）。
+- **禁止** `<Panel :subtitle="`${total} 条`" flush>` —— 只有裸副标题、没主标题时，标题行会变成一个孤零零的副标题 + 分隔线 + 贴边表格，看起来脱节。
+- 有批量操作按钮放 `#actions` 插槽（标题行右侧）。
+
 ### Button
 - `variant`：`default`(主) / `secondary` / `outline` / `ghost` / `destructive`
 - `size`：`default` / `sm` / `lg` / `icon`
@@ -85,6 +90,12 @@ import { PageHeader, Panel, Button, Badge } from '@/components/ui'
 ### Badge — 状态标签（浅色描边 + 极淡底 + 小圆角）
 - `variant`：`default` / `success` / `warning` / `destructive` / `muted` / `outline`
 - 订单状态约定：待支付 `warning`、已支付 `success`、已退款 `destructive`
+
+### Switch — 开关（toggle）
+- 用法：`<Switch v-model="enabled" />`，可选 `size="sm"`、`disabled`。
+- 样式：开 `bg-primary` / 关 `bg-muted-foreground/30`；圆钮 `bg-white shadow-sm ring-1 ring-black/5`。
+- ⚠️ 圆钮**必须带 shadow + ring**，否则在蓝底(开启态)上白钮会"消失"。定位用 `inline-flex items-center px-0.5` + `translate-x-5/0`（默认）或 `translate-x-4/0`（sm），不要用绝对定位 + 任意值位移。
+- 所有开关一律用此组件，不要在页面内联手写 `<button role="switch">`。
 
 ---
 
@@ -147,18 +158,26 @@ import { PageHeader, Panel, Button, Badge } from '@/components/ui'
 
 ### 行操作下拉菜单 `.menu-panel` + `.menu-item`
 ```vue
-<div class="relative inline-block">
-  <Button variant="ghost" size="sm" @click.stop="toggleMenu(id)">操作 <MoreHorizontal /></Button>
-  <div v-if="openMenu === id" class="menu-panel absolute right-0 top-full z-20 mt-1.5 w-36" @click.stop>
-    <div class="menu-sep" />                              <!-- 分隔线 -->
-    <button class="menu-item" @click="...">                <!-- 普通项 -->
-      <SomeIcon class="size-4 shrink-0 opacity-70" /><span class="flex-1">改未完成</span>
-    </button>
-    <button class="menu-item menu-item-danger">删除订单</button>  <!-- 危险项(红) -->
-  </div>
-</div>
+<tr v-for="(row, si) in pageRows" :key="row.id">
+  <td class="relative inline-block">
+    <Button variant="ghost" size="sm" @click.stop="toggleMenu(row.id)">操作 <MoreHorizontal /></Button>
+    <div
+      v-if="openMenu === row.id"
+      class="menu-panel absolute right-0 z-20 w-36"
+      :class="si >= pageRows.length - 3 && pageRows.length > 3 ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
+      @click.stop
+    >
+      <div class="menu-sep" />                              <!-- 分隔线 -->
+      <button class="menu-item" @click="...">                <!-- 普通项 -->
+        <SomeIcon class="size-4 shrink-0 opacity-70" /><span class="flex-1">改未完成</span>
+      </button>
+      <button class="menu-item menu-item-danger">删除订单</button>  <!-- 危险项(红) -->
+    </div>
+  </td>
+</tr>
 ```
 - 关闭逻辑：`onMounted` 时 `window.addEventListener('click', closeMenu)`，按钮和面板用 `@click.stop` 阻止冒泡。**不要**用 `onClickOutside` 绑 v-for 内的 ref（多元素共享 ref 会失效）。
+- ⚠️ **菜单方向必须自适应**：固定 `top-full` 向下弹会让末尾几行的菜单被视口/表格底部截断。v-for 带行索引 `(row, si)`，用上面的 `:class` 让后 3 行改为 `bottom-full` 向上弹。
 - **"今日 / 合计"强调行**：用 `border-b-2 border-border` 加粗分隔 + `font-medium`，**不要用背景色块**。合计数值 `font-semibold`（利润类可 `text-success`），不要用蓝色。
 
 ---

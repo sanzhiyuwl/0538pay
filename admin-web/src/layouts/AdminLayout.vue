@@ -11,7 +11,7 @@ import {
   ChevronDown,
   Zap,
 } from 'lucide-vue-next'
-import { navMenu, allLeaves, type NavNode } from '@/config/nav'
+import { navMenu, allLeaves, consoleEntry, type NavNode } from '@/config/nav'
 import { useThemeStore } from '@/stores/theme'
 import { cn } from '@/lib/utils'
 import NotificationDrawer from '@/components/NotificationDrawer.vue'
@@ -58,7 +58,7 @@ const currentParent = computed(
     <aside
       :class="
         cn(
-          'z-40 flex w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300',
+          'z-40 flex w-[11.25rem] shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300',
           'max-lg:fixed max-lg:h-full',
           mobileOpen ? 'max-lg:translate-x-0' : 'max-lg:-translate-x-full',
         )
@@ -90,6 +90,11 @@ const currentParent = computed(
             >
               <component :is="node.icon" class="size-[18px] shrink-0" />
               <span class="flex-1">{{ node.title }}</span>
+              <span
+                v-if="node.badge"
+                class="rounded bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                >{{ node.badge }}</span
+              >
             </RouterLink>
 
             <!-- 有子菜单 -->
@@ -149,6 +154,23 @@ const currentParent = computed(
           </li>
         </ul>
       </nav>
+
+      <!-- 控制台入口（固定侧栏底部，独立 SaaS 后台） -->
+      <div class="border-t border-sidebar-border px-3 py-3">
+        <RouterLink
+          :to="consoleEntry.to!"
+          class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+          active-class="!bg-sidebar-accent !text-sidebar-accent-foreground font-semibold"
+        >
+          <component :is="consoleEntry.icon" class="size-[18px] shrink-0" />
+          <span class="flex-1">{{ consoleEntry.title }}</span>
+          <span
+            v-if="consoleEntry.badge"
+            class="rounded bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+            >{{ consoleEntry.badge }}</span
+          >
+        </RouterLink>
+      </div>
     </aside>
 
     <!-- 移动端遮罩 -->
