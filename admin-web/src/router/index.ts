@@ -227,6 +227,14 @@ const router = createRouter({
     // /site 旧路径重定向到官网首页（兼容历史链接）
     { path: '/site', redirect: '/' },
   ],
+  // 锚点滚动：带 hash 平滑滚到目标板块（避开吸顶导航高度）；返回上一位置或顶部
+  scrollBehavior(to, _from, savedPosition) {
+    if (to.hash) {
+      return { el: to.hash, top: 72, behavior: 'smooth' }
+    }
+    if (savedPosition) return savedPosition
+    return { top: 0 }
+  },
 })
 
 export default router

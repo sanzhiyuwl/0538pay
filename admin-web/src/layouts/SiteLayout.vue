@@ -20,6 +20,7 @@ const mobileOpen = ref(false)
 
 // 导航项：锚点跳首页板块 或 独立页
 const navLinks = [
+  { label: '首页', to: '/' },
   { label: '产品特性', to: '/#features' },
   { label: '产品矩阵', to: '/#products' },
   { label: '费率方案', to: '/#pricing' },

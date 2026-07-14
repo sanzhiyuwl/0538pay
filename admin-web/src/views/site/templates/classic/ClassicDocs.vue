@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+import { BookOpen } from 'lucide-vue-next'
 
 // 文档目录（锚点滚动）
 const toc = [
@@ -102,19 +103,31 @@ echo 'success';`
 
 <template>
   <div class="site-surface min-h-[70vh] border-b border-border">
-    <div class="mx-auto flex max-w-7xl gap-10 px-4 py-12 lg:px-8">
+    <div class="mx-auto flex max-w-[1600px] gap-12 px-6 py-12 lg:px-12 xl:gap-16">
       <!-- 左侧目录 -->
-      <aside class="hidden w-52 shrink-0 lg:block">
-        <div class="sticky top-24">
-          <div class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">开发者文档</div>
-          <nav class="space-y-1 border-l border-border">
+      <aside class="hidden w-72 shrink-0 lg:block">
+        <div class="sticky top-24 rounded-2xl border border-border bg-background p-4 shadow-sm">
+          <div class="flex items-center gap-2 px-2 pb-3">
+            <div class="flex size-8 items-center justify-center rounded-lg bg-primary/[0.08] text-primary">
+              <BookOpen class="size-[18px]" />
+            </div>
+            <div class="text-sm font-semibold">开发者文档</div>
+          </div>
+          <div class="border-t border-border/60" />
+          <nav class="mt-3 space-y-1">
             <button
-              v-for="t in toc"
+              v-for="(t, i) in toc"
               :key="t.id"
-              class="-ml-px block w-full border-l-2 py-1.5 pl-4 text-left text-sm transition-colors"
-              :class="active === t.id ? 'border-primary font-medium text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'"
+              class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors"
+              :class="active === t.id
+                ? 'bg-primary font-medium text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
               @click="scrollTo(t.id)"
             >
+              <span
+                class="flex size-5 shrink-0 items-center justify-center rounded text-[11px] font-medium tabular-nums"
+                :class="active === t.id ? 'bg-white/20 text-primary-foreground' : 'bg-muted text-muted-foreground'"
+              >{{ i + 1 }}</span>
               {{ t.title }}
             </button>
           </nav>
