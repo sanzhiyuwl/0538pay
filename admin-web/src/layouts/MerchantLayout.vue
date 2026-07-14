@@ -6,10 +6,14 @@ import { merchantNav, merchantLeaves, type NavNode } from '@/config/nav'
 import { useThemeStore } from '@/stores/theme'
 import { cn } from '@/lib/utils'
 import MerchantUserMenu from '@/components/MerchantUserMenu.vue'
+import MerchantNotificationDrawer from '@/components/MerchantNotificationDrawer.vue'
+import { merchantNotices } from '@/lib/mock/merchant/notifications'
 
 const theme = useThemeStore()
 const route = useRoute()
 const mobileOpen = ref(false)
+const noticeOpen = ref(false)
+const hasUnread = computed(() => merchantNotices.some((n) => n.unread))
 
 // 当前路由属于哪个一级菜单
 function nodeActive(node: NavNode) {
@@ -164,9 +168,12 @@ const currentParent = computed(() => {
         <div class="flex-1" />
 
         <!-- 通知 -->
-        <button class="relative flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent">
+        <button
+          class="relative flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent"
+          @click="noticeOpen = true"
+        >
           <Bell class="size-[18px]" />
-          <span class="absolute right-2 top-2 size-1.5 rounded-full bg-destructive" />
+          <span v-if="hasUnread" class="absolute right-2 top-2 size-1.5 rounded-full bg-destructive" />
         </button>
 
         <!-- 主题切换 -->
@@ -187,5 +194,8 @@ const currentParent = computed(() => {
         <RouterView />
       </main>
     </div>
+
+    <!-- 站内信抽屉 -->
+    <MerchantNotificationDrawer :open="noticeOpen" @close="noticeOpen = false" />
   </div>
 </template>
