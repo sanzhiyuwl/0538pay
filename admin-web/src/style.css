@@ -306,3 +306,27 @@
   padding: 0.25rem 0;
   font-size: 0.875rem;
 }
+
+/* ===== 官网：滚动进场 v-reveal ===== */
+.reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+.reveal-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* ===== 官网：科技风背景网格点阵 ===== */
+.tech-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklch, var(--border) 55%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklch, var(--border) 55%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+.tech-dots {
+  background-image: radial-gradient(color-mix(in oklch, var(--border) 80%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
+}

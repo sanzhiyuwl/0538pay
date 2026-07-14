@@ -21,7 +21,7 @@ function save() {}
   <div class="space-y-2.5">
     <Panel title="H5 跳转微信客服支付" subtitle="从手机网站跳转到微信客服完成支付，需先配置企业微信账号">
       <template #actions>
-        <Button variant="outline" size="sm" @click="router.push('/wework')">
+        <Button variant="outline" size="sm" @click="router.push('/admin/wework')">
           企业微信账号列表<ArrowRight />
         </Button>
       </template>

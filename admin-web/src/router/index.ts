@@ -72,51 +72,53 @@ import MerchantHelp from '@/views/merchant/MerchantHelp.vue'
 import MerchantReg from '@/views/merchant/MerchantReg.vue'
 import MerchantFindpwd from '@/views/merchant/MerchantFindpwd.vue'
 import MerchantComplete from '@/views/merchant/MerchantComplete.vue'
+import SiteLayout from '@/layouts/SiteLayout.vue'
+import SiteHome from '@/views/site/SiteHome.vue'
 import { allLeaves, consoleLeaves, merchantLeaves } from '@/config/nav'
 
 // 已实现的正式页面（其余菜单项暂用占位页）
 const realPages: Record<string, any> = {
-  '/orders': Orders,
-  '/merchants': Merchants,
-  '/settle': Settle,
-  '/profit-sharing': ProfitSharing,
-  '/groups': Groups,
-  '/records': Records,
-  '/merchant-stats': MerchantStats,
-  '/invite-codes': InviteCodes,
-  '/buyer-stats': BuyerStats,
-  '/domains': Domains,
-  '/channels': Channels,
-  '/pay-types': PayTypes,
-  '/plugins': Plugins,
-  '/rolls': Rolls,
-  '/wechat': Wechat,
-  '/transfer': Transfer,
-  '/transfer-records': TransferRecords,
-  '/billing': Billing,
-  '/risk': Risk,
-  '/blacklist': Blacklist,
-  '/settings': Settings,
-  '/reg-settings': RegSettings,
-  '/announcements': Announcements,
-  '/logs': Logs,
-  '/clean': Clean,
-  '/admins': Admins,
-  '/roles': Roles,
-  '/oplogs': OpLogs,
-  '/pay-settings': PaySettings,
-  '/risk-settings': RiskSettings,
-  '/settle-settings': SettleSettings,
-  '/oauth-settings': OAuthSettings,
-  '/notice-settings': NoticeSettings,
-  '/cert-settings': CertSettings,
-  '/template-settings': TemplateSettings,
-  '/mail-settings': MailSettings,
-  '/cron-settings': CronSettings,
-  '/other-settings': OtherSettings,
-  '/wework': Wework,
-  '/wxkf-settings': WxkfSettings,
-  '/gettoken': GetToken,
+  '/admin/orders': Orders,
+  '/admin/merchants': Merchants,
+  '/admin/settle': Settle,
+  '/admin/profit-sharing': ProfitSharing,
+  '/admin/groups': Groups,
+  '/admin/records': Records,
+  '/admin/merchant-stats': MerchantStats,
+  '/admin/invite-codes': InviteCodes,
+  '/admin/buyer-stats': BuyerStats,
+  '/admin/domains': Domains,
+  '/admin/channels': Channels,
+  '/admin/pay-types': PayTypes,
+  '/admin/plugins': Plugins,
+  '/admin/rolls': Rolls,
+  '/admin/wechat': Wechat,
+  '/admin/transfer': Transfer,
+  '/admin/transfer-records': TransferRecords,
+  '/admin/billing': Billing,
+  '/admin/risk': Risk,
+  '/admin/blacklist': Blacklist,
+  '/admin/settings': Settings,
+  '/admin/reg-settings': RegSettings,
+  '/admin/announcements': Announcements,
+  '/admin/logs': Logs,
+  '/admin/clean': Clean,
+  '/admin/admins': Admins,
+  '/admin/roles': Roles,
+  '/admin/oplogs': OpLogs,
+  '/admin/pay-settings': PaySettings,
+  '/admin/risk-settings': RiskSettings,
+  '/admin/settle-settings': SettleSettings,
+  '/admin/oauth-settings': OAuthSettings,
+  '/admin/notice-settings': NoticeSettings,
+  '/admin/cert-settings': CertSettings,
+  '/admin/template-settings': TemplateSettings,
+  '/admin/mail-settings': MailSettings,
+  '/admin/cron-settings': CronSettings,
+  '/admin/other-settings': OtherSettings,
+  '/admin/wework': Wework,
+  '/admin/wxkf-settings': WxkfSettings,
+  '/admin/gettoken': GetToken,
 }
 
 // 控制台独立后台的正式页面（其余子页暂用占位）
@@ -128,11 +130,12 @@ const consolePages: Record<string, any> = {
   '/console/logs': ConsoleLogs,
 }
 
-// 主后台占位路由（排除首页与控制台——控制台走独立 ConsoleLayout）
+// 主后台子路由（父 path=/admin，children 用相对路径）。排除首页 /admin 与控制台。
 const placeholderRoutes = allLeaves
-  .filter((i) => i.to !== '/' && !i.to.startsWith('/console'))
+  .filter((i) => i.to !== '/admin' && !i.to.startsWith('/console'))
   .map((i) => ({
-    path: i.to,
+    // '/admin/orders' → 'orders'
+    path: i.to.replace('/admin/', ''),
     name: i.to,
     component: realPages[i.to] ?? Placeholder,
   }))
@@ -176,8 +179,17 @@ const merchantChildren = merchantLeaves.map((i) => ({
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    // 营销官网（根路径，访客第一入口）
     {
       path: '/',
+      component: SiteLayout,
+      children: [
+        { path: '', name: 'site-home', component: SiteHome },
+      ],
+    },
+    // 管理后台（运营端）
+    {
+      path: '/admin',
       component: AdminLayout,
       children: [
         { path: '', name: 'dashboard', component: Dashboard },
@@ -201,6 +213,8 @@ const router = createRouter({
       component: MerchantLayout,
       children: merchantChildren,
     },
+    // /site 旧路径重定向到官网首页（兼容历史链接）
+    { path: '/site', redirect: '/' },
   ],
 })
 

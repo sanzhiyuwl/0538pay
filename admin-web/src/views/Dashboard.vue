@@ -159,7 +159,7 @@ const typeNames: Record<string, string> = { alipay: '支付宝', wxpay: '微信'
     <Card>
       <div class="flex items-center justify-between px-6 py-4">
         <h3 class="text-[15px] font-semibold tracking-tight">实时订单</h3>
-        <RouterLink to="/orders" class="text-xs text-muted-foreground transition-colors hover:text-primary">查看全部</RouterLink>
+        <RouterLink to="/admin/orders" class="text-xs text-muted-foreground transition-colors hover:text-primary">查看全部</RouterLink>
       </div>
       <div class="border-t border-border/70" />
       <div class="px-6 py-4">

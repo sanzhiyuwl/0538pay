@@ -96,7 +96,7 @@ const currentTitle = computed(
 
         <!-- 返回客户端 -->
         <RouterLink
-          to="/"
+          to="/admin"
           class="group flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/[0.06] hover:text-primary"
         >
           <ArrowLeft class="size-4 shrink-0 transition-transform group-hover:-translate-x-0.5" />

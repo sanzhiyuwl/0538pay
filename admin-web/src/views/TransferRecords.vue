@@ -124,7 +124,7 @@ const actionIcons: Record<string, any> = {
     <!-- 筛选 -->
     <Panel title="付款记录" :subtitle="`共 ${total} 笔付款`">
       <template #actions>
-        <RouterLink to="/transfer">
+        <RouterLink to="/admin/transfer">
           <Button size="sm"><Plus />新增付款</Button>
         </RouterLink>
       </template>
