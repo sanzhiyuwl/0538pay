@@ -37,6 +37,8 @@ export const siteConfig = {
   police: '鲁公网安备 37098202000538号',
   policeLink: 'https://beian.mps.gov.cn/',
   marketLink: 'https://www.gsxt.gov.cn/',
+  // 合规声明：显示在官网导航下方告示条 + 页脚
+  disclaimer: '本平台是收单外包服务机构，俗称支付机构代理商，不涉及资金清算，不触碰用户资金。资金由持牌支付机构与您直接清算，望知晓！',
 }
 
 /** 注册登录设置（set.php mod=reg 相关项精简，对齐 epay 真实字段） */

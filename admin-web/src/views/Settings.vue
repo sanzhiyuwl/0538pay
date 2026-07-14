@@ -2,7 +2,9 @@
 import { ref, reactive } from 'vue'
 import { Save, Upload, UploadCloud, X } from 'lucide-vue-next'
 import { Panel, Button } from '@/components/ui'
-import { logoItems, siteConfig } from '@/lib/mock/settings'
+import { logoItems } from '@/lib/mock/settings'
+import { useSiteStore } from '@/stores/site'
+import { useToast } from '@/composables/useToast'
 
 const tabs = [
   { key: 'site', label: '网站信息' },
@@ -11,7 +13,10 @@ const tabs = [
 ]
 const activeTab = ref('site')
 
-const site = reactive({ ...siteConfig })
+// 编辑草稿：从 store 拷一份，点「保存」才提交，避免每次输入都落库
+const siteStore = useSiteStore()
+const toast = useToast()
+const site = reactive({ ...siteStore.config })
 
 // ===== LOGO 上传（原型：FileReader 本地预览，不落库）=====
 const logos = reactive<Record<string, string>>({})
@@ -38,7 +43,9 @@ function removeLogo(key: string) {
 }
 
 function save() {
-  // 原型阶段：仅提示（不落库）
+  // 提交草稿到 store：持久化到 localStorage，官网(页脚/告示条/SEO)实时联动
+  siteStore.update({ ...site })
+  toast.success('保存成功')
 }
 </script>
 
@@ -117,6 +124,19 @@ function save() {
                 style="height: auto"
               />
               <p class="beian-hint">显示在 PC 端底部的版权文字</p>
+            </div>
+          </div>
+          <div class="beian-field">
+            <label class="beian-lbl mt-1.5">合规声明</label>
+            <div class="min-w-0 flex-1">
+              <textarea
+                v-model="site.disclaimer"
+                rows="3"
+                placeholder="本平台是收单外包服务机构，不涉及资金清算……"
+                class="field-input w-full resize-none py-2"
+                style="height: auto"
+              />
+              <p class="beian-hint">显示在官网导航下方告示条与页脚的合规风险提示</p>
             </div>
           </div>
         </div>

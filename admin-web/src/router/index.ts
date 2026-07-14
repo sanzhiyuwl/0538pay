@@ -38,6 +38,7 @@ import OtherSettings from '@/views/OtherSettings.vue'
 import Wework from '@/views/Wework.vue'
 import WxkfSettings from '@/views/WxkfSettings.vue'
 import GetToken from '@/views/GetToken.vue'
+import SiteContent from '@/views/SiteContent.vue'
 import Announcements from '@/views/Announcements.vue'
 import Logs from '@/views/Logs.vue'
 import Clean from '@/views/Clean.vue'
@@ -124,6 +125,7 @@ const realPages: Record<string, any> = {
   '/admin/wework': Wework,
   '/admin/wxkf-settings': WxkfSettings,
   '/admin/gettoken': GetToken,
+  '/admin/site-content': SiteContent,
 }
 
 // 控制台独立后台的正式页面（其余子页暂用占位）

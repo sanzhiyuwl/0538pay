@@ -19,6 +19,7 @@ import {
   QrCode,
   Gift,
   HelpCircle,
+  Globe,
 } from 'lucide-vue-next'
 
 export interface NavLeaf {
@@ -104,6 +105,14 @@ export const navMenu: NavNode[] = [
     ],
   },
   {
+    title: '官网管理',
+    icon: Globe,
+    children: [
+      { title: '首页内容', to: '/admin/site-content' },
+      { title: '首页模板', to: '/admin/template-settings' },
+    ],
+  },
+  {
     title: '系统设置',
     icon: Settings,
     children: [
@@ -112,7 +121,6 @@ export const navMenu: NavNode[] = [
       { title: '快捷登录', to: '/admin/oauth-settings' },
       { title: '消息提醒', to: '/admin/notice-settings' },
       { title: '实名认证', to: '/admin/cert-settings' },
-      { title: '首页模板', to: '/admin/template-settings' },
       { title: '邮箱短信', to: '/admin/mail-settings' },
       { title: '计划任务', to: '/admin/cron-settings' },
       { title: '网站公告', to: '/admin/announcements' },

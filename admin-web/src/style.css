@@ -269,7 +269,11 @@
   border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
 }
 
-/* 细滚动条 */
+/* 细滚动条（全站）：纤细胶囊滑块，无轨道，平时淡、hover/滚动才显现 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--muted-foreground) 28%, transparent) transparent;
+}
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -278,11 +282,18 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
+  background: color-mix(in oklch, var(--muted-foreground) 25%, transparent);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--muted-foreground);
+  background: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* ===== 设置类表单行（标签+控件横排 / 开关行），全站设置页复用 ===== */
@@ -334,4 +345,93 @@
     linear-gradient(to right, color-mix(in oklch, var(--border) 45%, transparent) 1px, transparent 1px),
     linear-gradient(to bottom, color-mix(in oklch, var(--border) 45%, transparent) 1px, transparent 1px);
   background-size: 48px 48px;
+}
+
+/* ===== Hero 装饰：极光柔光 + 斜向流光带（金融科技风，无生硬网格）===== */
+/* 柔和的品牌色光晕团 */
+.hero-glow {
+  background: radial-gradient(
+    closest-side,
+    color-mix(in oklch, var(--primary) 42%, transparent),
+    transparent
+  );
+  filter: blur(12px);
+}
+/* 斜向流光带：暗示资金流动，极淡渐变，四周渐隐 */
+.hero-beam {
+  background: linear-gradient(
+    115deg,
+    transparent 0%,
+    color-mix(in oklch, var(--primary) 10%, transparent) 42%,
+    color-mix(in oklch, var(--primary) 22%, transparent) 50%,
+    color-mix(in oklch, var(--primary) 10%, transparent) 58%,
+    transparent 100%
+  );
+  -webkit-mask-image: radial-gradient(80% 120% at 60% 50%, #000 20%, transparent 78%);
+  mask-image: radial-gradient(80% 120% at 60% 50%, #000 20%, transparent 78%);
+}
+/* 极细点阵（比方格精致），仅覆盖上半区并向下渐隐 */
+.hero-dots {
+  background-image: radial-gradient(
+    color-mix(in oklch, var(--primary) 22%, transparent) 1.1px,
+    transparent 1.1px
+  );
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(115% 85% at 75% 0%, #000 25%, transparent 72%);
+  mask-image: radial-gradient(115% 85% at 75% 0%, #000 25%, transparent 72%);
+}
+/* 白色斜向细线纹：用于彩色卡片头部（与点阵区分风格）*/
+.lines-white {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.12) 0,
+    rgba(255, 255, 255, 0.12) 1px,
+    transparent 1px,
+    transparent 11px
+  );
+  -webkit-mask-image: radial-gradient(120% 90% at 75% 0%, #000 30%, transparent 78%);
+  mask-image: radial-gradient(120% 90% at 75% 0%, #000 30%, transparent 78%);
+}
+
+/* 导航栏置顶态背景：浅蓝渐变 + 点阵，与 hero 呼应（滚动后切纯白）*/
+.nav-hero-bg {
+  background-color: color-mix(in oklch, var(--primary) 5%, var(--background));
+  background-image: radial-gradient(
+    color-mix(in oklch, var(--primary) 16%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+}
+
+/* ===== 图标底：淡彩渐变 + 顶部高光 + 悬浮投影（精致有质感）===== */
+.feature-soft {
+  position: relative;
+  background-image: linear-gradient(
+    160deg,
+    color-mix(in oklch, var(--primary) 18%, white),
+    color-mix(in oklch, var(--primary) 7%, white) 65%,
+    color-mix(in oklch, var(--primary) 12%, white)
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, white 70%, transparent),
+    inset 0 0 0 1px color-mix(in oklch, var(--primary) 14%, transparent),
+    0 6px 14px -6px color-mix(in oklch, var(--primary) 45%, transparent);
+}
+/* 顶部弧形高光，模拟受光面 */
+.feature-soft::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, white 55%, transparent),
+    transparent 55%
+  );
+  pointer-events: none;
+}
+/* 图标叠在高光之上，并带极淡品牌色描影 */
+.feature-soft > svg {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 1px 1px color-mix(in oklch, var(--primary) 30%, transparent));
 }
