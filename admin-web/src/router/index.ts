@@ -59,6 +59,19 @@ import MerchantRecords from '@/views/merchant/MerchantRecords.vue'
 import MerchantSettle from '@/views/merchant/MerchantSettle.vue'
 import MerchantApply from '@/views/merchant/MerchantApply.vue'
 import MerchantApi from '@/views/merchant/MerchantApi.vue'
+import MerchantProfile from '@/views/merchant/MerchantProfile.vue'
+import MerchantCertificate from '@/views/merchant/MerchantCertificate.vue'
+import MerchantDomains from '@/views/merchant/MerchantDomains.vue'
+import MerchantOnecode from '@/views/merchant/MerchantOnecode.vue'
+import MerchantTransfer from '@/views/merchant/MerchantTransfer.vue'
+import MerchantRecharge from '@/views/merchant/MerchantRecharge.vue'
+import MerchantDeposit from '@/views/merchant/MerchantDeposit.vue'
+import MerchantGroupbuy from '@/views/merchant/MerchantGroupbuy.vue'
+import MerchantInvite from '@/views/merchant/MerchantInvite.vue'
+import MerchantHelp from '@/views/merchant/MerchantHelp.vue'
+import MerchantReg from '@/views/merchant/MerchantReg.vue'
+import MerchantFindpwd from '@/views/merchant/MerchantFindpwd.vue'
+import MerchantComplete from '@/views/merchant/MerchantComplete.vue'
 import { allLeaves, consoleLeaves, merchantLeaves } from '@/config/nav'
 
 // 已实现的正式页面（其余菜单项暂用占位页）
@@ -140,6 +153,16 @@ const merchantPages: Record<string, any> = {
   '/m/settle': MerchantSettle,
   '/m/apply': MerchantApply,
   '/m/api': MerchantApi,
+  '/m/profile': MerchantProfile,
+  '/m/certificate': MerchantCertificate,
+  '/m/domains': MerchantDomains,
+  '/m/onecode': MerchantOnecode,
+  '/m/transfer': MerchantTransfer,
+  '/m/recharge': MerchantRecharge,
+  '/m/deposit': MerchantDeposit,
+  '/m/groupbuy': MerchantGroupbuy,
+  '/m/invite': MerchantInvite,
+  '/m/help': MerchantHelp,
 }
 
 // 商户中心子路由（父 path=/m，children 用相对路径）
@@ -169,6 +192,9 @@ const router = createRouter({
     },
     // 商户中心登录态独立页（无侧栏）
     { path: '/m/login', name: 'm-login', component: MerchantLogin },
+    { path: '/m/reg', name: 'm-reg', component: MerchantReg },
+    { path: '/m/findpwd', name: 'm-findpwd', component: MerchantFindpwd },
+    { path: '/m/complete', name: 'm-complete', component: MerchantComplete },
     // 商户中心主区（套 MerchantLayout）
     {
       path: '/m',
