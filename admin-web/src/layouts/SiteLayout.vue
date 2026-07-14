@@ -23,7 +23,6 @@ const navLinks = [
   { label: '产品特性', to: '/#features' },
   { label: '产品矩阵', to: '/#products' },
   { label: '费率方案', to: '/#pricing' },
-  { label: '常见问题', to: '/#faq' },
   { label: '开发文档', to: '/docs' },
   { label: '关于我们', to: '/about' },
 ]

@@ -18,12 +18,12 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
 
-  /* 主色：现代亮蓝（参考 NIUSHOP），支付/金融专业感 */
-  --primary: oklch(0.58 0.2 262);
+  /* 主色：品牌蓝 #0062EF（支付/金融专业感） */
+  --primary: oklch(0.53 0.23 262);
   --primary-foreground: oklch(0.985 0 0);
 
-  /* 内容区浅灰底（衬托白卡片） */
-  --content-bg: oklch(0.965 0.005 264);
+  /* 内容区浅灰底（衬托白卡片，微冷调、非纯白） */
+  --content-bg: oklch(0.975 0.006 255);
 
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -42,10 +42,10 @@
 
   --sidebar: oklch(1 0 0);
   --sidebar-foreground: oklch(0.35 0.01 264);
-  --sidebar-primary: oklch(0.58 0.2 262);
+  --sidebar-primary: oklch(0.53 0.23 262);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.96 0.015 262);
-  --sidebar-accent-foreground: oklch(0.58 0.2 262);
+  --sidebar-accent: oklch(0.96 0.02 262);
+  --sidebar-accent-foreground: oklch(0.53 0.23 262);
   --sidebar-border: oklch(0.93 0 0);
 }
 
@@ -307,11 +307,11 @@
   font-size: 0.875rem;
 }
 
-/* ===== 官网：滚动进场 v-reveal ===== */
+/* ===== 官网：滚动进场 v-reveal（轻微淡入，克制）===== */
 .reveal {
   opacity: 0;
-  transform: translateY(20px);
-  transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translateY(12px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
   will-change: opacity, transform;
 }
 .reveal-in {
@@ -319,14 +319,19 @@
   transform: none;
 }
 
-/* ===== 官网：科技风背景网格点阵 ===== */
+/* ===== 官网：非纯白背景底纹（极淡冷调，替代纯白）===== */
+.site-surface {
+  background-color: var(--content-bg);
+  background-image: radial-gradient(
+    color-mix(in oklch, var(--primary) 4%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 26px 26px;
+}
+/* 极淡网格（仅在需要处用，非满屏）===== */
 .tech-grid {
   background-image:
-    linear-gradient(to right, color-mix(in oklch, var(--border) 55%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in oklch, var(--border) 55%, transparent) 1px, transparent 1px);
-  background-size: 44px 44px;
-}
-.tech-dots {
-  background-image: radial-gradient(color-mix(in oklch, var(--border) 80%, transparent) 1px, transparent 1px);
-  background-size: 22px 22px;
+    linear-gradient(to right, color-mix(in oklch, var(--border) 45%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklch, var(--border) 45%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
 }
