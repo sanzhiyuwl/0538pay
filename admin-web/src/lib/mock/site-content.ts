@@ -30,10 +30,20 @@ export interface Plan {
   highlight: boolean; theme: string; hidden: boolean
   rates: PlanRate[]; features: PlanFeature[]
 }
-export interface Testimonial { name: string; role: string; avatar: string; text: string }
+/** 合作商户案例：门店实拍图 + 商户名 + 简介（image 为空时首页显示占位图块）*/
+export interface Testimonial { name: string; desc: string; image: string }
 export interface Faq { q: string; a: string }
 
+/** 首页可编排板块 key（顺序由 SiteContent.sections 决定；hero 恒为首项）*/
+export type SectionKey =
+  | 'hero' | 'metrics' | 'features' | 'pricing' | 'products'
+  | 'news' | 'testimonials' | 'faqs' | 'cta'
+/** 板块编排项：顺序 = 数组顺序，visible 控制首页是否渲染 */
+export interface SectionItem { key: SectionKey; visible: boolean }
+
 export interface SiteContent {
+  /** 首页板块编排（顺序 + 显隐）；hero 恒为首项且不可隐藏 */
+  sections: SectionItem[]
   hero: {
     badge: string
     titleLead: string // 主标题第一行
@@ -53,6 +63,8 @@ export interface SiteContent {
   pricingTitle: string
   pricingSubtitle: string
   plans: Plan[]
+  newsTitle: string
+  newsSubtitle: string
   testimonialsTitle: string
   testimonialsSubtitle: string
   testimonials: Testimonial[]
@@ -67,7 +79,21 @@ export interface SiteContent {
   }
 }
 
+/** 默认板块顺序（与首页原始排布一致，全部可见）。faqs 从此在首页渲染。 */
+export const defaultSections: SectionItem[] = [
+  { key: 'hero', visible: true },
+  { key: 'metrics', visible: true },
+  { key: 'features', visible: true },
+  { key: 'pricing', visible: true },
+  { key: 'products', visible: true },
+  { key: 'news', visible: true },
+  { key: 'testimonials', visible: true },
+  { key: 'faqs', visible: true },
+  { key: 'cta', visible: true },
+]
+
 export const defaultSiteContent: SiteContent = {
+  sections: defaultSections.map((s) => ({ ...s })),
   hero: {
     badge: '聚合支付 · 服务商模式',
     titleLead: '让每一笔收款',
@@ -146,12 +172,16 @@ export const defaultSiteContent: SiteContent = {
       ],
     },
   ],
+  newsTitle: '最新动态',
+  newsSubtitle: '产品更新、公司新闻与行业资讯，尽在掌握',
   testimonialsTitle: '他们都在用 0538Pay',
-  testimonialsSubtitle: '来自各行业商户的真实反馈',
+  testimonialsSubtitle: '覆盖零售、电商、医药、科技等各行业的合作商户',
   testimonials: [
-    { name: '陈先生', role: '连锁餐饮 · 财务负责人', avatar: '陈', text: '接入两周就跑通了全部门店的扫码收款，到账很快，对账也清楚，客服响应也及时。' },
-    { name: '林女士', role: '跨境电商 · 创始人', avatar: '林', text: '跨境多币种收款帮我们省了不少事，费率透明，结算稳定，出海业务终于不用为收款发愁。' },
-    { name: '王工', role: 'SaaS 服务商 · 技术负责人', avatar: '王', text: 'API 文档写得很清楚，MD5 / RSA 双签名，一天就对接完上线，异步通知也很稳。' },
+    { name: '蓝鸥到家', desc: '蓝鸥到家是实现 1 小时配送到家的移动互联网社区购物平台，整合超市资源，服务日常生活所需。', image: '/assets/our-customers01.png' },
+    { name: '超净易购', desc: '超净易购平台是为高端电子、智能制造业提供洁净·静电配套服务的产业在线交易服务平台。', image: '/assets/our-customers_02.png' },
+    { name: '炫洛优选', desc: '炫洛优选集景区门票、话费电费、折扣影票、外卖点餐等多种 CPS 分佣商城并结合自营商城。', image: '/assets/our-customers_03.png' },
+    { name: '鼎好买商城', desc: '鼎好买商城是一个为用户提供医疗器械、口腔耗材、医用设备的线上商城，充分利用互联网优势。', image: '/assets/our-customers_04.png' },
+    { name: '诺康大药房', desc: '诺康大药房网上药房，揭阳首家实现自建平台 O2O、B2C 新零售购药模式的创新型药品零售商。', image: '/assets/our-customers_05.png' },
   ],
   faqTitle: '常见问题',
   faqSubtitle: '关于接入、费率、资金安全的高频疑问',

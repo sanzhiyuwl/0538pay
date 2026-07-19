@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { fetchOrders } from '@/lib/api/orders'
+import { ApiError } from '@/lib/api/client'
 import {
   Search,
   RotateCcw,
@@ -16,7 +18,6 @@ import {
 } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, DateRange, Pagination, Drawer } from '@/components/ui'
 import {
-  orders as allOrders,
   orderStatus,
   payTypes,
   searchColumns,
@@ -48,8 +49,28 @@ const filters = ref({
   dstatus: -1,
 })
 
+// ===== 数据源：从后端 API 加载 =====
+const allOrders = ref<Order[]>([])
+const loading = ref(false)
+const loadError = ref('')
+
+async function loadOrders() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    // 起步阶段后端返回全量分页，客户端仍做筛选；后续可把筛选下推到后端
+    const res = await fetchOrders({ page: 1, pageSize: 100 })
+    allOrders.value = res.list
+  } catch (e) {
+    loadError.value = e instanceof ApiError ? e.message : '加载订单失败'
+    allOrders.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
 const filtered = computed(() => {
-  return allOrders.filter((o) => {
+  return allOrders.value.filter((o) => {
     if (filters.value.uid && String(o.uid) !== filters.value.uid.trim()) return false
     if (filters.value.type && o.type !== filters.value.type) return false
     if (filters.value.channel && String(o.channel) !== filters.value.channel.trim()) return false
@@ -104,7 +125,10 @@ function toggleMenu(id: string) {
 function closeMenu() {
   openMenu.value = null
 }
-onMounted(() => window.addEventListener('click', closeMenu))
+onMounted(() => {
+  window.addEventListener('click', closeMenu)
+  loadOrders()
+})
 onUnmounted(() => window.removeEventListener('click', closeMenu))
 
 function actionsFor(o: Order): string[] {
@@ -143,7 +167,7 @@ const exportForm = ref({
 })
 // 导出预估命中条数（按导出条件即时过滤，给用户导出前的量级参考）
 const exportCount = computed(() => {
-  return allOrders.filter((o) => {
+  return allOrders.value.filter((o) => {
     if (exportForm.value.uid && String(o.uid) !== exportForm.value.uid.trim()) return false
     if (exportForm.value.type && o.type !== exportForm.value.type) return false
     if (exportForm.value.channel && String(o.channel) !== exportForm.value.channel.trim()) return false

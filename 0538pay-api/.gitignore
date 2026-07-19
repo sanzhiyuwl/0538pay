@@ -1,0 +1,15 @@
+# 二进制产物
+/bin/
+*.exe
+server
+seed
+
+# 本机配置（含密钥/DSN），只提交 config.yaml 样例
+configs/config.local.yaml
+
+# Go
+vendor/
+
+# 编辑器
+.idea/
+.vscode/

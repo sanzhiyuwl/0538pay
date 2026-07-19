@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计方向预览 — 文档渲染样式</title>
+<style>
+  :root{
+    --primary:oklch(0.53 0.23 262);--success:oklch(0.6 0.15 152);--warn:oklch(0.72 0.15 75);
+    --border:oklch(0.92 0 0);--muted:oklch(0.97 0 0);--mfg:oklch(0.55 0 0);
+    --fg:oklch(0.2 0 0);--bg:#fff;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:#f4f4f2;color:#1a1a1a}
+  .bar{padding:16px 28px;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;background:#fff;position:sticky;top:0;z-index:10}
+  .bar strong{font-size:15px}.bar .hint{font-size:12.5px;color:#666}
+  .dials{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:16px;padding:14px 28px;border-bottom:1px solid #ddd;background:#fafafa}
+  .dial{display:grid;gap:5px;font-size:12.5px}.dial b{font-weight:650;display:flex;justify-content:space-between}
+  .dial output{font-variant-numeric:tabular-nums;color:var(--primary)}.dial input{width:100%}
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;padding:26px}
+  .card{background:#fff;border:2px solid #e2e2e0;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-width:0;transition:border-color .15s,box-shadow .15s}
+  .card:hover{box-shadow:0 6px 24px rgb(0 0 0 / 7%)}
+  .card.selected{border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in oklch,var(--primary) 15%,transparent)}
+  .card-top{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #eee}
+  .card-top .nm{font-size:14px;font-weight:650;display:flex;align-items:center;gap:8px}
+  .card-top .nm .dot{width:9px;height:9px;border-radius:3px;background:var(--primary)}
+  .rec-badge{font-size:11px;font-weight:600;color:var(--primary);background:color-mix(in oklch,var(--primary) 12%,transparent);padding:2px 8px;border-radius:999px}
+  .mock{height:400px;overflow:auto;position:relative;background:#fff}
+  .mock .stage{padding:22px 24px}
+  .qmdp-pick-button{margin:14px 18px 18px;min-height:42px;border:0;border-radius:8px;background:var(--fg);color:#fff;font-size:13.5px;font-weight:600;cursor:pointer;transition:background .15s}
+  .qmdp-pick-button:hover{background:var(--primary)}
+  .card.selected .qmdp-pick-button{background:var(--primary)}
+  .notes{padding:8px 28px 40px}
+  .notes h3{font-size:13px;color:#888;font-weight:600;margin:0 0 12px;letter-spacing:.04em}
+  .notes-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+  .note{background:#fff;border:1px solid #e6e6e4;border-radius:10px;padding:16px 18px}
+  .note h4{margin:0 0 8px;font-size:14px;display:flex;align-items:center;gap:8px}
+  .note h4 .k{font-family:var(--mono);font-size:11px;color:var(--primary);background:color-mix(in oklch,var(--primary) 10%,transparent);padding:1px 7px;border-radius:5px}
+  .note dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:12.5px;line-height:1.5}
+  .note dt{color:#999;white-space:nowrap}.note dd{margin:0;color:#333}
+  .confirm{position:fixed;inset:0;display:none;place-items:center;background:rgb(0 0 0 / 34%);z-index:20}
+  .confirm.open{display:grid}
+  .dialog{width:min(520px,calc(100vw - 32px));background:#fff;border-radius:14px;padding:22px 24px}
+  .dialog h2{margin:0 0 6px;font-size:17px}.dialog .cm{margin:0 0 14px;font-size:13px;color:#666}
+  .dialog textarea{width:100%;min-height:82px;resize:vertical;border:1px solid #ddd;border-radius:8px;padding:9px 11px;font:inherit;font-size:13px}
+  .dialog .acts{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}
+  .dialog button{border:0;border-radius:8px;padding:9px 18px;font-size:13.5px;font-weight:600;cursor:pointer}
+  #cancelPick{background:#eee;color:#333}#confirmPick{background:var(--primary);color:#fff}
+  .pickbar{position:fixed;bottom:0;left:0;right:0;padding:14px;background:#1a1a1a;color:#fff;text-align:center;font-size:13.5px;transform:translateY(100%);transition:transform .2s cubic-bezier(.23,1,.32,1);z-index:15}
+  .pickbar.show{transform:translateY(0)}
+
+  /* ===== 共用 mock 内容元素基线 ===== */
+  .d h2{margin:0 0 4px}
+  .d .txt{font-size:14px;line-height:1.75;color:#3a3a3a}
+  .d code.inl{font-family:var(--mono);font-size:.85em}
+
+  /* ===== A Stripe 精致 ===== */
+  .A{font-size:14px}
+  .A .sec{margin-bottom:26px}
+  .A .callout{border:1px solid color-mix(in oklch,var(--warn) 30%,var(--border));border-left:3px solid var(--warn);background:color-mix(in oklch,var(--warn) 5%,#fff);border-radius:8px;padding:12px 16px;font-size:14px;color:#444;box-shadow:0 1px 2px rgb(0 0 0 / 4%)}
+  .A .ep{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:8px;padding:10px 14px;background:linear-gradient(180deg,#fafbff,#fff);box-shadow:0 1px 2px rgb(0 0 0 / 4%)}
+  .A .m{padding:3px 9px;border-radius:6px;background:color-mix(in oklch,var(--primary) 12%,transparent);color:var(--primary);font-family:var(--mono);font-size:12px;font-weight:700}
+  .A .u{font-family:var(--mono);font-size:13px;color:#333}
+  .A table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:13px;box-shadow:0 1px 3px rgb(0 0 0 / 5%)}
+  .A th{padding:8px 12px;background:#f7f8fa;text-align:left;font-weight:600;color:#555;border-bottom:1px solid var(--border)}
+  .A td{padding:8px 12px;border-bottom:1px solid #f0f0f0}
+  .A tbody tr:nth-child(even) td{background:#fafbfc}
+  .A tbody tr:last-child td{border-bottom:0}
+  .A .pn{font-family:var(--mono);color:var(--primary)}
+  .A .code{border-radius:8px;overflow:hidden;border:1px solid #1f2937;box-shadow:0 2px 6px rgb(0 0 0 / 12%)}
+  .A .code-bar{display:flex;align-items:center;gap:6px;padding:7px 12px;background:#161b26}
+  .A .code-bar i{width:9px;height:9px;border-radius:50%}
+  .A .code-bar i:nth-child(1){background:#f87171}.A .code-bar i:nth-child(2){background:#fbbf24}.A .code-bar i:nth-child(3){background:#34d399}
+  .A .code-bar span{margin-left:auto;font-family:var(--mono);font-size:11px;color:#9ca3af}
+  .A .code pre{margin:0;padding:14px 16px;background:#0f172a;color:#e2e8f0;font-family:var(--mono);font-size:12.5px;line-height:1.7;overflow:auto}
+  .A .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .A .step{display:flex;gap:9px;border:1px solid var(--border);border-radius:8px;padding:11px 13px;font-size:13px;box-shadow:0 1px 2px rgb(0 0 0 / 4%)}
+  .A .sn{width:22px;height:22px;flex:none;border-radius:50%;background:color-mix(in oklch,var(--primary) 12%,transparent);color:var(--primary);font-weight:700;font-size:12px;display:grid;place-items:center}
+  .A .links{display:flex;gap:10px;flex-wrap:wrap}
+  .A .lk{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;text-decoration:none}
+  .A .lk.p{background:var(--primary);color:#fff;box-shadow:0 1px 3px color-mix(in oklch,var(--primary) 30%,transparent)}
+  .A .lk.s{border:1px solid var(--border);color:#333;background:#fff}
+  .A .faq{margin-top:14px}
+  .A .fq{font-size:14px;font-weight:600;color:#1a1a1a;display:flex;gap:7px}
+  .A .fq b{color:var(--primary)}
+  .A .fa{margin:5px 0 0;font-size:13.5px;color:#555;line-height:1.7}
+
+  /* ===== B Mintlify 清爽 ===== */
+  .B{font-size:15px}
+  .B .sec{margin-bottom:30px}
+  .B .callout{display:flex;gap:12px;background:color-mix(in oklch,var(--warn) 8%,#fff);border-radius:12px;padding:14px 16px;font-size:14px;color:#444}
+  .B .callout .ci{width:22px;height:22px;border-radius:50%;background:var(--warn);color:#fff;display:grid;place-items:center;flex:none;font-weight:700;font-size:13px}
+  .B .ep{display:flex;align-items:center;gap:10px;background:#f6f8fc;border-radius:12px;padding:12px 16px}
+  .B .m{padding:4px 11px;border-radius:999px;background:var(--primary);color:#fff;font-family:var(--mono);font-size:11px;font-weight:700}
+  .B .u{font-family:var(--mono);font-size:14px;color:#334}
+  .B table{width:100%;border-collapse:collapse;font-size:14px}
+  .B th{padding:10px 14px;text-align:left;font-weight:600;color:#888;font-size:12px;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid var(--border)}
+  .B td{padding:11px 14px;border-bottom:1px solid #f0f0f0}
+  .B .pn{font-family:var(--mono);color:var(--primary);font-weight:500}
+  .B .code{border-radius:14px;overflow:hidden;background:#1e293b}
+  .B .code-bar{padding:9px 16px;font-family:var(--mono);font-size:11px;color:#94a3b8;border-bottom:1px solid #334155}
+  .B .code pre{margin:0;padding:16px;color:#e2e8f0;font-family:var(--mono);font-size:12.5px;line-height:1.75;overflow:auto}
+  .B .steps{display:flex;flex-direction:column;gap:12px}
+  .B .step{display:flex;gap:14px;font-size:14px;align-items:flex-start}
+  .B .sn{width:26px;height:26px;flex:none;border-radius:50%;background:var(--primary);color:#fff;font-weight:700;font-size:13px;display:grid;place-items:center}
+  .B .links{display:flex;gap:12px;flex-wrap:wrap}
+  .B .lk{padding:10px 20px;border-radius:999px;font-size:14px;font-weight:600;text-decoration:none}
+  .B .lk.p{background:var(--primary);color:#fff}
+  .B .lk.s{background:#eef1f8;color:var(--primary)}
+  .B .faq{margin-top:16px;background:#f8f9fc;border-radius:12px;padding:16px 18px}
+  .B .fq{font-size:15px;font-weight:600;color:#1a1a1a}
+  .B .fa{margin:6px 0 0;font-size:14px;color:#556;line-height:1.75}
+
+  /* ===== C 终端原生 ===== */
+  .C{font-family:var(--mono);font-size:13px;color:#1e293b}
+  .C .sec{margin-bottom:22px}
+  .C .callout{border-left:2px solid var(--warn);padding:8px 0 8px 14px;color:#555;font-size:13px}
+  .C .callout::before{content:"! NOTE";color:var(--warn);font-weight:700;font-size:11px;display:block;margin-bottom:3px;letter-spacing:.05em}
+  .C .ep{display:flex;gap:10px;align-items:center;padding:9px 12px;background:#0f172a;border-radius:6px}
+  .C .m{color:#34d399;font-weight:700}.C .u{color:#e2e8f0}
+  .C table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .C th{padding:6px 10px;text-align:left;color:#64748b;border-bottom:1px solid #cbd5e1;font-weight:600}
+  .C th::before{content:"# "}
+  .C td{padding:6px 10px;border-bottom:1px dashed #e2e8f0}
+  .C .pn{color:var(--primary)}
+  .C .code{background:#0f172a;border-radius:6px;padding:0}
+  .C .code-bar{padding:6px 12px;color:#64748b;font-size:11px;border-bottom:1px solid #1e293b}
+  .C .code-bar::before{content:"$ "}
+  .C .code pre{margin:0;padding:12px;color:#e2e8f0;font-size:12.5px;line-height:1.7;overflow:auto}
+  .C .steps{display:flex;flex-direction:column;gap:7px}
+  .C .step{display:flex;gap:10px;font-size:13px}
+  .C .sn{color:var(--primary);font-weight:700}.C .sn::before{content:"["}.C .sn::after{content:"]"}
+  .C .links{display:flex;flex-direction:column;gap:4px}
+  .C .lk{font-size:13px;text-decoration:none;color:var(--primary)}
+  .C .lk::before{content:"→ "}
+  .C .lk.p{font-weight:700}
+  .C .faq{margin-top:16px}
+  .C .fq{font-size:13px;color:#1e293b}.C .fq b{color:var(--warn)}.C .fq b::after{content:" >"}
+  .C .fa{margin:4px 0 0 0;font-size:13px;color:#64748b;padding-left:14px;border-left:2px solid #e2e8f0}
+
+  /* ===== D 杂志排版 ===== */
+  .D{font-size:15px}
+  .D .sec{margin-bottom:32px;padding-bottom:28px;border-bottom:1px solid #eee}
+  .D .sec:last-child{border-bottom:0}
+  .D .callout{border-left:4px solid var(--warn);padding:6px 0 6px 18px;font-size:16px;line-height:1.7;color:#333;font-style:normal}
+  .D .ep{display:flex;gap:12px;align-items:baseline;font-size:15px}
+  .D .m{font-weight:800;color:var(--primary);letter-spacing:.03em}
+  .D .u{font-family:var(--mono);color:#333;border-bottom:2px solid color-mix(in oklch,var(--primary) 25%,transparent)}
+  .D table{width:100%;border-collapse:collapse;font-size:14px}
+  .D th{padding:6px 0;text-align:left;font-weight:700;color:#1a1a1a;border-bottom:2px solid #1a1a1a}
+  .D td{padding:10px 12px 10px 0;border-bottom:1px solid #eee}
+  .D .pn{font-family:var(--mono);color:#1a1a1a;font-weight:600}
+  .D .code{background:#faf9f6;border:1px solid #e6e2d8;border-left:3px solid #1a1a1a;border-radius:0}
+  .D .code-bar{padding:6px 14px;font-family:var(--mono);font-size:11px;color:#9a8f78;border-bottom:1px solid #ece7db}
+  .D .code pre{margin:0;padding:12px 16px;color:#2d2d2d;font-family:var(--mono);font-size:12.5px;line-height:1.7;overflow:auto}
+  .D .steps{display:flex;flex-direction:column;gap:0}
+  .D .step{display:flex;gap:16px;font-size:15px;padding:12px 0;border-bottom:1px solid #eee;align-items:baseline}
+  .D .step:last-child{border-bottom:0}
+  .D .sn{font-family:var(--mono);font-size:20px;font-weight:800;color:color-mix(in oklch,var(--primary) 40%,#aaa);flex:none}
+  .D .links{display:flex;gap:24px;flex-wrap:wrap}
+  .D .lk{font-size:15px;text-decoration:none;color:#1a1a1a;border-bottom:2px solid;padding-bottom:2px}
+  .D .lk.p{border-color:var(--primary);color:var(--primary)}
+  .D .lk.s{border-color:#ccc}
+  .D .faq{margin-top:18px}
+  .D .fq{font-size:17px;font-weight:700;color:#1a1a1a}
+  .D .fa{margin:6px 0 0;font-size:15px;color:#444;line-height:1.75}
+
+  @media (max-width:820px){.dials{grid-template-columns:1fr}.grid{grid-template-columns:1fr;padding:16px}.notes-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <strong>文档渲染样式 · 方向样机</strong>
+    <span class="hint">设计方向样机，用于选视觉气质，不是最终页面 · 键盘 1-4 选择</span>
+  </div>
+  <div class="dials" data-qmdp-dials>
+    <label class="dial"><b>视觉冒险度 <output id="varianceOut" data-qmdp-output="variance">5</output></b><input id="variance" data-qmdp-dial="variance" type="range" min="1" max="10" value="5"></label>
+    <label class="dial"><b>动效强度 <output id="motionOut" data-qmdp-output="motion">2</output></b><input id="motion" data-qmdp-dial="motion" type="range" min="1" max="10" value="2"></label>
+    <label class="dial"><b>信息密度 <output id="densityOut" data-qmdp-output="density">5</output></b><input id="density" data-qmdp-dial="density" type="range" min="1" max="10" value="5"></label>
+  </div>
+  <div class="grid" id="grid"></div>
+
+  <div class="notes">
+    <h3>方向说明</h3>
+    <div class="notes-grid">
+      <div class="note">
+        <h4>A Stripe 精致 <span class="k">refined</span> · 推荐</h4>
+        <dl>
+          <dt>气质</dt><dd>细边框+柔和阴影卡、endpoint 带渐变底、表格斑马纹、代码带窗口栏</dd>
+          <dt>字体</dt><dd>无衬线正文 + 等宽代码/参数名</dd>
+          <dt>记忆点</dt><dd>每种 block 都是一张精致小卡，专业 API 文档质感</dd>
+          <dt>适合</dt><dd>支付接口文档，开发者一眼觉得"靠谱、正规"</dd>
+        </dl>
+      </div>
+      <div class="note">
+        <h4>B Mintlify 清爽 <span class="k">airy</span></h4>
+        <dl>
+          <dt>气质</dt><dd>大留白、圆角卡、彩色 callout 图标、胶囊方法徽章</dd>
+          <dt>字体</dt><dd>大字号无衬线，呼吸感强</dd>
+          <dt>记忆点</dt><dd>友好现代，像新一代 SaaS 文档站</dd>
+          <dt>适合</dt><dd>希望文档看起来年轻、亲和、不那么"硬核"</dd>
+        </dl>
+      </div>
+      <div class="note">
+        <h4>C 终端原生 <span class="k">terminal</span></h4>
+        <dl>
+          <dt>气质</dt><dd>等宽字体主导、深色代码优先、# 和 $ 标记、极客感</dd>
+          <dt>字体</dt><dd>全等宽，命令行美学</dd>
+          <dt>记忆点</dt><dd>硬核开发者原生，像 README / man page</dd>
+          <dt>适合</dt><dd>纯技术受众，追求极客气质</dd>
+        </dl>
+      </div>
+      <div class="note">
+        <h4>D 杂志排版 <span class="k">editorial</span></h4>
+        <dl>
+          <dt>气质</dt><dd>强对比、宽松行距、分隔线切段、下划线强调</dd>
+          <dt>字体</dt><dd>大字号无衬线 + 粗黑表头线</dd>
+          <dt>记忆点</dt><dd>阅读优先，像精心排版的技术长文</dd>
+          <dt>适合</dt><dd>长文档、教程型内容，重阅读体验</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <div class="confirm" id="confirm" role="dialog" aria-modal="true">
+    <div class="dialog">
+      <h2>确认设计方向</h2>
+      <p class="cm" id="confirmMeta"></p>
+      <textarea id="adjustments" placeholder="可选：写下想调整的地方，比如「要 A 的表格 + B 的 callout」「代码块再深一点」"></textarea>
+      <div class="acts"><button type="button" id="cancelPick">取消</button><button type="button" id="confirmPick">确认并回传</button></div>
+    </div>
+  </div>
+  <div class="pickbar" id="pickbar"></div>
+
+<script>
+  // 共用文档内容（同一份内容，四种渲染）
+  function content(cls){
+    return `<div class="d ${cls}">
+      <div class="sec"><div class="callout">${cls==='B'?'<span class="ci">!</span>':''}<span>支付前请确认商户号已开通该通道，否则将返回 10002 错误。</span></div></div>
+      <div class="sec"><div class="ep"><span class="m">POST</span><span class="u">{apiurl}api/pay/create</span></div></div>
+      <div class="sec"><table>
+        <thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td class="pn">pid</td><td>Int</td><td>商户 ID</td></tr>
+          <tr><td class="pn">money</td><td>String</td><td>金额，单位元，两位小数</td></tr>
+          <tr><td class="pn">notify_url</td><td>String</td><td>异步通知地址</td></tr>
+        </tbody>
+      </table></div>
+      <div class="sec"><div class="code"><div class="code-bar">${cls==='A'?'<i></i><i></i><i></i><span>json</span>':'json'}</div><pre>{
+  "code": 0,
+  "trade_no": "2024061012345",
+  "payurl": "https://pay.example.com/..."
+}</pre></div></div>
+      <div class="sec"><div class="steps">
+        <div class="step"><span class="sn">1</span><span>创建商户订单，生成 out_trade_no</span></div>
+        <div class="step"><span class="sn">2</span><span>调用下单接口，拿到支付链接</span></div>
+        <div class="step"><span class="sn">3</span><span>接收异步回调，校验签名后发货</span></div>
+      </div></div>
+      <div class="sec"><div class="links">
+        <a class="lk p" href="#">下载 SDK</a>
+        <a class="lk s" href="#">查看示例</a>
+      </div></div>
+      <div class="sec"><div class="faq">
+        <div class="fq"><b>Q1.</b><span>回调一直收不到怎么办？</span></div>
+        <p class="fa">检查 notify_url 是否公网可达，且返回纯文本 success。</p>
+      </div></div>
+    </div>`;
+  }
+
+  const DIRS=[
+    {id:'A',name:'Stripe 精致',cls:'A',rec:true},
+    {id:'B',name:'Mintlify 清爽',cls:'B',rec:false},
+    {id:'C',name:'终端原生',cls:'C',rec:false},
+    {id:'D',name:'杂志排版',cls:'D',rec:false},
+  ];
+  document.getElementById('grid').innerHTML=DIRS.map(d=>`
+    <div class="card" data-id="${d.id}"${d.rec?' data-rec':''}>
+      <div class="card-top"><span class="nm"><span class="dot"></span>${d.id} · ${d.name}</span>${d.rec?'<span class="rec-badge">推荐</span>':''}</div>
+      <div class="mock"><div class="stage">${content(d.cls)}</div></div>
+      <button type="button" class="qmdp-pick-button">选择 ${d.id} · ${d.name}</button>
+    </div>`).join('');
+
+  ['variance','motion','density'].forEach(id=>{const i=document.getElementById(id),o=document.getElementById(id+'Out');i.addEventListener('input',()=>{o.value=i.value;o.textContent=i.value;});});
+  function dials(){return{variance:+variance.value,motion:+motion.value,density:+density.value};}
+  let pending=null;
+  function openConfirm(i){const d=DIRS[i];document.querySelectorAll('.card').forEach((c,x)=>c.classList.toggle('selected',x===i));pending={id:d.id,name:d.name,label:'选 '+d.id+'：'+d.name};const v=dials();document.getElementById('confirmMeta').textContent=pending.label+' · 视觉冒险度 '+v.variance+' / 动效强度 '+v.motion+' / 信息密度 '+v.density;document.getElementById('confirm').classList.add('open');document.getElementById('adjustments').focus();}
+  function selText(p){const v=p.dials||dials();const a=p.adjustments?'；建议：'+p.adjustments:'';return p.label+'；拨盘：视觉冒险度 '+v.variance+' / 动效强度 '+v.motion+' / 信息密度 '+v.density+a;}
+  async function send(p){if(location.protocol==='file:'){if(navigator.clipboard)await navigator.clipboard.writeText(selText(p)).catch(()=>{});return{ok:false};}const r=await fetch('/api/select',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});return r.json();}
+  async function confirmSel(){if(!pending)return;const payload={...pending,dials:dials(),adjustments:document.getElementById('adjustments').value.trim()};const r=await send(payload);const b=document.getElementById('pickbar');b.textContent=r.ok?'已选择 '+pending.label+' — 已回传':'已选择 '+pending.label+' — 静态降级，请回到对话发送';b.classList.add('show');document.getElementById('confirm').classList.remove('open');if(!r.ok&&navigator.clipboard)navigator.clipboard.writeText(selText(payload)).catch(()=>{});}
+  document.querySelectorAll('.card').forEach((c,i)=>{c.querySelector('.qmdp-pick-button').addEventListener('click',e=>{e.stopPropagation();openConfirm(i);});c.addEventListener('click',()=>openConfirm(i));});
+  document.addEventListener('keydown',e=>{const i=['1','2','3','4'].indexOf(e.key);if(i>-1)openConfirm(i);});
+  document.getElementById('cancelPick').onclick=()=>document.getElementById('confirm').classList.remove('open');
+  document.getElementById('confirmPick').onclick=confirmSel;
+</script>
+</body>
+</html>

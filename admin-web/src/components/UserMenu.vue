@@ -1,16 +1,33 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { onClickOutside } from '@vueuse/core'
 import { ChevronDown, Settings, SquarePen, Power, Plus } from 'lucide-vue-next'
 import { Modal, Button } from '@/components/ui'
+import { useAuthStore } from '@/stores/auth'
+import { useToast } from '@/composables/useToast'
 
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 onClickOutside(root, () => (open.value = false))
 
+const router = useRouter()
+const auth = useAuthStore()
+const toast = useToast()
+
+// 顶栏与菜单显示的账号名：优先真实昵称，回退 admin
+const displayName = computed(() => auth.nickname || 'admin')
+
+function logout() {
+  open.value = false
+  auth.logout()
+  toast.success('已退出登录')
+  router.replace('/login')
+}
+
 // ===== 账号设置弹窗 =====
 const accountOpen = ref(false)
-const account = reactive({ username: 'admin', name: '' })
+const account = reactive({ username: auth.nickname || 'admin', name: '' })
 const avatar = ref('')
 const avatarInput = ref<HTMLInputElement | null>(null)
 function pickAvatar() {
@@ -61,7 +78,7 @@ function openPwd() {
         alt="avatar"
         class="size-8 rounded-full object-cover"
       />
-      <span class="hidden text-sm font-medium sm:block">admin</span>
+      <span class="hidden text-sm font-medium sm:block">{{ displayName }}</span>
       <ChevronDown
         :class="['size-4 text-muted-foreground transition-transform', open && 'rotate-180']"
       />
@@ -86,7 +103,7 @@ function openPwd() {
             class="size-8 rounded-full object-cover"
           />
           <div class="min-w-0">
-            <div class="truncate text-sm font-medium leading-tight text-foreground">admin</div>
+            <div class="truncate text-sm font-medium leading-tight text-foreground">{{ displayName }}</div>
             <div class="text-xs leading-tight text-muted-foreground">个人中心</div>
           </div>
         </div>
@@ -108,7 +125,7 @@ function openPwd() {
           </button>
           <button
             class="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
-            @click="open = false"
+            @click="logout"
           >
             <Power class="size-4 text-muted-foreground" />退出登录
           </button>

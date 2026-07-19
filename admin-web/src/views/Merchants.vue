@@ -17,7 +17,6 @@ import {
 } from 'lucide-vue-next'
 import { Panel, Button, Select, Pagination } from '@/components/ui'
 import {
-  merchants as allMerchants,
   groups,
   settleTypes,
   searchColumns,
@@ -25,6 +24,8 @@ import {
   type Merchant,
 } from '@/lib/mock/merchants'
 import { formatMoney } from '@/lib/utils'
+import { fetchMerchants } from '@/lib/api/merchants'
+import { ApiError } from '@/lib/api/client'
 
 const columnOptions = searchColumns.map((c) => ({ value: c.value, label: c.label }))
 const statusOptions = statusFilters.map((s) => ({ value: s.value, label: s.label }))
@@ -33,8 +34,27 @@ const groupOptions = [{ value: -1, label: '全部用户组' }, ...groups.map((g)
 // ===== 筛选 =====
 const filters = ref({ column: 'uid', value: '', gid: -1, dstatus: '0' })
 
+// ===== 数据源：从后端 API 加载 =====
+const allMerchants = ref<Merchant[]>([])
+const loading = ref(false)
+const loadError = ref('')
+
+async function loadMerchants() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const res = await fetchMerchants({ page: 1, pageSize: 100 })
+    allMerchants.value = res.list
+  } catch (e) {
+    loadError.value = e instanceof ApiError ? e.message : '加载商户失败'
+    allMerchants.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
 const filtered = computed(() =>
-  allMerchants.filter((m) => {
+  allMerchants.value.filter((m) => {
     if (filters.value.gid > -1 && m.gid !== filters.value.gid) return false
     if (filters.value.dstatus !== '0') {
       const [field, val] = filters.value.dstatus.split('_')
@@ -73,7 +93,10 @@ function toggleMenu(id: number) {
 function closeMenu() {
   openMenu.value = null
 }
-onMounted(() => window.addEventListener('click', closeMenu))
+onMounted(() => {
+  window.addEventListener('click', closeMenu)
+  loadMerchants()
+})
 onUnmounted(() => window.removeEventListener('click', closeMenu))
 
 const menuActions = [

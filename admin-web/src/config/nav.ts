@@ -109,6 +109,8 @@ export const navMenu: NavNode[] = [
     icon: Globe,
     children: [
       { title: '首页内容', to: '/admin/site-content' },
+      { title: '文章管理', to: '/admin/articles' },
+      { title: '文档管理', to: '/admin/docs-content' },
       { title: '首页模板', to: '/admin/template-settings' },
     ],
   },

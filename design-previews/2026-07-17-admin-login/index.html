@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>0538Pay 管理后台登录 · 四方向设计预览</title>
+<style>
+  :root {
+    --brand: #0062EF;
+    --brand-deep: #0047b3;
+    --ink: #0f1729;
+    --paper: #f4f6fb;
+    --line: #e4e8f0;
+    --muted: #6b7688;
+    --ease: cubic-bezier(0.23, 1, 0.32, 1);
+    --font-sans: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--font-sans); -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 40px 24px 80px; }
+  header.page { margin-bottom: 28px; }
+  .kicker {
+    font-size: 12px; letter-spacing: .12em; color: var(--brand);
+    font-weight: 600; text-transform: uppercase; margin-bottom: 10px;
+  }
+  h1.page { font-size: 26px; margin: 0 0 8px; letter-spacing: -.02em; }
+  .lead { color: var(--muted); font-size: 14px; max-width: 60ch; line-height: 1.6; margin: 0; }
+  .note {
+    margin-top: 14px; font-size: 12.5px; color: var(--muted);
+    background: #fff; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 14px; display: inline-block;
+  }
+
+  .grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 26px;
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: #fff; border: 1px solid var(--line); border-radius: 16px;
+    overflow: hidden; display: flex; flex-direction: column;
+    transition: transform .3s var(--ease), box-shadow .3s var(--ease), border-color .3s var(--ease);
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 18px 40px -20px rgba(15,23,41,.28); border-color: #cdd6e6; }
+  .card.recommended { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+
+  .card-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; border-bottom: 1px solid var(--line);
+  }
+  .card-head .name { font-weight: 600; font-size: 15px; }
+  .card-head .tag { font-size: 11.5px; color: var(--muted); }
+  .badge-reco {
+    font-size: 11px; font-weight: 600; color: #fff; background: var(--brand);
+    padding: 3px 9px; border-radius: 999px; letter-spacing: .02em;
+  }
+
+  /* mockup stage */
+  .stage { height: 360px; background: var(--paper); position: relative; overflow: hidden; }
+  .stage .frame { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+
+  /* generic mini login card */
+  .mini { width: 260px; background: #fff; border-radius: 12px; padding: 22px 20px;
+    box-shadow: 0 10px 30px -18px rgba(15,23,41,.35); }
+  .mini .logo { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center;
+    justify-content: center; color: #fff; font-weight: 700; font-size: 15px; }
+  .mini h3 { font-size: 16px; margin: 12px 0 3px; letter-spacing: -.01em; }
+  .mini p.sub { font-size: 11.5px; color: var(--muted); margin: 0 0 16px; }
+  .field { height: 34px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px;
+    display: flex; align-items: center; padding: 0 10px; gap: 8px; font-size: 11.5px; color: var(--muted); }
+  .field .dot { width: 13px; height: 13px; border-radius: 3px; background: #cdd6e6; flex: none; }
+  .field.active { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(0,98,239,.12); color: var(--ink); }
+  .btn { height: 36px; border-radius: 8px; background: var(--brand); color: #fff; font-size: 12.5px;
+    font-weight: 600; display: flex; align-items: center; justify-content: center; margin-top: 4px; }
+
+  /* ============ A. 数据背书分层（居中卡片 + 顶部信任条 + 底部数据） ============ */
+  .a-stage { background: linear-gradient(180deg, #eef3fc 0%, #f4f6fb 100%); }
+  .a-trust { position: absolute; top: 16px; left: 0; right: 0; display: flex; justify-content: center; gap: 14px; }
+  .a-chip { font-size: 10px; color: var(--brand-deep); background: #fff; border: 1px solid #d5e2fb;
+    padding: 4px 9px; border-radius: 999px; display: flex; align-items: center; gap: 5px; }
+  .a-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #17b26a; }
+  .a-stats { position: absolute; bottom: 14px; left: 0; right: 0; display: flex; justify-content: center; gap: 22px; }
+  .a-stat { text-align: center; }
+  .a-stat b { font-family: var(--font-mono); font-size: 14px; color: var(--ink); display: block; }
+  .a-stat span { font-size: 9.5px; color: var(--muted); }
+
+  /* ============ B. 深色金融驾驶舱（暗底 + 霓虹克制描边 + 等宽数字） ============ */
+  .b-stage { background: radial-gradient(120% 90% at 30% 10%, #10203f 0%, #0a1424 55%, #070d18 100%); }
+  .b-mini { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1);
+    backdrop-filter: blur(8px); }
+  .b-mini h3 { color: #f2f6ff; }
+  .b-mini p.sub { color: #8296b5; }
+  .b-mini .field { background: rgba(255,255,255,.03); border-color: rgba(255,255,255,.12); color: #7d92b3; }
+  .b-mini .field .dot { background: rgba(255,255,255,.18); }
+  .b-mini .field.active { border-color: #3d8bff; box-shadow: 0 0 0 3px rgba(61,139,255,.22); color: #eaf1ff; }
+  .b-grid-lines { position: absolute; inset: 0; background-image:
+      linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 26px 26px; }
+
+  /* ============ C. 印刷编辑风（暖纸底 + 衬线展示标题 + 分隔线不用卡阴影） ============ */
+  .c-stage { background: #f3efe7; }
+  .c-mini { width: 280px; background: #fbf9f4; border: 1px solid #e6dfd0; border-radius: 4px;
+    box-shadow: none; padding: 24px 22px; }
+  .c-rule { height: 1px; background: #e0d8c6; margin: 14px 0; }
+  .c-mini .logo { border-radius: 4px; background: var(--ink); }
+  .c-mini h3 { font-family: Georgia, "Songti SC", serif; font-size: 20px; font-weight: 600; letter-spacing: 0; }
+  .c-mini p.sub { font-size: 11px; }
+  .c-mini .field { border-radius: 4px; background: #fff; border-color: #e6dfd0; }
+  .c-mini .btn { border-radius: 4px; background: var(--ink); }
+  .c-eyebrow { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .18em;
+    text-transform: uppercase; color: #9a8f78; }
+
+  /* ============ D. 左视觉右表单（分屏，品牌墙 + 干净表单） ============ */
+  .d-stage { padding: 0; }
+  .d-split { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr; }
+  .d-brandwall { background: linear-gradient(150deg, var(--brand) 0%, #003a94 100%); position: relative;
+    overflow: hidden; padding: 22px; color: #fff; display: flex; flex-direction: column; justify-content: space-between; }
+  .d-brandwall::after { content: ""; position: absolute; width: 180px; height: 180px; border-radius: 50%;
+    background: rgba(255,255,255,.08); right: -60px; top: -50px; }
+  .d-brandwall .wm { font-family: var(--font-mono); font-size: 10px; opacity: .8; letter-spacing: .1em; }
+  .d-brandwall .slo { font-size: 17px; font-weight: 600; line-height: 1.4; letter-spacing: -.01em; }
+  .d-formside { background: #fff; display: flex; align-items: center; justify-content: center; padding: 18px; }
+  .d-formside .mini { box-shadow: none; width: 100%; max-width: 210px; padding: 0; }
+
+  /* selection button */
+  .actions { padding: 14px 18px 18px; border-top: 1px solid var(--line); }
+  .pick {
+    width: 100%; height: 42px; border: 1px solid var(--brand); background: var(--brand); color: #fff;
+    font-size: 14px; font-weight: 600; border-radius: 10px; cursor: pointer;
+    font-family: var(--font-sans); transition: background .2s var(--ease), transform .08s var(--ease);
+  }
+  .pick:hover { background: var(--brand-deep); }
+  .pick:active { transform: scale(.98); }
+
+  /* detail / dials */
+  .detail { margin-top: 40px; display: grid; grid-template-columns: 1.3fr 1fr; gap: 26px; }
+  @media (max-width: 900px) { .detail { grid-template-columns: 1fr; } }
+  .panel { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+  .panel h2 { font-size: 15px; margin: 0 0 14px; }
+  .dir-desc { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+  .dir-desc:last-child { border: 0; margin: 0; padding: 0; }
+  .dir-desc .t { font-weight: 600; font-size: 13.5px; margin-bottom: 3px; }
+  .dir-desc .t .k { color: var(--brand); font-family: var(--font-mono); margin-right: 6px; }
+  .dir-desc .d { font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+  .dial { margin-bottom: 18px; }
+  .dial label { font-size: 12.5px; font-weight: 500; display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .dial label b { color: var(--brand); font-family: var(--font-mono); }
+  .dial input[type=range] { width: 100%; accent-color: var(--brand); }
+  .dial .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* confirm modal */
+  .mask { position: fixed; inset: 0; background: rgba(15,23,41,.5); display: none;
+    align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+  .mask.show { display: flex; }
+  .modal { background: #fff; border-radius: 16px; padding: 24px; width: 100%; max-width: 380px;
+    box-shadow: 0 30px 80px -30px rgba(0,0,0,.5); }
+  .modal h3 { margin: 0 0 4px; font-size: 17px; }
+  .modal .msub { font-size: 12.5px; color: var(--muted); margin: 0 0 16px; }
+  .modal .dials-readout { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink);
+    background: var(--paper); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+  .modal textarea { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+    font-family: var(--font-sans); font-size: 13px; resize: vertical; min-height: 66px; }
+  .modal .row { display: flex; gap: 10px; margin-top: 16px; }
+  .modal .row button { flex: 1; height: 40px; border-radius: 9px; font-size: 13.5px; font-weight: 600;
+    cursor: pointer; font-family: var(--font-sans); }
+  .modal .cancel { background: #fff; border: 1px solid var(--line); color: var(--ink); }
+  .modal .ok { background: var(--brand); border: 1px solid var(--brand); color: #fff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="page">
+    <div class="kicker">0538Pay · 管理后台登录 · 设计方向</div>
+    <h1 class="page">四个方向样机 · 选一个作为登录页视觉基调</h1>
+    <p class="lead">这些是<b>设计方向样机</b>,用于选定视觉与交互气质,不是最终页面。选定方向(或混搭)后才进入正式实现。按 1–4 或点卡片下方按钮选择。</p>
+    <div class="note">气质定位:安全信任 · 金融感　|　布局:居中卡片升级版(D 为分屏对照项)</div>
+  </header>
+
+  <div class="grid">
+    <!-- A -->
+    <div class="card recommended">
+      <div class="card-head">
+        <div><span class="name">A. 数据背书分层</span></div>
+        <span class="badge-reco">推荐</span>
+      </div>
+      <div class="stage a-stage">
+        <div class="a-trust">
+          <span class="a-chip">SSL 加密</span>
+          <span class="a-chip">等保三级</span>
+        </div>
+        <div class="frame">
+          <div class="mini">
+            <div class="logo" style="background:var(--brand)">P</div>
+            <h3>0538Pay 管理后台</h3>
+            <p class="sub">登录运营管理账户</p>
+            <div class="field active"><span class="dot"></span>admin</div>
+            <div class="field"><span class="dot"></span>登录密码</div>
+            <div class="btn">登录</div>
+          </div>
+        </div>
+        <div class="a-stats">
+          <div class="a-stat"><b>99.99%</b><span>网关可用率</span></div>
+          <div class="a-stat"><b>¥3.8亿</b><span>累计处理</span></div>
+          <div class="a-stat"><b>24/7</b><span>风控监测</span></div>
+        </div>
+      </div>
+      <div class="actions"><button class="pick qmdp-pick-button" data-id="A" data-name="数据背书分层">选择 A · 数据背书分层</button></div>
+    </div>
+
+    <!-- B -->
+    <div class="card">
+      <div class="card-head">
+        <div><span class="name">B. 深色金融驾驶舱</span></div>
+        <span class="tag">暗色 · 等宽数字</span>
+      </div>
+      <div class="stage b-stage">
+        <div class="b-grid-lines"></div>
+        <div class="frame">
+          <div class="mini b-mini">
+            <div class="logo" style="background:linear-gradient(135deg,#3d8bff,#0062EF)">P</div>
+            <h3>0538Pay 控制台</h3>
+            <p class="sub">安全登录 · 加密传输</p>
+            <div class="field active"><span class="dot"></span>admin</div>
+            <div class="field"><span class="dot"></span>••••••••</div>
+            <div class="btn" style="background:linear-gradient(135deg,#3d8bff,#0062EF)">进入系统</div>
+          </div>
+        </div>
+      </div>
+      <div class="actions"><button class="pick qmdp-pick-button" data-id="B" data-name="深色金融驾驶舱">选择 B · 深色金融驾驶舱</button></div>
+    </div>
+
+    <!-- C -->
+    <div class="card">
+      <div class="card-head">
+        <div><span class="name">C. 印刷编辑风</span></div>
+        <span class="tag">暖纸 · 衬线标题</span>
+      </div>
+      <div class="stage c-stage">
+        <div class="frame">
+          <div class="mini c-mini">
+            <div class="logo">P</div>
+            <div class="c-rule"></div>
+            <div class="c-eyebrow">Secure Access</div>
+            <h3>管理后台</h3>
+            <p class="sub">0538Pay 运营管理系统</p>
+            <div class="c-rule"></div>
+            <div class="field active"><span class="dot"></span>管理员账号</div>
+            <div class="field"><span class="dot"></span>登录密码</div>
+            <div class="btn">登 录</div>
+          </div>
+        </div>
+      </div>
+      <div class="actions"><button class="pick qmdp-pick-button" data-id="C" data-name="印刷编辑风">选择 C · 印刷编辑风</button></div>
+    </div>
+
+    <!-- D -->
+    <div class="card">
+      <div class="card-head">
+        <div><span class="name">D. 左视觉右表单</span></div>
+        <span class="tag">分屏 · 品牌墙</span>
+      </div>
+      <div class="stage d-stage">
+        <div class="d-split">
+          <div class="d-brandwall">
+            <div class="wm">0538PAY / SECURE</div>
+            <div class="slo">让每一笔<br>收款都安心</div>
+            <div class="wm">聚合支付 · 智能风控</div>
+          </div>
+          <div class="d-formside">
+            <div class="mini">
+              <h3 style="font-size:14px">欢迎回来</h3>
+              <p class="sub">登录管理后台</p>
+              <div class="field active"><span class="dot"></span>admin</div>
+              <div class="field"><span class="dot"></span>密码</div>
+              <div class="btn">登录</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="actions"><button class="pick qmdp-pick-button" data-id="D" data-name="左视觉右表单">选择 D · 左视觉右表单</button></div>
+    </div>
+  </div>
+
+  <div class="detail">
+    <div class="panel">
+      <h2>方向说明</h2>
+      <div class="dir-desc">
+        <div class="t"><span class="k">A</span>数据背书分层　<span style="color:var(--brand);font-size:11px">推荐</span></div>
+        <div class="d">守住"居中卡片升级版"的偏好。卡片居中不变,但顶部加一条<b>信任徽章</b>(SSL/等保),底部加<b>数据背书</b>(可用率/处理额/风控)。用最小改动把空白画布变成信任信号,金融感直接拉满。字体系统栈 + 等宽数字。记忆点:一进门就被"安全可信"三件事包住。</div>
+      </div>
+      <div class="dir-desc">
+        <div class="t"><span class="k">B</span>深色金融驾驶舱</div>
+        <div class="d">暗色底 + 极细网格 + 克制蓝描边,像专业交易/风控终端。等宽数字、玻璃质感输入框。气质最"硬核专业",适合强调技术与安全。代价:与现有浅色后台风格反差大,需单独维护暗色基调。</div>
+      </div>
+      <div class="dir-desc">
+        <div class="t"><span class="k">C</span>印刷编辑风</div>
+        <div class="d">暖纸底 + 衬线展示标题 + 分隔线代替卡阴影,像高端对账单/银行信函。气质"稳重克制有文化感"。代价:衬线与金融科技感稍远,偏传统,和产品其余现代 SaaS 页面语言不完全统一。</div>
+      </div>
+      <div class="dir-desc">
+        <div class="t"><span class="k">D</span>左视觉右表单</div>
+        <div class="d">经典分屏:左品牌墙讲故事,右侧干净表单。门面感最强、最能承载品牌口号。代价:偏离你选的"居中卡片"偏好,且窄屏要塌成上下结构。作为对照项供你对比。</div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>三拨盘(可调)</h2>
+      <div class="dial">
+        <label>视觉冒险度 <b id="v-variance">5</b>/10</label>
+        <input type="range" min="1" max="10" value="5" id="variance" />
+        <div class="hint">版式性格强度。5=比功能页大胆但守信任感</div>
+      </div>
+      <div class="dial">
+        <label>动效强度 <b id="v-motion">3</b>/10</label>
+        <input type="range" min="1" max="10" value="3" id="motion" />
+        <div class="hint">3=只做入场与反馈,不炫技</div>
+      </div>
+      <div class="dial">
+        <label>信息密度 <b id="v-density">3</b>/10</label>
+        <input type="range" min="1" max="10" value="3" id="density" />
+        <div class="hint">3=留白为主,聚焦核心动作</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- confirm modal -->
+<div class="mask" id="mask">
+  <div class="modal">
+    <h3 id="m-title">确认方向 A</h3>
+    <p class="msub">确认后回传选择,进入正式实现。</p>
+    <div class="dials-readout" id="m-dials">视觉 5 · 动效 3 · 密度 3</div>
+    <textarea id="m-notes" placeholder="调整建议(可选),例如:要 A 的信任条 + B 的暗色按钮 / 更稳一点"></textarea>
+    <div class="row">
+      <button class="cancel" id="m-cancel">取消</button>
+      <button class="ok" id="m-ok">确认选择</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const dials = { variance: 5, motion: 3, density: 3 };
+  for (const k of Object.keys(dials)) {
+    const el = document.getElementById(k);
+    const out = document.getElementById('v-' + k);
+    el.addEventListener('input', () => { dials[k] = +el.value; out.textContent = el.value; });
+  }
+
+  let pending = null;
+  const mask = document.getElementById('mask');
+  function openConfirm(id, name) {
+    pending = { id, name };
+    document.getElementById('m-title').textContent = '确认方向 ' + id + ' · ' + name;
+    document.getElementById('m-dials').textContent =
+      '视觉 ' + dials.variance + ' · 动效 ' + dials.motion + ' · 密度 ' + dials.density;
+    mask.classList.add('show');
+  }
+  document.getElementById('m-cancel').onclick = () => { mask.classList.remove('show'); pending = null; };
+  mask.addEventListener('click', (e) => { if (e.target === mask) { mask.classList.remove('show'); pending = null; } });
+
+  document.getElementById('m-ok').onclick = async () => {
+    if (!pending) return;
+    const payload = {
+      id: pending.id, label: pending.id, name: pending.name,
+      notes: '', dials: { ...dials },
+      adjustments: document.getElementById('m-notes').value.trim(),
+    };
+    try {
+      await fetch('/api/select', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {}
+    mask.classList.remove('show');
+    document.getElementById('m-title').textContent = '已回传方向 ' + pending.id + ' ✓';
+  };
+
+  document.querySelectorAll('.qmdp-pick-button').forEach((b) => {
+    b.setAttribute('data-qmdp-native-handler', 'true');
+    b.addEventListener('click', () => openConfirm(b.dataset.id, b.dataset.name));
+  });
+  window.addEventListener('keydown', (e) => {
+    const map = { '1': ['A','数据背书分层'], '2': ['B','深色金融驾驶舱'], '3': ['C','印刷编辑风'], '4': ['D','左视觉右表单'] };
+    if (map[e.key]) openConfirm(...map[e.key]);
+  });
+</script>
+</body>
+</html>

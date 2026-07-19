@@ -1,0 +1,19 @@
+# 0538pay-api 配置样例。复制为 config.yaml 后按本机环境修改。
+server:
+  addr: ":8080"        # 监听地址
+  mode: "debug"        # debug / release
+
+jwt:
+  secret: "change-me-to-a-long-random-string"  # 生产务必改成长随机串
+  expireHours: 72                               # token 有效期(小时)
+
+database:
+  # phpStudy 默认 MySQL: 127.0.0.1:3306 root/root
+  dsn: "pay0538:pay0538@tcp(127.0.0.1:3306)/pay0538?charset=utf8mb4&parseTime=True&loc=Local"
+  maxOpen: 50
+  maxIdle: 10
+
+redis:
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0

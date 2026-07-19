@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, type Component } from 'vue'
 import { onClickOutside } from '@vueuse/core'
 import { ChevronDown, Check } from 'lucide-vue-next'
 import { cn } from '@/lib/utils'
@@ -7,10 +7,12 @@ import { cn } from '@/lib/utils'
 /**
  * 自定义下拉选择器（替代原生 select，统一设计风格）。
  * <Select v-model="val" :options="[{value,label}]" placeholder="请选择" class="w-32" />
+ * 选项可选带 icon：{ value, label, icon: markRaw(SomeIcon) }
  */
 interface Option {
   value: string | number
   label: string
+  icon?: Component
 }
 const props = defineProps<{
   modelValue: string | number
@@ -40,6 +42,7 @@ function pick(o: Option) {
       :class="open && 'border-ring'"
       @click="open = !open"
     >
+      <component :is="current.icon" v-if="current?.icon" class="size-4 shrink-0" />
       <span :class="current ? 'text-foreground' : 'text-muted-foreground'" class="flex-1 truncate text-left">
         {{ current?.label ?? placeholder ?? '请选择' }}
       </span>
@@ -64,6 +67,7 @@ function pick(o: Option) {
           :class="o.value === modelValue && 'bg-primary/[0.06] font-medium text-primary'"
           @click="pick(o)"
         >
+          <component :is="o.icon" v-if="o.icon" class="size-4 shrink-0" />
           <span class="flex-1 whitespace-nowrap">{{ o.label }}</span>
           <Check v-if="o.value === modelValue" class="size-3.5 shrink-0 text-primary" />
         </button>
