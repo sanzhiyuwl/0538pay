@@ -1,23 +1,39 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search, RotateCcw, Wallet, AlertCircle, QrCode } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, Pagination, Modal } from '@/components/ui'
 import {
-  settleRecords,
   settleTypeMeta,
   settleStatus,
   statusOptions,
   type SettleRecord,
 } from '@/lib/mock/merchant/settle'
+import { fetchMerchantSettles } from '@/lib/api/merchantCenter'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 import { formatMoney } from '@/lib/utils'
 
 const router = useRouter()
+const toast = useToast()
+
+// ===== 真接口数据（一次拉当前商户结算记录，客户端筛选/分页）=====
+const settleRecords = ref<SettleRecord[]>([])
+async function loadSettles() {
+  try {
+    const res = await fetchMerchantSettles({ page: 1, pageSize: 100 })
+    settleRecords.value = res.list
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '结算记录加载失败')
+    settleRecords.value = []
+  }
+}
+onMounted(loadSettles)
 
 // ===== 筛选 =====
 const filters = ref({ status: -1 })
 const filtered = computed(() =>
-  settleRecords.filter((s) => (filters.value.status > -1 ? s.status === filters.value.status : true)),
+  settleRecords.value.filter((s) => (filters.value.status > -1 ? s.status === filters.value.status : true)),
 )
 
 // ===== 分页 =====

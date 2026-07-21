@@ -90,6 +90,11 @@ func (s *PayService) settle(ctx context.Context, tradeNo string) error {
 	return nil
 }
 
+// ResendNotify 商户主动触发重新通知（补单/重发回调）。复用 fireMerchantNotify 的通知逻辑。
+func (s *PayService) ResendNotify(tradeNo string) {
+	s.fireMerchantNotify(context.Background(), tradeNo)
+}
+
 // fireMerchantNotify 拼带签名的回调 URL，GET 商户 notify_url，据结果置通知状态/重试计数。
 // 首次通知：成功 notify=0；失败 notify=1 + 下次重试时间（首档 1 分钟），后续由 cron RetryNotify 接管。
 func (s *PayService) fireMerchantNotify(ctx context.Context, tradeNo string) {

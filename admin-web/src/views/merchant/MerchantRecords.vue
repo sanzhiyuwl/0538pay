@@ -3,16 +3,33 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Search, RotateCcw } from 'lucide-vue-next'
 import { Panel, Button, Select, Pagination } from '@/components/ui'
-import { fundRecords, searchColumns, calcRecordStats } from '@/lib/mock/merchant/records'
+import { searchColumns, calcRecordStats, type FundRecord } from '@/lib/mock/merchant/records'
+import { fetchMerchantRecords } from '@/lib/api/merchantCenter'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 import { formatMoney } from '@/lib/utils'
 
 const route = useRoute()
+const toast = useToast()
 const columnOptions = searchColumns.map((c) => ({ value: c.value, label: c.label }))
+
+// ===== 真接口数据（一次拉当前商户流水，客户端筛选/分页）=====
+const fundRecords = ref<FundRecord[]>([])
+async function loadRecords() {
+  try {
+    const res = await fetchMerchantRecords({ page: 1, pageSize: 100 })
+    fundRecords.value = res.list
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '流水加载失败')
+    fundRecords.value = []
+  }
+}
 
 // ===== 筛选 =====
 const filters = ref({ column: 'type', value: '' })
 // 从订单页跳转带入 kw（按关联订单号搜）
-onMounted(() => {
+onMounted(async () => {
+  await loadRecords()
   const kw = route.query.kw
   if (typeof kw === 'string' && kw) {
     filters.value = { column: 'trade_no', value: kw }
@@ -20,7 +37,7 @@ onMounted(() => {
 })
 
 const filtered = computed(() =>
-  fundRecords.filter((r) => {
+  fundRecords.value.filter((r) => {
     if (!filters.value.value.trim()) return true
     const v = filters.value.value.trim()
     const field = (r as any)[filters.value.column]

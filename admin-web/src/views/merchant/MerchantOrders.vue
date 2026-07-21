@@ -4,16 +4,31 @@ import { useRouter } from 'vue-router'
 import { Search, RotateCcw, BarChart3, MoreHorizontal, Undo2, Bell, ListTree } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, DateRange, Pagination, Modal } from '@/components/ui'
 import {
-  orders as allOrders,
   orderStatus,
   payTypes,
   searchColumns,
   calcStats,
   type Order,
 } from '@/lib/mock/merchant/orders'
+import { fetchMerchantOrders, refundOrder, renotifyOrder } from '@/lib/api/merchantCenter'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 import { formatMoney } from '@/lib/utils'
 
 const router = useRouter()
+const toast = useToast()
+
+// ===== 真接口数据（一次拉当前商户订单，客户端筛选/分页）=====
+const allOrders = ref<Order[]>([])
+async function loadOrders() {
+  try {
+    const res = await fetchMerchantOrders({ page: 1, pageSize: 100 })
+    allOrders.value = res.list
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '订单加载失败')
+    allOrders.value = []
+  }
+}
 
 const columnOptions = searchColumns.map((c) => ({ value: c.value, label: c.label }))
 const typeOptions = [{ value: 0, label: '全部方式' }, ...payTypes.map((t) => ({ value: t.id, label: t.showname }))]
@@ -25,7 +40,7 @@ const statusOptions = [
 // ===== 筛选 =====
 const filters = ref({ column: 'trade_no', value: '', type: 0, starttime: '', endtime: '', dstatus: -1 })
 const filtered = computed(() =>
-  allOrders.filter((o) => {
+  allOrders.value.filter((o) => {
     if (filters.value.type && o.type !== filters.value.type) return false
     if (filters.value.dstatus > -1 && o.status !== filters.value.dstatus) return false
     if (filters.value.value.trim()) {
@@ -65,7 +80,10 @@ function toggleMenu(id: string) {
 function closeMenu() {
   openMenu.value = null
 }
-onMounted(() => window.addEventListener('click', closeMenu))
+onMounted(() => {
+  loadOrders()
+  window.addEventListener('click', closeMenu)
+})
 onUnmounted(() => window.removeEventListener('click', closeMenu))
 
 // 商户视角操作：已支付→退款/补单/明细；其余→明细
@@ -79,24 +97,49 @@ const actionIcons: Record<string, any> = {
   重新通知: Bell,
   退款: Undo2,
 }
-function onAction(a: string, o: Order) {
+async function onAction(a: string, o: Order) {
   openMenu.value = null
   if (a === '明细') router.push({ path: '/m/records', query: { kw: o.trade_no } })
   else if (a === '退款') openRefund(o)
-  // 重新通知：原型仅提示
+  else if (a === '重新通知') await doRenotify(o)
 }
 
-// ===== 退款弹窗 =====
+// 重新通知（补单/重发回调）
+const busy = ref(false)
+async function doRenotify(o: Order) {
+  if (busy.value) return
+  busy.value = true
+  try {
+    await renotifyOrder(o.trade_no)
+    toast.success('已重新发送通知')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '重新通知失败')
+  } finally {
+    busy.value = false
+  }
+}
+
+// ===== 退款弹窗（后端为全额退款）=====
 const refundOpen = ref(false)
-const refundOrder = ref<Order | null>(null)
-const refundForm = ref({ money: '', paypwd: '' })
+const refundTarget = ref<Order | null>(null)
 function openRefund(o: Order) {
-  refundOrder.value = o
-  refundForm.value = { money: o.realmoney ?? '', paypwd: '' }
+  refundTarget.value = o
   refundOpen.value = true
 }
-function submitRefund() {
-  refundOpen.value = false
+async function submitRefund() {
+  const o = refundTarget.value
+  if (!o || busy.value) return
+  busy.value = true
+  try {
+    await refundOrder(o.trade_no)
+    toast.success(`订单 ${o.trade_no} 已全额退款`)
+    refundOpen.value = false
+    await loadOrders()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '退款失败')
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -252,26 +295,21 @@ function submitRefund() {
       </div>
     </Panel>
 
-    <!-- 退款弹窗 -->
-    <Modal v-model="refundOpen" title="申请退款" width="max-w-md">
-      <div v-if="refundOrder" class="space-y-3.5">
+    <!-- 退款弹窗（全额退款）-->
+    <Modal v-model="refundOpen" title="订单退款" width="max-w-md">
+      <div v-if="refundTarget" class="space-y-3.5">
         <div class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          订单号 <span class="font-mono text-foreground">{{ refundOrder.trade_no }}</span> · 实付
-          <b class="text-foreground">¥{{ refundOrder.realmoney }}</b>
+          订单号 <span class="font-mono text-foreground">{{ refundTarget.trade_no }}</span> · 订单金额
+          <b class="text-foreground">¥{{ refundTarget.money }}</b>
         </div>
-        <div class="row-field">
-          <label class="lbl">退款金额</label>
-          <input v-model="refundForm.money" class="field-input flex-1" placeholder="可小于实付金额（部分退款）" />
-        </div>
-        <div class="row-field">
-          <label class="lbl">登录密码</label>
-          <input v-model="refundForm.paypwd" type="password" class="field-input flex-1" placeholder="验证身份" />
-        </div>
-        <p class="text-xs text-muted-foreground">退款将原路退回买家，成功后从可用余额扣除相应金额。</p>
+        <p class="text-sm text-muted-foreground">
+          确认对该订单发起<b class="text-foreground">全额退款</b>？退款后订单状态转为「已退款」，
+          已入账的分成将从可用余额扣回，此操作不可恢复。
+        </p>
       </div>
       <template #footer>
         <Button variant="outline" size="sm" @click="refundOpen = false">取消</Button>
-        <Button size="sm" :disabled="!refundForm.money || !refundForm.paypwd" @click="submitRefund"><Undo2 />确认退款</Button>
+        <Button variant="destructive" size="sm" :disabled="busy" @click="submitRefund"><Undo2 />确认全额退款</Button>
       </template>
     </Modal>
   </div>

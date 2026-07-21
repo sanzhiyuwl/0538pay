@@ -10,13 +10,15 @@ import (
 
 // Deps 汇聚路由所需的 handler 与依赖。
 type Deps struct {
-	JWT      *jwtauth.Manager
-	Auth     *handler.AuthHandler
-	Order    *handler.OrderHandler
-	Merchant *handler.MerchantHandler
-	Channel  *handler.ChannelHandler
-	Pay      *handler.PayHandler
-	Settle   *handler.SettleHandler
+	JWT            *jwtauth.Manager
+	Auth           *handler.AuthHandler
+	Order          *handler.OrderHandler
+	Merchant       *handler.MerchantHandler
+	Channel        *handler.ChannelHandler
+	Pay            *handler.PayHandler
+	Settle         *handler.SettleHandler
+	MerchantAuth   *handler.MerchantAuthHandler
+	MerchantCenter *handler.MerchantCenterHandler
 }
 
 // Setup 注册所有路由。
@@ -68,5 +70,26 @@ func Setup(r *gin.Engine, d Deps) {
 		pay.GET("/notify/:trade_no", d.Pay.Notify)
 	}
 
-	// merchant / console 分组后续补
+	// 商户中心（阶段D）
+	merchant := api.Group("/merchant")
+	{
+		merchant.POST("/login", d.MerchantAuth.Login) // 无需鉴权
+
+		mAuthed := merchant.Group("")
+		mAuthed.Use(middleware.Auth(d.JWT, "merchant"))
+		{
+			mAuthed.GET("/info", d.MerchantAuth.Info)
+			// D2 查询与操作
+			mAuthed.GET("/dashboard", d.MerchantCenter.Dashboard)
+			mAuthed.GET("/orders", d.MerchantCenter.Orders)
+			mAuthed.GET("/records", d.MerchantCenter.Records)
+			mAuthed.GET("/settles", d.MerchantCenter.Settles)
+			mAuthed.GET("/apply/info", d.MerchantCenter.ApplyInfo)
+			mAuthed.POST("/apply", d.MerchantCenter.Apply)
+			mAuthed.POST("/order/refund", d.MerchantCenter.Refund)
+			mAuthed.POST("/order/notify", d.MerchantCenter.Renotify)
+		}
+	}
+
+	// console 分组后续补
 }

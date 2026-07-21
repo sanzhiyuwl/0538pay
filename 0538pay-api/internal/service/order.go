@@ -32,6 +32,12 @@ func (s *OrderService) List(q dto.OrderQuery) ([]dto.OrderView, int64, error) {
 	return views, total, nil
 }
 
+// ListByMerchant 商户端订单查询：强制限定当前商户 uid，防止越权查他人订单。
+func (s *OrderService) ListByMerchant(uid uint, q dto.OrderQuery) ([]dto.OrderView, int64, error) {
+	q.UID = &uid
+	return s.List(q)
+}
+
 func toOrderView(o *model.Order) dto.OrderView {
 	v := dto.OrderView{
 		TradeNo:     o.TradeNo,

@@ -1,23 +1,42 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Wallet, Pencil, History } from 'lucide-vue-next'
 import { Panel, Button } from '@/components/ui'
-import { applyInfo as a } from '@/lib/mock/merchant/settle'
+import { fetchApplyInfo, submitApply, type ApplyInfo } from '@/lib/api/merchantCenter'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 import { formatMoney } from '@/lib/utils'
 
 const router = useRouter()
+const toast = useToast()
 const amount = ref('')
+const submitting = ref(false)
+
+// 提现页信息（真接口）；默认零值避免首帧模板访问空对象
+const a = ref<ApplyInfo>({
+  settleName: '', account: '', username: '',
+  money: 0, enableMoney: 0, settleMin: 0, settleMaxLimit: 0,
+  settleRate: 0, settleFeeMin: 0, settleFeeMax: 0, settleType: 1, todayCount: 0,
+})
+async function loadInfo() {
+  try {
+    a.value = await fetchApplyInfo()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '提现信息加载失败')
+  }
+}
+onMounted(loadInfo)
 
 function fillAll() {
-  amount.value = String(a.enableMoney)
+  amount.value = String(a.value.enableMoney)
 }
 
 // 手续费与到账实时计算
 const fee = computed(() => {
   const m = Number(amount.value) || 0
   if (m <= 0) return 0
-  return Math.min(Math.max((m * a.settleRate) / 100, a.settleFeeMin), a.settleFeeMax)
+  return Math.min(Math.max((m * a.value.settleRate) / 100, a.value.settleFeeMin), a.value.settleFeeMax)
 })
 const realArrive = computed(() => {
   const m = Number(amount.value) || 0
@@ -29,16 +48,27 @@ const error = computed(() => {
   const m = Number(amount.value)
   if (!amount.value) return ''
   if (isNaN(m) || m <= 0) return '请输入有效金额'
-  if (m < a.settleMin) return `最低提现额为 ¥${a.settleMin}`
-  if (m > a.enableMoney) return '超过可提现余额'
-  if (a.todayCount >= a.settleMaxLimit) return `今日提现已达上限（${a.settleMaxLimit} 次）`
+  if (m < a.value.settleMin) return `最低提现额为 ¥${a.value.settleMin}`
+  if (m > a.value.enableMoney) return '超过可提现余额'
+  if (a.value.settleMaxLimit > 0 && a.value.todayCount >= a.value.settleMaxLimit)
+    return `今日提现已达上限（${a.value.settleMaxLimit} 次）`
   return ''
 })
-const canSubmit = computed(() => !!amount.value && !error.value)
+const canSubmit = computed(() => !!amount.value && !error.value && !submitting.value)
 
-function submit() {
+async function submit() {
   if (!canSubmit.value) return
-  amount.value = ''
+  submitting.value = true
+  try {
+    await submitApply(amount.value)
+    toast.success('提现申请已提交，等待平台结算')
+    amount.value = ''
+    await loadInfo() // 刷新余额与次数
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '提现申请失败')
+  } finally {
+    submitting.value = false
+  }
 }
 </script>
 

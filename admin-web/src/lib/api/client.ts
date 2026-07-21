@@ -5,16 +5,35 @@
 
 const BASE = '/api' // 经 vite dev 代理转发到后端 :8080
 
-const TOKEN_KEY = 'admin_token'
+// 多端 token 隔离：admin/console 用 admin_token，商户中心用 merchant_token，互不覆盖。
+const ADMIN_TOKEN_KEY = 'admin_token'
+const MERCHANT_TOKEN_KEY = 'merchant_token'
 
+// 按请求路径前缀判定该用哪个端的 token。
+function tokenKeyForPath(path: string): string {
+  return path.startsWith('/merchant') ? MERCHANT_TOKEN_KEY : ADMIN_TOKEN_KEY
+}
+
+// —— admin/console 端 token（保持原有 API 名不变，兼容既有调用）——
 export function getToken(): string {
-  return localStorage.getItem(TOKEN_KEY) || ''
+  return localStorage.getItem(ADMIN_TOKEN_KEY) || ''
 }
 export function setToken(t: string) {
-  localStorage.setItem(TOKEN_KEY, t)
+  localStorage.setItem(ADMIN_TOKEN_KEY, t)
 }
 export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(ADMIN_TOKEN_KEY)
+}
+
+// —— 商户端 token ——
+export function getMerchantToken(): string {
+  return localStorage.getItem(MERCHANT_TOKEN_KEY) || ''
+}
+export function setMerchantToken(t: string) {
+  localStorage.setItem(MERCHANT_TOKEN_KEY, t)
+}
+export function clearMerchantToken() {
+  localStorage.removeItem(MERCHANT_TOKEN_KEY)
 }
 
 /** 后端统一响应体 */
@@ -24,10 +43,14 @@ interface ApiBody<T> {
   data: T
 }
 
-/** 401 回调：由 app 注入（跳登录页），避免 lib 层直接依赖 router */
+/** 401 回调：由 app 注入（跳登录页），避免 lib 层直接依赖 router。分端各一个。 */
 let unauthorizedHandler: (() => void) | null = null
 export function onUnauthorized(fn: () => void) {
   unauthorizedHandler = fn
+}
+let merchantUnauthorizedHandler: (() => void) | null = null
+export function onMerchantUnauthorized(fn: () => void) {
+  merchantUnauthorizedHandler = fn
 }
 
 /** 业务错误：code 非 0 时抛出，携带 code 与 msg */
@@ -60,7 +83,8 @@ function buildQuery(query?: RequestOptions['query']): string {
 export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { method = 'GET', query, body } = opts
   const headers: Record<string, string> = {}
-  const token = getToken()
+  const isMerchant = path.startsWith('/merchant')
+  const token = localStorage.getItem(tokenKeyForPath(path)) || ''
   if (token) headers['Authorization'] = `Bearer ${token}`
 
   const init: RequestInit = { method, headers }
@@ -73,8 +97,13 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
 
   // 网络/HTTP 层错误
   if (res.status === 401) {
-    clearToken()
-    if (unauthorizedHandler) unauthorizedHandler()
+    if (isMerchant) {
+      clearMerchantToken()
+      if (merchantUnauthorizedHandler) merchantUnauthorizedHandler()
+    } else {
+      clearToken()
+      if (unauthorizedHandler) unauthorizedHandler()
+    }
     throw new ApiError(401, '登录已失效，请重新登录')
   }
   let json: ApiBody<T>

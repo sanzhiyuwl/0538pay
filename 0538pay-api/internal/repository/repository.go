@@ -48,6 +48,32 @@ func (r *MerchantRepo) FindByUID(uid uint) (*model.Merchant, error) {
 	return &m, nil
 }
 
+// FindByLoginAccount 按邮箱或手机号查商户（密码登录用）。未找到返回 (nil, nil)。
+func (r *MerchantRepo) FindByLoginAccount(account string) (*model.Merchant, error) {
+	var m model.Merchant
+	err := r.db.Where("email = ? OR phone = ?", account, account).First(&m).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// FindByUIDSafe 按商户号查商户，未找到返回 (nil, nil)（区别于 FindByUID 返回 ErrRecordNotFound）。
+func (r *MerchantRepo) FindByUIDSafe(uid uint) (*model.Merchant, error) {
+	var m model.Merchant
+	err := r.db.Where("uid = ?", uid).First(&m).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
 // List 分页查询商户，支持字段模糊搜索与多种状态筛选。
 func (r *MerchantRepo) List(q dto.MerchantQuery) ([]model.Merchant, int64, error) {
 	allowedCols := map[string]string{
@@ -243,6 +269,38 @@ func (r *AccountRepo) ChangeUserMoney(uid uint, amount decimal.Decimal, add bool
 	})
 }
 
+// RecordRepo 资金流水（pay_record）数据访问。
+type RecordRepo struct{ db *gorm.DB }
+
+func NewRecordRepo(db *gorm.DB) *RecordRepo { return &RecordRepo{db: db} }
+
+// List 分页查询资金流水，支持 action 与 类型/单号 关键词筛选（商户端按 uid 限定）。
+func (r *RecordRepo) List(q dto.RecordQuery) ([]model.PayRecord, int64, error) {
+	tx := r.db.Model(&model.PayRecord{})
+	if q.UID != nil {
+		tx = tx.Where("uid = ?", *q.UID)
+	}
+	if q.Action != nil {
+		tx = tx.Where("action = ?", *q.Action)
+	}
+	if q.Keyword != "" {
+		tx = tx.Where("type LIKE ? OR trade_no LIKE ?", "%"+q.Keyword+"%", "%"+q.Keyword+"%")
+	}
+	var total int64
+	if err := tx.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var list []model.PayRecord
+	err := tx.Order("id DESC").
+		Offset((q.Page - 1) * q.PageSize).
+		Limit(q.PageSize).
+		Find(&list).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	return list, total, nil
+}
+
 // OrderRepo 订单数据访问。
 type OrderRepo struct{ db *gorm.DB }
 
@@ -358,6 +416,52 @@ func (r *OrderRepo) FindUnpaidForReconcile(since time.Time, limit int) ([]model.
 	return list, err
 }
 
+// CountPaidByMerchant 统计商户已支付订单数（status=1）。since 非零则只统计该时刻之后创建的。
+func (r *OrderRepo) CountPaidByMerchant(uid uint, since time.Time) (int64, error) {
+	tx := r.db.Model(&model.Order{}).Where("uid = ? AND status = 1", uid)
+	if !since.IsZero() {
+		tx = tx.Where("add_time >= ?", since)
+	}
+	var n int64
+	err := tx.Count(&n).Error
+	return n, err
+}
+
+// SumPaidMoneyByMerchant 汇总商户在 [start,end) 内已支付订单的收入（按 money 求和）。
+func (r *OrderRepo) SumPaidMoneyByMerchant(uid uint, start, end time.Time) (decimal.Decimal, error) {
+	var result struct{ Total decimal.Decimal }
+	err := r.db.Model(&model.Order{}).
+		Select("COALESCE(SUM(money),0) AS total").
+		Where("uid = ? AND status = 1 AND add_time >= ? AND add_time < ?", uid, start, end).
+		Scan(&result).Error
+	return result.Total, err
+}
+
+// FindByTradeNoAndUID 按系统订单号 + 商户号查订单（商户端退款/操作校验归属用）。未找到返回 (nil,nil)。
+func (r *OrderRepo) FindByTradeNoAndUID(tradeNo string, uid uint) (*model.Order, error) {
+	var o model.Order
+	err := r.db.Where("trade_no = ? AND uid = ?", tradeNo, uid).First(&o).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &o, nil
+}
+
+// MarkRefunded 幂等退款改单：仅当 status=1(已付) 时转为 2(已退款)，写 refundmoney。
+// 条件 UPDATE + 影响行数判重复退款：返回 true 表示本次真正执行了退款。
+func (r *OrderRepo) MarkRefunded(tradeNo string, refundMoney decimal.Decimal) (bool, error) {
+	res := r.db.Model(&model.Order{}).
+		Where("trade_no = ? AND status = 1", tradeNo).
+		Updates(map[string]interface{}{"status": 2, "refund_money": refundMoney})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
 // List 分页查询订单，支持按 column/keyword 模糊搜索与状态筛选。
 func (r *OrderRepo) List(q dto.OrderQuery) ([]model.Order, int64, error) {
 	// 白名单，防 SQL 注入到列名
@@ -367,6 +471,9 @@ func (r *OrderRepo) List(q dto.OrderQuery) ([]model.Order, int64, error) {
 	}
 
 	tx := r.db.Model(&model.Order{})
+	if q.UID != nil {
+		tx = tx.Where("uid = ?", *q.UID)
+	}
 	if q.Keyword != "" && allowedCols[q.Column] {
 		tx = tx.Where(q.Column+" LIKE ?", "%"+q.Keyword+"%")
 	}

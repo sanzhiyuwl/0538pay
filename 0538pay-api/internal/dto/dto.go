@@ -124,6 +124,164 @@ func (q *ChannelQuery) Normalize() {
 	}
 }
 
+// ===== 商户中心工作台（D2）=====
+
+// MerchantDashboard 商户工作台聚合数据，对齐前端 mock/merchant/dashboard.ts。
+type MerchantDashboard struct {
+	Info     MerchantDashInfo    `json:"merchantInfo"`
+	Alerts   MerchantAlerts      `json:"alerts"`
+	Channels []MerchantChannel   `json:"channels"`
+	Announces []AnnounceView     `json:"announces"`
+	Trend    SettleTrendView     `json:"trend"`
+}
+
+// MerchantDashInfo 工作台商户信息（status 用字符串枚举，对齐前端 mock 消费方式）。
+type MerchantDashInfo struct {
+	UID             uint    `json:"uid"`
+	Name            string  `json:"name"`
+	QQ              string  `json:"qq"`
+	Status          string  `json:"status"` // normal/banned/payoff/settleoff/auditing/uncert
+	GroupName       string  `json:"groupName"`
+	Money           float64 `json:"money"`
+	SettleMoney     float64 `json:"settleMoney"`
+	TodayIncome     float64 `json:"todayIncome"`
+	YesterdayIncome float64 `json:"yesterdayIncome"`
+	Orders          int64   `json:"orders"`
+	OrdersToday     int64   `json:"ordersToday"`
+}
+
+// MerchantAlerts 工作台顶部提醒横幅开关。
+type MerchantAlerts struct {
+	NeedCert   bool `json:"needCert"`
+	NoSecurity bool `json:"noSecurity"`
+	NoLoginPwd bool `json:"noLoginPwd"`
+}
+
+// MerchantChannel 通道费率/收入统计行。
+type MerchantChannel struct {
+	TypeName    string  `json:"typename"`
+	ShowName    string  `json:"showname"`
+	Today       float64 `json:"today"`
+	Yesterday   float64 `json:"yesterday"`
+	SuccessRate float64 `json:"successRate"`
+	Rate        string  `json:"rate"`
+}
+
+// AnnounceView 公告。
+type AnnounceView struct {
+	ID      int    `json:"id"`
+	Content string `json:"content"`
+	Color   string `json:"color"`
+	Time    string `json:"time"`
+}
+
+// SettleTrendView 结算金额趋势图。
+type SettleTrendView struct {
+	Labels []string  `json:"labels"`
+	Data   []float64 `json:"data"`
+}
+
+// MerchantSettleView 商户端结算记录，对齐前端 mock/merchant/settle.ts 的 SettleRecord
+// （金额用 number、auto 用 boolean、失败原因 failReason，区别于 admin 端 SettleView）。
+type MerchantSettleView struct {
+	ID         uint    `json:"id"`
+	Type       int8    `json:"type"`       // 1支付宝2微信3QQ4银行卡5支付机构
+	Auto       bool    `json:"auto"`       // 是否自动
+	Account    string  `json:"account"`    // 结算账号
+	Money      float64 `json:"money"`      // 结算金额
+	RealMoney  float64 `json:"realmoney"`  // 实际到账
+	AddTime    string  `json:"addtime"`    // 结算时间
+	Status     int8    `json:"status"`     // 0待结算1已完成2正在结算3失败
+	FailReason string  `json:"failReason"` // 失败原因
+}
+
+// ApplyInfo 申请提现页信息，对齐前端 mock/merchant/settle.ts 的 applyInfo。
+type ApplyInfo struct {
+	SettleName     string  `json:"settleName"`     // 提现方式（只读）
+	Account        string  `json:"account"`        // 提现账号
+	Username       string  `json:"username"`       // 真实姓名
+	Money          float64 `json:"money"`          // 当前余额
+	EnableMoney    float64 `json:"enableMoney"`    // 可提现余额
+	SettleMin      float64 `json:"settleMin"`      // 最低提现额
+	SettleMaxLimit int     `json:"settleMaxLimit"` // 每日次数上限
+	SettleRate     float64 `json:"settleRate"`     // 手续费率 %
+	SettleFeeMin   float64 `json:"settleFeeMin"`   // 最低手续费
+	SettleFeeMax   float64 `json:"settleFeeMax"`   // 最高手续费
+	SettleType     int     `json:"settleType"`     // 1=D+0 2=D+1
+	TodayCount     int     `json:"todayCount"`     // 今日已提现次数
+}
+
+// ApplyReq 申请提现入参。
+type ApplyReq struct {
+	Amount string `json:"amount" binding:"required"` // 提现金额
+}
+
+// RefundReq 订单退款入参（商户端）。
+type RefundReq struct {
+	TradeNo string `json:"trade_no" binding:"required"`
+	// 全额退款，暂不支持部分退款金额与支付密码（支付密码校验待商户资料域）
+}
+
+// RecordView 资金流水对外响应，对齐前端 mock/merchant/records.ts（金额用 number）+ epay pre_record。
+type RecordView struct {
+	ID       uint    `json:"id"`
+	Action   int8    `json:"action"`   // 1=增加 2=减少
+	Money    float64 `json:"money"`    // 变更金额
+	OldMoney float64 `json:"oldmoney"` // 变更前余额
+	NewMoney float64 `json:"newmoney"` // 变更后余额
+	Type     string  `json:"type"`     // 操作类型文案
+	TradeNo  string  `json:"trade_no"` // 关联单号
+	Date     string  `json:"date"`     // 时间
+}
+
+// RecordQuery 资金流水查询入参（商户端：按类型/关键词筛选 + 分页）。
+type RecordQuery struct {
+	Page     int    `form:"page"`
+	PageSize int    `form:"pageSize"`
+	Action   *int   `form:"action"`  // 1增2减，可空
+	Keyword  string `form:"keyword"` // 类型文案 / 关联单号 模糊
+	UID      *uint  `form:"-"`       // 商户号（商户端强制注入）
+}
+
+// Normalize 补默认分页值并做安全上限。
+func (q *RecordQuery) Normalize() {
+	if q.Page <= 0 {
+		q.Page = 1
+	}
+	if q.PageSize <= 0 || q.PageSize > 100 {
+		q.PageSize = 20
+	}
+}
+
+// MerchantLoginReq 商户登录入参（对齐 epay user/login.php 双模式）。
+// Type=1 密码登录(Account=邮箱/手机, Password=登录密码)；Type=0 密钥登录(Account=商户ID, Password=通信密钥)。
+type MerchantLoginReq struct {
+	Type     int8   `json:"type"`               // 1=密码登录 0=密钥登录
+	Account  string `json:"account" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
+// MerchantLoginResp 商户登录成功返回。
+type MerchantLoginResp struct {
+	Token string       `json:"token"`
+	Info  MerchantInfo `json:"info"`
+}
+
+// MerchantInfo 当前登录商户的基础信息（工作台/顶栏展示，无敏感字段）。
+type MerchantInfo struct {
+	UID      uint   `json:"uid"`
+	Name     string `json:"name"`     // 商户名（暂用 uid 派生，接商户名字段后补）
+	Money    string `json:"money"`    // 余额
+	Status   int8   `json:"status"`   // 0封禁1正常2未审核
+	Pay      int8   `json:"pay"`      // 支付权限
+	Settle   int8   `json:"settle"`   // 结算权限
+	Cert     int8   `json:"cert"`     // 实名
+	Email    string `json:"email"`
+	Phone    string `json:"phone"`
+	QQ       string `json:"qq"`
+	GID      int    `json:"gid"`
+}
+
 // SettleView 结算明细对外响应，字段/json tag 对齐前端 mock/settle.ts 的 SettleRecord。
 // 金额统一格式化为两位小数字符串；merchant 为商户名（暂用 uid 派生，接商户名字段后补）。
 type SettleView struct {
@@ -248,6 +406,7 @@ type OrderQuery struct {
 	Column   string `form:"column"`  // 搜索字段名（trade_no/out_trade_no/...）
 	Keyword  string `form:"keyword"` // 搜索关键词
 	Status   *int   `form:"status"`  // 状态筛选（可空）
+	UID      *uint  `form:"-"`       // 商户号过滤（商户端强制注入当前商户，不从 query 绑定）
 }
 
 // Normalize 补默认分页值并做安全上限。

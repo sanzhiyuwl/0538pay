@@ -88,6 +88,7 @@ import CashierMock from '@/views/site/CashierMock.vue'
 import ClassicNews from '@/views/site/templates/classic/ClassicNews.vue'
 import { allLeaves, consoleLeaves, merchantLeaves } from '@/config/nav'
 import { useAuthStore } from '@/stores/auth'
+import { useMerchantAuthStore } from '@/stores/merchantAuth'
 import { useSiteStore } from '@/stores/site'
 
 // 路径 → 页面名映射：菜单叶子标题 + 少量非菜单页手工补充
@@ -265,6 +266,7 @@ const router = createRouter({
     {
       path: '/m',
       component: MerchantLayout,
+      meta: { requiresMerchant: true },
       children: merchantChildren,
     },
     // /site 旧路径重定向到官网首页（兼容历史链接）
@@ -282,16 +284,28 @@ const router = createRouter({
 
 // 路由守卫：访问带 requiresAuth 的路由（后台）时校验登录态，未登录跳登录页并记来源
 router.beforeEach((to) => {
+  // 后台分组
   if (to.matched.some((r) => r.meta.requiresAuth)) {
     const auth = useAuthStore()
     if (!auth.isLoggedIn()) {
       return { name: 'login', query: { redirect: to.fullPath } }
     }
   }
-  // 已登录时访问登录页，直接进后台
+  // 商户中心分组
+  if (to.matched.some((r) => r.meta.requiresMerchant)) {
+    const m = useMerchantAuthStore()
+    if (!m.isLoggedIn()) {
+      return { name: 'm-login', query: { redirect: to.fullPath } }
+    }
+  }
+  // 已登录时访问登录页，直接进对应端首页
   if (to.name === 'login') {
     const auth = useAuthStore()
     if (auth.isLoggedIn()) return '/admin'
+  }
+  if (to.name === 'm-login') {
+    const m = useMerchantAuthStore()
+    if (m.isLoggedIn()) return '/m'
   }
 })
 

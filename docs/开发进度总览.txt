@@ -41,7 +41,7 @@
   2. 支付渠道插件（epay 51 个）…… 【框架通】mock 渠道 Create+Notify 跑通 interface+registry，真实渠道 0（阶段B）
   3. 定时任务 cron ………………… 【打通】ticker 调度器已跑：notify 重试队列 + 未支付对账 + 超时关单 + 自动结算 均真跑通过(分账/风控自动化待后续)
   4. 管理后台（epay admin 49 文件）… 【前端好·后端列表渐切真】订单/商户/通道列表真接口，余全 mock
-  5. 商户中心（epay user 37 文件）… 【前端好·后端0接口】UI 全建好，商户端接口一个没有
+  5. 商户中心（epay user 37 文件）… 【前端好·D1+D2已通】登录态+工作台/订单/流水/结算/提现/退款已切真接口，资料/密钥/实名/充值等待 D3
   6. 官网 / 前端视觉 …………………… 【前端好】官网+文档+CMS 已成型；收银台/扫码中间页未做
   7. 我们独有（epay 无，加分项）…… 【前端好】SaaS 控制台 / RBAC 多管理员 / 官网 CMS，均 mock
 
@@ -215,7 +215,22 @@
   ----------------------------------------------------------------
   阶段 D — 商户中心 /m 接后端
   ----------------------------------------------------------------
-    ⬜ D1 商户登录态 + API 密钥/RSA
+    ✅ D2 商户端查询页 + 提现/退款（2026-07-21）：工作台聚合统计 + 订单查询 + 资金流水(新建RecordRepo)
+       + 结算记录 + 申请提现(复用结算域CreateWithDebit) + 订单退款(余额层逆向,状态转2+退款流水+幂等)
+       + 重新通知(复用通知重发)。MerchantCenterService/Handler + /api/merchant 8 接口 +
+       merchantCenter api 模块 + MerchantHome/Orders/Records/Settle/Apply 5 页全切真接口。
+       真跑全绿:5页渲染、余额精确联动(退款-0.14/提现-50)、超额/低门槛/重复退款正确拦截。
+       缺:部分退款/支付密码校验、渠道侧真实退款(待凭证)。
+    🔨 D1 商户登录态（2026-07-21 完成登录闭环，API 密钥/RSA 归 D3）
+       —— 后端 MerchantAuthService(密码 bcrypt / 密钥 AppKey 明文比对 双模式 + type 纠偏 + 状态守卫,
+          签 scope=merchant 的 JWT;认证语义对齐 epay 但载体用 JWT 不移植 RC4 cookie) +
+          MerchantAuthHandler + /api/merchant 分组(login 免鉴权, /info 需 merchant 鉴权) +
+          seedmerchants 补 bcrypt 密码(测试密码 merchant888)。
+       —— 前端 merchantAuth store + lib/api/merchantAuth + client 独立 merchant_token key(与 admin 隔离) +
+          MerchantLogin 切真接口 + 路由守卫 /m 分组保护(requiresMerchant) + 退出清态 + 401 分端跳登录 +
+          顶栏商户信息去硬编码改从 store 读。
+       —— 真跑全绿:密码登录/密钥登录/未登录拦截+redirect回跳/退出清态/scope隔离(merchant token 访问 admin 403)。
+          API 密钥重置/RSA 生成归 D3。
     ⬜ D2 订单查询 / 资金流水 / 结算 / 提现 / 充值 / 保证金
     ⬜ D3 实名认证
     （复用阶段 A/B/C 的后端能力）

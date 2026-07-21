@@ -235,3 +235,39 @@ func (r *SettleRepo) CountAutoSince(since time.Time) (int64, error) {
 		Where("auto = 1 AND add_time >= ?", since).Count(&n).Error
 	return n, err
 }
+
+// SumSettledByMerchant 汇总商户已完成结算的实际到账（status=1 的 realmoney 求和）。
+func (r *SettleRepo) SumSettledByMerchant(uid uint) (decimal.Decimal, error) {
+	var result struct{ Total decimal.Decimal }
+	err := r.db.Model(&model.SettleRecord{}).
+		Select("COALESCE(SUM(real_money),0) AS total").
+		Where("uid = ? AND status = 1", uid).
+		Scan(&result).Error
+	return result.Total, err
+}
+
+// CountByMerchantSince 统计商户在 since 之后创建的结算单数（提现每日次数限制用）。
+func (r *SettleRepo) CountByMerchantSince(uid uint, since time.Time) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.SettleRecord{}).
+		Where("uid = ? AND add_time >= ?", uid, since).Count(&n).Error
+	return n, err
+}
+
+// RecentSettledByMerchant 取商户最近 n 条已完成结算（工作台趋势图用，按时间升序返回）。
+func (r *SettleRepo) RecentSettledByMerchant(uid uint, n int) ([]model.SettleRecord, error) {
+	var list []model.SettleRecord
+	// 先取最近 n 条（倒序），调用方再反转为升序
+	err := r.db.Where("uid = ? AND status = 1", uid).
+		Order("end_time DESC").Limit(n).Find(&list).Error
+	return list, err
+}
+
+// ListByMerchant 商户端结算记录分页查询（强制 uid，复用 List）。
+func (r *SettleRepo) ListByMerchant(uid uint, status *int, page, pageSize int) ([]model.SettleRecord, int64, error) {
+	q := dto.SettleQuery{Page: page, PageSize: pageSize}
+	u := uid
+	q.UID = &u
+	q.Status = status
+	return r.List(q)
+}

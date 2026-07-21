@@ -24,6 +24,30 @@ var (
 	hundred      = decimal.RequireFromString("100")
 )
 
+// 结算周期与提现次数配置（对齐 epay settle_type / settle_maxlimit，待 config 域迁移）。
+const (
+	settleTypeDPlus1 = true // 结算周期 D+1（可提现余额扣当日已收）；false=D+0 全部余额
+	settleMaxLimit   = 5    // 每日手动提现次数上限（0=不限）
+)
+
+// settleTypeName 结算方式 ID → 名称（对齐前端 mock settleTypeMeta）。
+func settleTypeName(t int8) string {
+	switch t {
+	case 1:
+		return "支付宝"
+	case 2:
+		return "微信"
+	case 3:
+		return "QQ钱包"
+	case 4:
+		return "银行卡"
+	case 5:
+		return "支付机构"
+	default:
+		return "支付宝"
+	}
+}
+
 // SettleService 结算业务逻辑：明细/批次查询、状态流转、余额扣减退回、自动结算。
 type SettleService struct {
 	repo         *repository.SettleRepo

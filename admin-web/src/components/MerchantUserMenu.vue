@@ -1,17 +1,28 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { onClickOutside } from '@vueuse/core'
 import { ChevronDown, IdCard, KeyRound, SquarePen, Power } from 'lucide-vue-next'
 import { Modal, Button } from '@/components/ui'
+import { useMerchantAuthStore } from '@/stores/merchantAuth'
 
 const router = useRouter()
+const merchantAuth = useMerchantAuthStore()
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 onClickOutside(root, () => (open.value = false))
 
-// 商户信息（原型 mock）
-const merchant = { uid: 1001, name: '泰安优选商贸' }
+// 当前登录商户信息（来自 store，登录时后端返回）
+const merchant = computed(() => ({
+  uid: merchantAuth.info?.uid ?? 0,
+  name: merchantAuth.info?.name ?? '商户',
+}))
+
+function logout() {
+  open.value = false
+  merchantAuth.logout()
+  router.push('/m/login')
+}
 
 // ===== 修改密码弹窗（商户端仅登录密码）=====
 const pwdOpen = ref(false)
@@ -86,7 +97,7 @@ function openPwd() {
           <div class="border-t border-border/70" />
           <button
             class="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
-            @click="go('/m/login')"
+            @click="logout"
           >
             <Power class="size-4 text-muted-foreground" />退出登录
           </button>

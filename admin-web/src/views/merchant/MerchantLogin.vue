@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import {
   User, Lock, Eye, EyeOff, Hash, KeyRound, ArrowRight, CheckCircle2, TrendingUp,
 } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
+import { useMerchantAuthStore } from '@/stores/merchantAuth'
+import { ApiError } from '@/lib/api/client'
 
 const router = useRouter()
+const route = useRoute()
 const toast = useToast()
+const merchantAuth = useMerchantAuthStore()
 
 // 登录方式：password 密码登录 / key 密钥登录（商户特有）
 const mode = ref<'password' | 'key'>('password')
@@ -19,22 +23,39 @@ const loading = ref(false)
 const submitLabel = computed(() => (loading.value ? '登录中…' : '登录'))
 
 async function login() {
+  // type=1 密码登录 / type=0 密钥登录，与后端 dto.MerchantLoginReq 对齐
+  let type: 0 | 1
+  let account: string
+  let password: string
   if (mode.value === 'password') {
     if (!form.value.user.trim() || !form.value.pass) {
       toast.error('请输入账号和密码')
       return
     }
+    type = 1
+    account = form.value.user.trim()
+    password = form.value.pass
   } else {
     if (!form.value.mid.trim() || !form.value.mkey.trim()) {
       toast.error('请输入商户 ID 和密钥')
       return
     }
+    type = 0
+    account = form.value.mid.trim()
+    password = form.value.mkey.trim()
   }
   loading.value = true
-  await new Promise((r) => setTimeout(r, 420))
-  loading.value = false
-  toast.success('登录成功')
-  router.push('/m')
+  try {
+    await merchantAuth.login(type, account, password)
+    toast.success('登录成功')
+    // 支持登录后跳回原目标（路由守卫带的 redirect）
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/m'
+    router.push(redirect)
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '登录失败，请重试')
+  } finally {
+    loading.value = false
+  }
 }
 
 const socials = [

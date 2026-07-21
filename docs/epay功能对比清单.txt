@@ -300,12 +300,21 @@
 ================================================================
 第五部分 商户中心（epay user 37 文件 → 我们 MerchantLayout /m）
 ================================================================
-说明：UI 全部建好(21 视图)，数据全 mock，后端商户端接口 0 个（router.go 里注明
-      "merchant 分组后续补"）。全部 🎨。接后端阶段 D 做。
+说明：UI 全部建好(21 视图)。D1 登录态已切真接口(密码/密钥登录、路由守卫、退出、
+      merchant scope 隔离)，其余查询/资料页仍 mock，按 D2/D3 逐步接后端。
 
-【登录 / 注册 / 找回】
-  🎨  密码登录        epay login.php(type=1) → MerchantLogin.vue
-  🎨  密钥登录        epay login.php(type=0)
+【登录 / 注册 / 找回】(D1 登录态 2026-07-21 切真接口)
+  ✅  密码登录        epay login.php(type=1) → MerchantLogin.vue [真接口]
+        —— POST /api/merchant/login type=1(账号=邮箱/手机, bcrypt 校验密码)。
+           认证语义对齐 epay(双模式+type纠偏+状态守卫),但登录态载体用项目统一 JWT(scope=merchant),
+           不移植 epay 的 RC4 cookie。真跑:密码登录成功签发 token+返回商户信息。
+  ✅  密钥登录        epay login.php(type=0) → [真接口]
+        —— type=0(账号=商户ID, 明文比对通信密钥 AppKey,对齐 epay key 比对);
+           纯数字≤6位账号自动纠偏为密钥登录。真跑:uid+AppKey 登录成功。
+        —— 前端:merchantAuth store + lib/api/merchantAuth + client 独立 merchant_token key(与admin隔离)
+           + 路由守卫 /m 分组保护(requiresMerchant,未登录拦到 /m/login 带 redirect)+ 退出清态
+           + 401 分端跳登录 + 顶栏商户信息去硬编码改从 store 读。
+           真跑全通过:密码/密钥登录、未登录拦截、redirect回跳、退出清态、scope隔离(merchant token 访问 admin 接口 403)。
   ⬜  极验滑动验证码   epay 有；我们商户登录页未做（代码核实无验证码组件，
                       极验仅出现在后台 RegSettings 的配置项，与登录页无关）
   🎨  QQ 快捷登录/扫码  epay connect.php/qrlogin.php
@@ -315,8 +324,11 @@
   🎨  找回密码          epay findpwd.php → MerchantFindpwd.vue
   🎨  强制完善资料       epay completeinfo.php → MerchantComplete.vue
 
-【用户中心首页】
-  🎨  工作台仪表盘(余额/订单/结算/今昨收入/费率表/曲线)  epay index.php → MerchantHome.vue
+【用户中心首页】(D2 2026-07-21 切真接口)
+  ✅  工作台仪表盘(余额/订单/结算/今昨收入/费率表/曲线)  epay index.php → MerchantHome.vue [真接口]
+        —— GET /api/merchant/dashboard 聚合：商户信息(余额/状态/组名)+提醒横幅(未实名/未绑密保/未设密码)
+           +四数据卡(余额/已结算/订单总数/今日订单)+通道费率表+结算趋势图。统计口径对齐 epay getcount
+           (已支付订单数/今昨收入按 money 求和/已结算按 realmoney 求和)。真跑:余额¥1889.66等真实值渲染。
 
 【个人资料 / 账户】
   🎨  API信息(商户ID/MD5密钥/RSA公私钥)  epay userinfo.php?mod=api → MerchantApi.vue
@@ -327,11 +339,18 @@
   🎨  实名认证(个人/企业,支付宝人脸/微信)  epay certificate.php → MerchantCertificate.vue
   🎨  保证金(查看/充值/退还)  epay deposit.php → MerchantDeposit.vue
 
-【查询】
-  🎨  订单记录查询/详情/退款/补单  epay order.php → MerchantOrders.vue
-  🎨  结算记录                    epay settle.php → MerchantSettle.vue
-  🎨  资金明细                    epay record.php → MerchantRecords.vue
-  🎨  申请提现                    epay apply.php → MerchantApply.vue
+【查询】(D2 2026-07-21 切真接口)
+  ✅  订单记录查询/退款/重新通知  epay order.php → MerchantOrders.vue [真接口]
+        —— GET /api/merchant/orders(uid强制过滤+分页) + 退款 POST /order/refund(全额:状态转2+
+           逆向退回已入账分成+退款流水+幂等,余额层退款渠道侧真退待凭证) + 重新通知 POST /order/notify
+           (复用商户通知重发)。真跑:退款余额精确-0.14、重复退款拒绝、重新通知成功。缺:部分退款/支付密码校验。
+  ✅  结算记录                    epay settle.php → MerchantSettle.vue [真接口]
+        —— GET /api/merchant/settles(uid过滤+状态筛选+分页),商户端专用 View(number金额/boolean auto/failReason)。
+  ✅  资金明细                    epay record.php → MerchantRecords.vue [真接口]
+        —— 新建 RecordRepo + GET /api/merchant/records(uid过滤+类型/单号筛选+分页)。
+  ✅  申请提现                    epay apply.php → MerchantApply.vue [真接口]
+        —— GET /apply/info(可提余额D+1扣当日已收/手续费/次数) + POST /apply(校验金额/门槛/可提/权限/次数
+           → 复用结算域 CreateWithDebit 生成待结算单+扣款)。真跑:提现50余额精确-50、超额/低门槛正确拒绝。
   🎨  余额充值                    epay recharge.php → MerchantRecharge.vue
   🎨  购买会员(升级费率组)         epay groupbuy.php → MerchantGroupbuy.vue
   🎨  授权域名管理                epay domain.php → MerchantDomains.vue
