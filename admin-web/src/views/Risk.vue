@@ -1,90 +1,93 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { Search, RotateCcw } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, Pagination } from '@/components/ui'
-import { riskRecords, riskType, searchColumns, typeOptions, calcRiskStats } from '@/lib/mock/risk'
+import { fetchRisks, type RiskRecord } from '@/lib/api/risk'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
-const columnOptions = searchColumns.map((c) => ({ value: c.value, label: c.label }))
+const toast = useToast()
 
-// ===== 筛选 =====
-const filters = ref({ column: 'uid', value: '', type: -1 })
-
-const filtered = computed(() => {
-  return riskRecords.filter((r) => {
-    if (filters.value.type > -1 && r.type !== filters.value.type) return false
-    if (filters.value.value.trim()) {
-      const v = filters.value.value.trim()
-      const field = (r as any)[filters.value.column]
-      if (field == null || !String(field).includes(v)) return false
-    }
-    return true
-  })
-})
-
-function resetFilters() {
-  filters.value = { column: 'uid', value: '', type: -1 }
-  page.value = 1
+const riskType: Record<number, { text: string; variant: 'destructive' | 'warning' | 'default' | 'muted' }> = {
+  0: { text: '关键词屏蔽', variant: 'destructive' },
+  1: { text: '订单成功率', variant: 'warning' },
+  2: { text: '连续通知失败', variant: 'default' },
+  3: { text: '订单投诉率', variant: 'muted' },
 }
+const columnOptions = [
+  { value: 'uid', label: '商户号' },
+  { value: 'url', label: '风控网址' },
+  { value: 'content', label: '风控内容' },
+]
+const typeOptions = [
+  { value: -1, label: '风控类型' },
+  ...Object.entries(riskType).map(([k, t]) => ({ value: Number(k), label: t.text })),
+]
 
-// ===== 分页 =====
+// ===== 筛选（对齐 epay：精确等值搜索）=====
+const filters = reactive({ column: 'uid', value: '', type: -1 })
+
 const page = ref(1)
 const pageSize = 15
-const total = computed(() => filtered.value.length)
-const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
-const safePage = computed(() => Math.min(page.value, pageCount.value))
-const pageRows = computed(() =>
-  filtered.value.slice((safePage.value - 1) * pageSize, safePage.value * pageSize),
-)
-function go(p: number) {
-  page.value = Math.min(Math.max(1, p), pageCount.value)
-}
+const total = ref(0)
+const rows = ref<RiskRecord[]>([])
+const loading = ref(false)
 
-const stats = computed(() => calcRiskStats(filtered.value))
+async function load() {
+  loading.value = true
+  try {
+    const res = await fetchRisks({
+      page: page.value,
+      pageSize,
+      column: filters.value.trim() ? filters.column : undefined,
+      value: filters.value.trim() || undefined,
+      type: filters.type > -1 ? filters.type : undefined,
+    })
+    rows.value = res.list
+    total.value = res.total
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载风控记录失败')
+    rows.value = []
+    total.value = 0
+  } finally {
+    loading.value = false
+  }
+}
+function applySearch() {
+  page.value = 1
+  load()
+}
+function resetFilters() {
+  filters.column = 'uid'
+  filters.value = ''
+  filters.type = -1
+  applySearch()
+}
+function go(p: number) {
+  page.value = p
+  load()
+}
+onMounted(load)
+const pageCount = () => Math.max(1, Math.ceil(total.value / pageSize))
 </script>
 
 <template>
   <div class="space-y-2.5">
     <!-- 筛选 -->
-    <Panel title="风控记录" :subtitle="`共 ${total} 条`">
+    <Panel title="风控记录" :subtitle="`共 ${total} 条 · 系统自动触发，只读`">
       <div class="filter-bar">
         <div class="filter-item">
           <label class="filter-label">风控搜索</label>
           <Select v-model="filters.column" :options="columnOptions" class="w-28" />
-          <input v-model="filters.value" placeholder="搜索内容" class="field-input w-48" />
+          <input v-model="filters.value" placeholder="精确匹配" class="field-input w-48" @keyup.enter="applySearch" />
         </div>
         <div class="filter-item">
           <label class="text-sm text-muted-foreground">风控类型</label>
           <Select v-model="filters.type" :options="typeOptions" class="w-36" />
         </div>
         <div class="ml-auto flex items-center gap-2">
-          <Button size="sm" @click="page = 1"><Search />搜索</Button>
+          <Button size="sm" @click="applySearch"><Search />搜索</Button>
           <Button variant="outline" size="sm" @click="resetFilters"><RotateCcw />重置</Button>
-        </div>
-      </div>
-    </Panel>
-
-    <!-- 概况 -->
-    <Panel title="风控概况" subtitle="按当前筛选条件">
-      <div class="flex flex-wrap gap-x-10 gap-y-4">
-        <div>
-          <div class="text-[13px] text-muted-foreground">命中总数</div>
-          <div class="mt-1 text-xl font-normal tabular-nums">{{ stats.total }}</div>
-        </div>
-        <div>
-          <div class="text-[13px] text-muted-foreground">关键词屏蔽</div>
-          <div class="mt-1 text-xl font-normal tabular-nums text-destructive">{{ stats.keyword }}</div>
-        </div>
-        <div>
-          <div class="text-[13px] text-muted-foreground">订单成功率</div>
-          <div class="mt-1 text-xl font-normal tabular-nums text-warning">{{ stats.successRate }}</div>
-        </div>
-        <div>
-          <div class="text-[13px] text-muted-foreground">连续通知失败</div>
-          <div class="mt-1 text-xl font-normal tabular-nums">{{ stats.notifyFail }}</div>
-        </div>
-        <div>
-          <div class="text-[13px] text-muted-foreground">订单投诉率</div>
-          <div class="mt-1 text-xl font-normal tabular-nums">{{ stats.complaint }}</div>
         </div>
       </div>
     </Panel>
@@ -104,17 +107,20 @@ const stats = computed(() => calcRiskStats(filtered.value))
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in pageRows" :key="r.id">
+            <tr v-for="r in rows" :key="r.id">
               <td class="tabular-nums dim">{{ r.id }}</td>
               <td class="font-medium tabular-nums text-primary">{{ r.uid }}</td>
               <td>
                 <Badge :variant="riskType[r.type].variant">{{ riskType[r.type].text }}</Badge>
               </td>
               <td class="truncate" :title="r.content">{{ r.content }}</td>
-              <td class="truncate dim">{{ r.url }}</td>
+              <td class="truncate dim">{{ r.url || '—' }}</td>
               <td class="text-xs">{{ r.date }}</td>
             </tr>
-            <tr v-if="!pageRows.length">
+            <tr v-if="loading">
+              <td colspan="6" class="py-10 text-center dim">加载中…</td>
+            </tr>
+            <tr v-else-if="!rows.length">
               <td colspan="6" class="py-10 text-center dim">没有符合条件的风控记录</td>
             </tr>
           </tbody>
@@ -122,7 +128,7 @@ const stats = computed(() => calcRiskStats(filtered.value))
       </div>
 
       <div class="mt-4 border-t border-border/60 pt-4">
-        <Pagination :page="safePage" :page-count="pageCount" :total="total" :page-size="pageSize" @change="go" />
+        <Pagination :page="page" :page-count="pageCount()" :total="total" :page-size="pageSize" @change="go" />
       </div>
     </Panel>
   </div>
