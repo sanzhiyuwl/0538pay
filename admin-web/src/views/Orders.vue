@@ -25,6 +25,9 @@ import {
   type Order,
 } from '@/lib/mock/orders'
 import { formatMoney } from '@/lib/utils'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
 
 // 下拉选项（适配 Select 组件的 {value,label} 结构）
 const columnOptions = searchColumns.map((c) => ({ value: c.value, label: c.label }))
@@ -165,16 +168,25 @@ const exportForm = ref({
   channel: '',
   dstatus: -1,
 })
-// 导出预估命中条数（按导出条件即时过滤，给用户导出前的量级参考）
-const exportCount = computed(() => {
+// 按导出条件过滤订单（count 与实际导出共用同一套逻辑，避免"预估≠导出"）
+function filterForExport(): Order[] {
+  const f = exportForm.value
+  const start = f.starttime // 'YYYY-MM-DD'
+  const end = f.endtime
   return allOrders.value.filter((o) => {
-    if (exportForm.value.uid && String(o.uid) !== exportForm.value.uid.trim()) return false
-    if (exportForm.value.type && o.type !== exportForm.value.type) return false
-    if (exportForm.value.channel && String(o.channel) !== exportForm.value.channel.trim()) return false
-    if (exportForm.value.dstatus > -1 && o.status !== exportForm.value.dstatus) return false
+    // 时间范围：按 addtime 的日期部分闭区间比较（含起止当天）
+    const day = (o.addtime || '').slice(0, 10)
+    if (start && day < start) return false
+    if (end && day > end) return false
+    if (f.uid && String(o.uid) !== f.uid.trim()) return false
+    if (f.type && o.type !== f.type) return false
+    if (f.channel && String(o.channel) !== f.channel.trim()) return false
+    if (f.dstatus > -1 && o.status !== f.dstatus) return false
     return true
-  }).length
-})
+  })
+}
+// 导出预估命中条数（给用户导出前的量级参考）
+const exportCount = computed(() => filterForExport().length)
 function openExport() {
   // 带入当前列表筛选条件作为默认导出条件，减少重复输入
   exportForm.value = {
@@ -187,8 +199,45 @@ function openExport() {
   }
   exportOpen.value = true
 }
+// CSV 单元格转义：含逗号/引号/换行时用双引号包裹并转义内部引号
+function csvCell(v: string | number | null | undefined): string {
+  const s = v == null ? '' : String(v)
+  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
+  return s
+}
 function submitExport() {
-  // 原型阶段：仅关闭抽屉（真实环境跳转 download.php?act=order 下载 CSV）
+  const rows = filterForExport()
+  if (rows.length === 0) {
+    toast.info('当前条件下没有可导出的订单')
+    return
+  }
+  const headers = [
+    '系统订单号', '商户订单号', '接口订单号', '商户号', '商品名称',
+    '订单金额', '实际支付', '商户分成', '已退款', '手续费利润',
+    '支付方式', '通道ID', '插件', '支付IP', '支付账号',
+    '创建时间', '完成时间', '订单状态',
+  ]
+  const lines = rows.map((o) =>
+    [
+      o.trade_no, o.out_trade_no, o.api_trade_no, o.uid, o.name,
+      o.money, o.realmoney ?? '', o.getmoney, o.refundmoney, o.profitmoney,
+      o.typeshowname, o.channel, o.plugin, o.ip, o.buyer,
+      o.addtime, o.endtime ?? '', orderStatus[o.status]?.text ?? o.status,
+    ].map(csvCell).join(','),
+  )
+  // 加 BOM，保证 Excel 打开中文不乱码
+  const csv = '﻿' + [headers.join(','), ...lines].join('\r\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const range = `${exportForm.value.starttime}_${exportForm.value.endtime}`
+  a.href = url
+  a.download = `订单导出_${range}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  toast.success(`已导出 ${rows.length} 条订单`)
   exportOpen.value = false
 }
 </script>

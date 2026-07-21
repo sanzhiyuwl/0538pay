@@ -84,6 +84,7 @@ import ClassicAbout from '@/views/site/templates/classic/ClassicAbout.vue'
 import ClassicAgreement from '@/views/site/templates/classic/ClassicAgreement.vue'
 import ClassicPayok from '@/views/site/templates/classic/ClassicPayok.vue'
 import ClassicPayerr from '@/views/site/templates/classic/ClassicPayerr.vue'
+import CashierMock from '@/views/site/CashierMock.vue'
 import ClassicNews from '@/views/site/templates/classic/ClassicNews.vue'
 import { allLeaves, consoleLeaves, merchantLeaves } from '@/config/nav'
 import { useAuthStore } from '@/stores/auth'
@@ -235,6 +236,8 @@ const router = createRouter({
     // 支付结果页（独立，无官网导航/页脚）
     { path: '/payok', name: 'payok', component: ClassicPayok },
     { path: '/payerr', name: 'payerr', component: ClassicPayerr },
+    // 收银台中间页（mock 渠道，下单后 pay_url 跳转至此）
+    { path: '/pay/mock/cashier/:trade_no', name: 'cashier-mock', component: CashierMock },
     // 后台登录页（独立，无侧栏）
     { path: '/login', name: 'login', component: Login },
     // 管理后台（运营端）

@@ -38,12 +38,12 @@ export const typeOptions = [
 /** 各支付方式对应的插件候选（对齐 pre_plugin，用于新增/编辑联动） */
 export const pluginsByType: Record<number, { name: string; showname: string }[]> = {
   1: [
-    { name: 'alipay', showname: '支付宝当面付' },
-    { name: 'alipayf2f', showname: '支付宝服务商' },
+    { name: 'alipayf2f', showname: '支付宝当面付扫码' },
+    { name: 'alipay', showname: '支付宝网页/APP' },
     { name: 'epusdt', showname: '支付宝个人码' },
   ],
   2: [
-    { name: 'wxpaynp', showname: '微信原生支付' },
+    { name: 'wxnative', showname: '微信 Native 扫码' },
     { name: 'wxpayf2f', showname: '微信服务商' },
     { name: 'wxmini', showname: '微信小程序' },
   ],
@@ -51,6 +51,40 @@ export const pluginsByType: Record<number, { name: string; showname: string }[]>
   4: [
     { name: 'unionpay', showname: '云闪付官方' },
     { name: 'unionqr', showname: '银联二维码' },
+  ],
+}
+
+/** 密钥配置字段定义（配置密钥抽屉据此渲染专用表单） */
+export interface ConfigField {
+  key: string // config JSON 的键名（与后端 buildChannelConfig 的通用键对齐）
+  label: string // 表单显示名
+  placeholder?: string
+  type?: 'text' | 'textarea' // textarea 用于 PEM 私钥/公钥
+  required?: boolean
+  hint?: string
+}
+
+/**
+ * 各插件的密钥字段预设。有预设的插件走专用表单，未列出的插件退回通用 key-value 编辑。
+ * 微信 Native (wxnative) 字段对齐后端 pkg/channel/wxnative 与 buildChannelConfig 的通用键。
+ */
+export const pluginConfigFields: Record<string, ConfigField[]> = {
+  alipayf2f: [
+    { key: 'appid', label: '应用 APPID', placeholder: '支付宝开放平台应用 appid', required: true },
+    { key: 'private_key', label: '应用私钥', placeholder: '-----BEGIN PRIVATE KEY-----', type: 'textarea', required: true, hint: '应用私钥（PKCS8/PKCS1 或裸 Base64），用于请求签名' },
+    { key: 'public_key', label: '支付宝公钥', placeholder: '-----BEGIN PUBLIC KEY-----', type: 'textarea', required: true, hint: '支付宝公钥，用于回调验签；填错可支付成功但无法回调' },
+    { key: 'seller_id', label: '卖家 ID', placeholder: '卖家支付宝用户ID（可留空，默认签约账号）' },
+    { key: 'notify_url', label: '回调基址', placeholder: 'https://你的域名/api/pay/notify', required: true, hint: '系统会自动拼接 /系统订单号 作为支付宝回调地址' },
+  ],
+  wxnative: [
+    { key: 'appid', label: 'AppID', placeholder: '公众号/应用 appid', required: true },
+    { key: 'mch_id', label: '商户号', placeholder: '微信支付商户号 mchid', required: true },
+    { key: 'serial_no', label: '证书序列号', placeholder: '商户 API 证书序列号', required: true },
+    { key: 'api_v3_key', label: 'APIv3 密钥', placeholder: '32 位 APIv3 密钥', required: true, hint: '商户平台设置的 32 字节 APIv3 密钥，用于回调解密' },
+    { key: 'private_key', label: '商户私钥', placeholder: '-----BEGIN PRIVATE KEY-----', type: 'textarea', required: true, hint: 'apiclient_key.pem 内容，用于请求签名' },
+    { key: 'public_key', label: '微信支付公钥', placeholder: '-----BEGIN PUBLIC KEY-----', type: 'textarea', hint: '平台公钥/证书公钥，用于回调与应答验签' },
+    { key: 'public_key_id', label: '公钥 ID', placeholder: 'PUB_KEY_ID_xxxx（可选）' },
+    { key: 'notify_url', label: '回调基址', placeholder: 'https://你的域名/api/pay/notify', required: true, hint: '系统会自动拼接 /系统订单号 作为微信回调地址' },
   ],
 }
 

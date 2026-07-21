@@ -35,5 +35,32 @@
     因其引入 tiptap 富文本库体积大（拆出后主 chunk 从 ~1.29MB 回落到 ~721KB）。
     其余页面仍是静态 import，待统一处理。（2026-07-15）
 
+[ ] 4. 订单导出：后端全量流式导出
+    现象：Orders.vue 的导出 CSV 已能用，但只导出前端当前已加载的订单（fetchOrders pageSize=100 上限），
+          数据量大时导不全。
+    建议：后端加 GET /api/admin/orders/export，按 时间范围/商户/方式/通道/状态 查库，
+          流式写 CSV(带 BOM) 返回，前端改为下载该接口而非本地拼装。对齐 epay download.php?act=order。
+    影响面：中，需后端新增导出接口 + 前端改下载方式。归入阶段 C（后台业务域切真接口）。
+    发现：2026-07-21 订单导出功能补全时。
+
+[ ] 5. 结算计费配置迁移到 config 域
+    现象：结算手续费率/最低结算额/封顶封底(settle_rate=0.5% / settle_money=30 /
+          settle_fee_min=0.1 / settle_fee_max=20) 目前作为 internal/service/settle.go 的包级常量固化。
+    原因：epay 这些值在 pre_config 键值表可后台配置，我们还没建 config 域。
+    建议：建 config 域(键值表 + 后台"结算规则"设置页接真接口 SettleSettings.vue)后，
+          把这些常量迁移为可配置项；自动结算周期(D+0/D+1)、预留余额 remain_money、
+          每日结算次数上限等也一并纳入。
+    影响面：中，需新建 config 域。settle 计费逻辑已隔离在 calcFee，迁移只换取值来源。
+    发现：2026-07-21 结算域(C2)开发时。
+
+[ ] 6. 列表接口分页 page 回显为 0（既有技术债，全域统一）
+    现象：admin 各列表 handler 调 svc.List(q) 传值，Normalize() 在 service 内改的是副本，
+          handler 再用 q.Page 传给 resp.Page，当请求未带 page 时响应里 page=0。
+    涉及：Channel/Order/Merchant/Settle 全部 List handler，行为一致。
+    影响：前端翻页都会带 page，不影响实际使用；仅"不带 page 的裸查询"响应 page 显示 0。
+    建议：统一在 handler 绑定后先 q.Normalize() 再取值，或让 svc.List 回传规范化后的 page。
+          一次性改全域，避免只改 settle 造成域间不一致。
+    发现：2026-07-21 结算域真跑验证时。
+
 ----------------------------------------
 （后续发现的优化项继续往下追加）

@@ -9,20 +9,57 @@ import {
   CheckCircle2,
   Layers,
   MoreHorizontal,
-  Trash2,
   Clock,
   Undo2,
 } from 'lucide-vue-next'
-import { Panel, Button, Badge, Select, Pagination } from '@/components/ui'
+import { Panel, Button, Badge, Select, Pagination, Modal, Drawer, DateRange } from '@/components/ui'
 import {
-  batches,
-  settleRecords,
   settleTypes,
   settleStatus,
   batchStatus,
   calcSettleStats,
+  type SettleRecord,
+  type SettleBatch,
 } from '@/lib/mock/settle'
+import {
+  fetchSettles,
+  fetchSettleBatches,
+  createSettleBatch,
+  completeSettleBatch,
+  setSettleStatus,
+} from '@/lib/api/settle'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 import { formatMoney } from '@/lib/utils'
+
+const toast = useToast()
+
+// ===== 真接口数据（一次拉取，客户端筛选/分页，对齐 Channels.vue 模式）=====
+const batches = ref<SettleBatch[]>([])
+const settleRecords = ref<SettleRecord[]>([])
+
+async function loadBatches() {
+  try {
+    const res = await fetchSettleBatches({ page: 1, pageSize: 100 })
+    batches.value = res.list
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '批次加载失败')
+    batches.value = []
+  }
+}
+async function loadRecords() {
+  try {
+    const res = await fetchSettles({ page: 1, pageSize: 100 })
+    settleRecords.value = res.list
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '结算明细加载失败')
+    settleRecords.value = []
+  }
+}
+async function reload() {
+  await Promise.all([loadBatches(), loadRecords()])
+}
+onMounted(reload)
 
 // ===== 结算方式 / 状态下拉 =====
 const typeOptions = [
@@ -33,10 +70,10 @@ const statusOptions = [
   { value: -1, label: '全部状态' },
   ...Object.entries(settleStatus).map(([k, s]) => ({ value: Number(k), label: s.text })),
 ]
-const batchOptions = [
+const batchOptions = computed(() => [
   { value: '', label: '全部批次' },
-  ...batches.map((b) => ({ value: b.batch, label: b.batch })),
-]
+  ...batches.value.map((b) => ({ value: b.batch, label: b.batch })),
+])
 
 // ===== 筛选 =====
 const filters = ref({
@@ -48,7 +85,7 @@ const filters = ref({
 })
 
 const filtered = computed(() => {
-  return settleRecords.filter((r) => {
+  return settleRecords.value.filter((r) => {
     if (filters.value.uid && String(r.uid) !== filters.value.uid.trim()) return false
     if (filters.value.batch && r.batch !== filters.value.batch) return false
     if (filters.value.type && r.type !== filters.value.type) return false
@@ -131,6 +168,175 @@ onUnmounted(() => window.removeEventListener('click', closeMenu))
 function typeInitial(type: number) {
   return settleTypes[type]?.showname?.[0] ?? '?'
 }
+
+// ===== 写操作（调真接口，成功后重拉）=====
+const busy = ref(false)
+
+// 生成结算批次：收当前所有待结算记录
+async function doCreateBatch() {
+  if (busy.value) return
+  busy.value = true
+  try {
+    const res = await createSettleBatch()
+    toast.success(`已生成批次 ${res.batch}，收入 ${res.count} 条待结算记录`)
+    await reload()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '生成批次失败')
+  } finally {
+    busy.value = false
+  }
+}
+
+// 批次一键完成
+async function doCompleteBatch(batch: string) {
+  if (busy.value) return
+  busy.value = true
+  try {
+    const res = await completeSettleBatch(batch)
+    toast.success(`批次 ${batch} 已完成，${res.affected} 条置为已完成`)
+    await reload()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '批次完成失败')
+  } finally {
+    busy.value = false
+  }
+}
+
+// 单条状态变更（0待结算/1已完成/2正在结算/3失败）
+async function changeStatus(id: number, status: number) {
+  openMenu.value = null
+  if (busy.value) return
+  busy.value = true
+  try {
+    await setSettleStatus(id, status)
+    toast.success('状态已更新')
+    await reload()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '状态更新失败')
+  } finally {
+    busy.value = false
+  }
+}
+
+// 删除并退回余额（二次确认）
+const delTarget = ref<SettleRecord | null>(null)
+function askDelete(r: SettleRecord) {
+  openMenu.value = null
+  delTarget.value = r
+}
+async function confirmDelete() {
+  const r = delTarget.value
+  if (!r || busy.value) return
+  busy.value = true
+  try {
+    await setSettleStatus(r.id, 4)
+    toast.success(`已删除记录 #${r.id}，结算金额 ¥${r.money} 退回商户余额`)
+    delTarget.value = null
+    await reload()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '删除失败')
+  } finally {
+    busy.value = false
+  }
+}
+
+// 批量修改状态（对选中记录逐条调接口）
+async function bulkStatus(status: number) {
+  if (busy.value || !selected.value.size) return
+  busy.value = true
+  const ids = [...selected.value]
+  let ok = 0
+  try {
+    for (const id of ids) {
+      try {
+        await setSettleStatus(id, status)
+        ok++
+      } catch {
+        /* 单条失败继续，末尾汇总 */
+      }
+    }
+    toast.success(`批量处理完成：${ok}/${ids.length} 条成功`)
+    selected.value.clear()
+    await reload()
+  } finally {
+    busy.value = false
+  }
+}
+
+// ===== 高级导出抽屉（按时间范围/商户/方式/状态组合导出 CSV，对齐 Orders.vue）=====
+const exportOpen = ref(false)
+const exportForm = ref({
+  starttime: '',
+  endtime: '',
+  uid: '',
+  type: 0,
+  dstatus: -1,
+})
+// 按导出条件过滤（预估条数与实际导出共用，避免"预估≠导出"）
+function filterForExport(): SettleRecord[] {
+  const f = exportForm.value
+  return settleRecords.value.filter((r) => {
+    // 时间范围：按 addtime 日期部分闭区间（含起止当天）
+    const day = (r.addtime || '').slice(0, 10)
+    if (f.starttime && day < f.starttime) return false
+    if (f.endtime && day > f.endtime) return false
+    if (f.uid && String(r.uid) !== f.uid.trim()) return false
+    if (f.type && r.type !== f.type) return false
+    if (f.dstatus > -1 && r.status !== f.dstatus) return false
+    return true
+  })
+}
+const exportCount = computed(() => filterForExport().length)
+function openExport() {
+  // 带入当前列表筛选作为默认导出条件，减少重复输入
+  exportForm.value = {
+    starttime: '',
+    endtime: '',
+    uid: filters.value.uid,
+    type: filters.value.type,
+    dstatus: filters.value.dstatus,
+  }
+  exportOpen.value = true
+}
+function csvCell(v: string | number | null | undefined): string {
+  const s = v == null ? '' : String(v)
+  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
+  return s
+}
+function submitExport() {
+  const rows = filterForExport()
+  if (rows.length === 0) {
+    toast.info('当前条件下没有可导出的结算记录')
+    return
+  }
+  const headers = [
+    'ID', '批次号', '商户号', '商户', '结算方式', '是否自动',
+    '结算账号', '结算姓名', '结算金额', '实际到账',
+    '创建时间', '完成时间', '状态', '失败原因',
+  ]
+  const lines = rows.map((r) =>
+    [
+      r.id, r.batch, r.uid, r.merchant,
+      settleTypes[r.type]?.showname ?? r.type, r.auto ? '自动' : '手动',
+      r.account, r.username, r.money, r.realmoney,
+      r.addtime, r.endtime ?? '', settleStatus[r.status]?.text ?? r.status, r.result,
+    ].map(csvCell).join(','),
+  )
+  // 加 BOM，保证 Excel 打开中文不乱码
+  const csv = '﻿' + [headers.join(','), ...lines].join('\r\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const range = `${exportForm.value.starttime}_${exportForm.value.endtime}`
+  a.href = url
+  a.download = `结算明细_${range}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  toast.success(`已导出 ${rows.length} 条结算记录`)
+  exportOpen.value = false
+}
 </script>
 
 <template>
@@ -138,42 +344,50 @@ function typeInitial(type: number) {
     <!-- 结算批次 -->
     <Panel title="结算管理" subtitle="按批次归集待结算记录，通过转账接口或手动打款完成结算">
       <template #actions>
-        <Button size="sm"><Plus />生成结算批次</Button>
+        <Button size="sm" :disabled="busy" @click="doCreateBatch"><Plus />生成结算批次</Button>
       </template>
-      <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div
           v-for="b in batches"
           :key="b.batch"
-          class="group bg-muted/40 p-3.5 transition-colors hover:bg-muted/70"
+          class="group flex flex-col gap-3.5 bg-muted/40 p-4 transition-colors hover:bg-muted/70"
         >
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-1.5 text-sm font-medium">
-              <Layers class="size-4 text-primary" />
-              <span class="tabular-nums">{{ b.batch }}</span>
+          <!-- 标题行：批次号（标题）+ 状态 -->
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex min-w-0 items-center gap-1.5">
+              <Layers class="size-3.5 shrink-0 text-muted-foreground" />
+              <span class="truncate text-[13px] font-semibold tracking-tight tabular-nums">{{ b.batch }}</span>
             </div>
             <Badge :variant="batchStatus[b.status].variant">{{ batchStatus[b.status].text }}</Badge>
           </div>
-          <div class="mt-3 flex items-end justify-between">
-            <div>
-              <div class="text-[13px] text-muted-foreground">批次金额</div>
-              <div class="mt-0.5 text-lg font-semibold tabular-nums">
-                <span class="mr-0.5 text-xs font-normal text-muted-foreground">¥</span>{{ formatMoney(+b.allmoney) }}
-              </div>
+
+          <!-- 焦点：批次金额（唯一视觉重心）；笔数/时间降为下方辅助 meta -->
+          <div>
+            <div class="text-xl font-semibold tracking-tight tabular-nums">
+              <span class="mr-0.5 text-sm font-normal text-muted-foreground">¥</span>{{ formatMoney(+b.allmoney) }}
             </div>
-            <div class="text-right">
-              <div class="text-[13px] text-muted-foreground">笔数</div>
-              <div class="mt-0.5 text-lg font-semibold tabular-nums">{{ b.count }}</div>
+            <div class="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span class="tabular-nums">{{ b.count }} 笔</span>
+              <span class="text-border">·</span>
+              <Clock class="size-3" />
+              <span class="tabular-nums">{{ b.time }}</span>
             </div>
           </div>
-          <div class="mt-3 flex items-center gap-2 border-t border-border/60 pt-2.5 text-xs text-muted-foreground">
-            <Clock class="size-3.5" />{{ b.time }}
-          </div>
-          <div class="mt-2.5 flex flex-wrap gap-1.5">
+
+          <!-- 操作 -->
+          <div class="mt-auto flex flex-wrap gap-1.5 pt-0.5">
             <Button variant="outline" size="sm" @click="viewBatch(b.batch)">
               结算列表
             </Button>
-            <Button variant="outline" size="sm"><Send />批量转账</Button>
-            <Button variant="ghost" size="sm"><Download /></Button>
+            <Button
+              v-if="b.status !== 1"
+              variant="outline"
+              size="sm"
+              :disabled="busy"
+              @click="doCompleteBatch(b.batch)"
+            >
+              <CheckCircle2 />标记完成
+            </Button>
           </div>
         </div>
       </div>
@@ -220,27 +434,27 @@ function typeInitial(type: number) {
     <!-- 筛选 -->
     <Panel title="结算明细" :subtitle="`共 ${total} 条记录`">
       <template #actions>
-        <Button variant="outline" size="sm"><Download />导出列表</Button>
+        <Button variant="outline" size="sm" @click="openExport"><Download />导出列表</Button>
       </template>
       <div class="filter-bar">
         <div class="filter-item">
-          <label class="filter-label">账号 / 姓名</label>
+          <label class="whitespace-nowrap text-sm text-muted-foreground">账号 / 姓名</label>
           <input v-model="filters.value" placeholder="结算账号或姓名" class="field-input w-48" />
         </div>
         <div class="filter-item">
-          <label class="text-sm text-muted-foreground">商户号</label>
+          <label class="whitespace-nowrap text-sm text-muted-foreground">商户号</label>
           <input v-model="filters.uid" placeholder="请输入商户号" class="field-input w-36" />
         </div>
         <div class="filter-item">
-          <label class="text-sm text-muted-foreground">批次</label>
+          <label class="whitespace-nowrap text-sm text-muted-foreground">批次</label>
           <Select v-model="filters.batch" :options="batchOptions" class="w-44" />
         </div>
         <div class="filter-item">
-          <label class="text-sm text-muted-foreground">结算方式</label>
+          <label class="whitespace-nowrap text-sm text-muted-foreground">结算方式</label>
           <Select v-model="filters.type" :options="typeOptions" class="w-32" />
         </div>
         <div class="filter-item">
-          <label class="text-sm text-muted-foreground">状态</label>
+          <label class="whitespace-nowrap text-sm text-muted-foreground">状态</label>
           <Select v-model="filters.dstatus" :options="statusOptions" class="w-28" />
         </div>
         <div class="ml-auto flex items-center gap-2">
@@ -254,9 +468,9 @@ function typeInitial(type: number) {
     <Panel title="结算记录" :subtitle="selected.size ? `已选 ${selected.size} 条` : `${total} 条`">
       <template v-if="selected.size" #actions>
         <span class="text-sm text-muted-foreground">批量修改为：</span>
-        <Button variant="outline" size="sm" @click="selected.clear()"><CheckCircle2 />已完成</Button>
-        <Button variant="outline" size="sm" @click="selected.clear()"><Clock />正在结算</Button>
-        <Button variant="outline" size="sm" @click="selected.clear()"><Trash2 />删除退回</Button>
+        <Button variant="outline" size="sm" :disabled="busy" @click="bulkStatus(1)"><CheckCircle2 />已完成</Button>
+        <Button variant="outline" size="sm" :disabled="busy" @click="bulkStatus(2)"><Clock />正在结算</Button>
+        <Button variant="outline" size="sm" :disabled="busy" @click="bulkStatus(0)"><RotateCcw />待结算</Button>
       </template>
       <div class="overflow-x-auto">
         <table class="tbl w-full table-fixed">
@@ -325,20 +539,20 @@ function typeInitial(type: number) {
                       : 'top-full mt-1.5'"
                     @click.stop
                   >
-                    <button class="menu-item" @click="openMenu = null">
+                    <button class="menu-item" @click="changeStatus(r.id, 1)">
                       <CheckCircle2 class="size-4 shrink-0 opacity-70" /><span class="flex-1">改为已完成</span>
                     </button>
-                    <button class="menu-item" @click="openMenu = null">
+                    <button class="menu-item" @click="changeStatus(r.id, 2)">
                       <Clock class="size-4 shrink-0 opacity-70" /><span class="flex-1">改为正在结算</span>
                     </button>
-                    <button class="menu-item" @click="openMenu = null">
+                    <button class="menu-item" @click="changeStatus(r.id, 0)">
                       <RotateCcw class="size-4 shrink-0 opacity-70" /><span class="flex-1">改为待结算</span>
                     </button>
-                    <button class="menu-item" @click="openMenu = null">
-                      <Send class="size-4 shrink-0 opacity-70" /><span class="flex-1">重新转账</span>
+                    <button class="menu-item" @click="changeStatus(r.id, 3)">
+                      <Send class="size-4 shrink-0 opacity-70" /><span class="flex-1">改为结算失败</span>
                     </button>
                     <div class="menu-sep" />
-                    <button class="menu-item menu-item-danger" @click="openMenu = null">
+                    <button class="menu-item menu-item-danger" @click="askDelete(r)">
                       <Undo2 class="size-4 shrink-0 opacity-70" /><span class="flex-1">删除并退回</span>
                     </button>
                   </div>
@@ -356,5 +570,52 @@ function typeInitial(type: number) {
         <Pagination :page="safePage" :page-count="pageCount" :total="total" :page-size="pageSize" @change="go" />
       </div>
     </Panel>
+
+    <!-- 删除并退回确认 -->
+    <Modal :model-value="!!delTarget" title="删除结算记录并退回余额" @update:model-value="(v) => { if (!v) delTarget = null }">
+      <p class="text-sm text-muted-foreground">
+        确定删除记录
+        <b class="text-foreground">#{{ delTarget?.id }}</b>
+        （{{ delTarget?.merchant }}）吗？删除后结算金额
+        <b class="text-foreground tabular-nums">¥{{ delTarget?.money }}</b>
+        将退回该商户余额，此操作不可恢复。
+      </p>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="delTarget = null">取消</Button>
+        <Button variant="destructive" size="sm" :disabled="busy" @click="confirmDelete">删除并退回</Button>
+      </template>
+    </Modal>
+
+    <!-- 高级导出抽屉：按时间范围/商户/方式/状态组合导出 CSV -->
+    <Drawer v-model="exportOpen" title="导出结算明细" subtitle="按条件批量导出结算记录为 CSV 文件" width="max-w-md">
+      <div class="space-y-3.5">
+        <div class="row-field">
+          <label class="lbl">创建时间<span class="text-destructive">*</span></label>
+          <DateRange v-model:start="exportForm.starttime" v-model:end="exportForm.endtime" class="flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">商户号</label>
+          <input v-model="exportForm.uid" placeholder="留空为全部商户" class="field-input flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">结算方式</label>
+          <Select v-model="exportForm.type" :options="typeOptions" class="flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">状态</label>
+          <Select v-model="exportForm.dstatus" :options="statusOptions" class="flex-1" />
+        </div>
+        <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          创建时间范围为必填。按当前条件预计导出
+          <b class="text-foreground tabular-nums">{{ exportCount }}</b> 条结算记录。
+        </p>
+      </div>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="exportOpen = false">取消</Button>
+        <Button size="sm" :disabled="!exportForm.starttime || !exportForm.endtime" @click="submitExport">
+          <Download />导出 CSV
+        </Button>
+      </template>
+    </Drawer>
   </div>
 </template>

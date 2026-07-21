@@ -19,6 +19,48 @@ const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 onClickOutside(root, () => (open.value = false))
 
+// 面板默认双月并排(540px)。在窄容器（如导出抽屉 max-w-md，且 overflow-y-auto 会横向裁剪）里放不下，
+// 故打开时测量"最近的裁剪祖先"可用空间：放得下就并排；两侧都放不下则改为双月竖排并收窄，保证完整可见。
+const PANEL_W = 540
+const alignRight = ref(false)
+const stacked = ref(false)
+
+// 找到最近的会裁剪内容的祖先（overflow 非 visible），拿它作为可用空间边界；找不到则用视口。
+function findClip(el: HTMLElement): HTMLElement {
+  let p = el.parentElement
+  while (p) {
+    const s = getComputedStyle(p)
+    if (/(auto|scroll|hidden)/.test(s.overflowX + s.overflowY)) return p
+    p = p.parentElement
+  }
+  return document.documentElement
+}
+function updateLayout() {
+  const el = root.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  const clip = findClip(el).getBoundingClientRect()
+  const rightBound = Math.min(clip.right, window.innerWidth)
+  const leftBound = Math.max(clip.left, 0)
+  const spaceRight = rightBound - rect.left // 左对齐(向右展开)的可用宽
+  const spaceLeft = rect.right - leftBound // 右对齐(向左展开)的可用宽
+  if (spaceRight >= PANEL_W + 8) {
+    stacked.value = false
+    alignRight.value = false
+  } else if (spaceLeft >= PANEL_W + 8) {
+    stacked.value = false
+    alignRight.value = true
+  } else {
+    // 两侧都塞不下并排双月 → 竖排收窄，对齐到空间更充裕的一侧
+    stacked.value = true
+    alignRight.value = spaceLeft > spaceRight
+  }
+}
+function toggle() {
+  open.value = !open.value
+  if (open.value) updateLayout()
+}
+
 const weekDays = ['日', '一', '二', '三', '四', '五', '六']
 const today = { y: 2026, mo: 7, d: 12 }
 // 左侧面板年月（右侧 = 左侧 + 1 个月）
@@ -106,7 +148,7 @@ function confirm() {
       type="button"
       class="flex h-9 w-full items-center gap-2 rounded border border-input bg-background px-3 text-sm outline-none transition-colors hover:border-ring/60"
       :class="open && 'border-ring'"
-      @click="open = !open"
+      @click="toggle"
     >
       <Clock class="size-4 shrink-0 text-muted-foreground" />
       <span :class="start ? 'text-foreground' : 'text-muted-foreground'" class="tabular-nums">{{ start || '开始时间' }}</span>
@@ -122,16 +164,20 @@ function confirm() {
     >
       <div
         v-if="open"
-        class="absolute left-0 top-full z-30 mt-1 w-[540px] rounded border border-border bg-popover shadow-lg"
+        class="absolute top-full z-30 mt-1 rounded border border-border bg-popover shadow-lg"
+        :class="[
+          alignRight ? 'right-0' : 'left-0',
+          stacked ? 'w-[300px] max-w-[calc(100vw-2rem)]' : 'w-[540px]',
+        ]"
       >
         <!-- 提示 -->
         <div class="border-b border-border/70 px-4 py-2 text-xs text-muted-foreground">
           {{ picking === 'start' ? '请选择开始日期' : '请选择结束日期' }}
         </div>
 
-        <div class="flex">
+        <div :class="stacked ? 'flex flex-col' : 'flex'">
           <!-- 左月 -->
-          <div class="flex-1 border-r border-border/70 p-3">
+          <div class="flex-1 p-3" :class="stacked ? 'border-b border-border/70' : 'border-r border-border/70'">
             <div class="mb-2 flex items-center justify-between">
               <button type="button" class="flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent" @click="prevMonth"><ChevronLeft class="size-4" /></button>
               <span class="text-sm font-medium tabular-nums">{{ leftMonth.y }} 年 {{ leftMonth.mo }} 月</span>

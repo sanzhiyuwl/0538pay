@@ -39,6 +39,7 @@ func main() {
 	merchants := []model.Merchant{
 		{
 			UID: 1, GID: 2, GroupEnd: &ge, Money: dec("1580.60"), SettleID: 1,
+			AppKey: "testkey_uid1_abcdef", KeyType: 0,
 			Account: "13800001111", Username: "张伟", QQ: "10001", Phone: "138****1111",
 			Email: "zhang@example.com", URL: "shop-a.com", AddTime: now.AddDate(0, -3, 0),
 			Status: 1, Cert: 1, Pay: 1, Settle: 1, UpID: 0, Mode: 0, Deposit: dec("500.00"),
@@ -57,10 +58,15 @@ func main() {
 		},
 	}
 
-	created := 0
+	created, patched := 0, 0
 	for _, m := range merchants {
 		var exist model.Merchant
 		if db.Where("uid = ?", m.UID).First(&exist).Error == nil {
+			// 已存在：回填测试密钥（历史数据可能没有 app_key），其余字段保持不动。
+			if m.AppKey != "" && exist.AppKey != m.AppKey {
+				db.Model(&exist).Updates(map[string]interface{}{"app_key": m.AppKey, "keytype": m.KeyType})
+				patched++
+			}
 			continue
 		}
 		if err := db.Create(&m).Error; err != nil {
@@ -69,5 +75,5 @@ func main() {
 		}
 		created++
 	}
-	log.Printf("测试商户播种完成，新建 %d 条（正常/普通/待审核）", created)
+	log.Printf("测试商户播种完成，新建 %d 条，回填密钥 %d 条", created, patched)
 }

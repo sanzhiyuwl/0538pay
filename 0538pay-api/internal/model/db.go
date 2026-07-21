@@ -30,5 +30,9 @@ func AutoMigrate(db *gorm.DB) error {
 		&Admin{},
 		&Order{},
 		&Merchant{},
+		&PayRecord{},
+		&Channel{},
+		&SettleRecord{},
+		&SettleBatch{},
 	)
 }

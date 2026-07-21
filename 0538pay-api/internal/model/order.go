@@ -17,6 +17,9 @@ type Order struct {
 	APITradeNo  string          `gorm:"size:64" json:"api_trade_no"`                      // 接口订单号
 	UID         uint            `gorm:"index;not null" json:"uid"`                        // 商户号
 	Domain      string          `gorm:"size:128" json:"domain"`                           // 网站域名
+	NotifyURL   string          `gorm:"size:512" json:"-"`                                // 商户异步通知地址
+	ReturnURL   string          `gorm:"size:512" json:"-"`                                // 商户同步跳转地址
+	Param       string          `gorm:"size:512" json:"-"`                                // 商户自定义透传参数
 	Name        string          `gorm:"size:255" json:"name"`                             // 商品名称
 	Money       decimal.Decimal `gorm:"type:decimal(18,4);not null" json:"money"`         // 订单金额
 	RealMoney   *decimal.Decimal `gorm:"type:decimal(18,4)" json:"realmoney"`             // 实际支付（可空）
@@ -32,9 +35,13 @@ type Order struct {
 	Buyer       string          `gorm:"size:128" json:"buyer"`                            // 支付账号
 	AddTime     time.Time       `gorm:"index" json:"addtime"`                             // 创建时间
 	EndTime     *time.Time      `json:"endtime"`                                          // 完成时间（可空）
+	PayType     string          `gorm:"size:16" json:"-"`                                 // 收银台渲染方式 qrcode/redirect/html（下单后回填）
+	QRCode      string          `gorm:"size:1024" json:"-"`                               // 渠道二维码内容/支付链接（下单后回填，收银台据此渲染）
 	Status      int8            `gorm:"not null;default:0;index" json:"status"`           // 0未付1已付2退款3冻结4预授权
 	Settle      int8            `gorm:"not null;default:0" json:"settle"`                 // 结算子状态 0/1/2/3
 	Combine     int8            `gorm:"not null;default:0" json:"combine"`                // 是否合单 0/1
+	Notify      int8            `gorm:"not null;default:0;index" json:"-"`                // 商户通知状态/重试计数：0成功或无需 / >0 待重试第N次 / -1 放弃(对齐 epay notify 字段)
+	NotifyTime  *time.Time      `json:"-"`                                                // 下次通知重试时间（可空）
 }
 
 func (Order) TableName() string { return "pay_order" }

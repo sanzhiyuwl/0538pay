@@ -19,9 +19,12 @@
 ----------------------------------------------------------------
   ✅ 完成    前后端打通、真库真接口、跑通验证
   🎨 仅前端  UI 页面已建，但数据是 mock，后端无对应接口
-  ⬜ 未实现  前端后端都没有
+  ⬜ 未实现  该轴该做但还没做
+  ▪ 不适用  该轴天生没有此项（纯后端能力如回调/验签本就无前端页；用在前端轴上）
   ➖ epay无  我们独有、epay 没有的东西（如 SaaS 控制台）
   ⏸ 暂缓    有意推迟
+  说明：双轴项标"前端UI / 后端API"。前端轴出现 ▪ = 这是纯后端能力，不该有前端页面，
+        不是漏做；只有 ⬜ 才表示"该做没做"。
 
 一句话现状：前端 4 端约 90+ 页面几乎全部建好(绝大多数 mock)；后端只有
   "登录 + 订单列表 + 商户列表" 3 个真接口。epay 的心脏——对外收单 API、
@@ -35,39 +38,52 @@
       商户系统靠它们下单/查单/退款/代付。我们目前 /api/pay/* 整个不存在。
 
 【下单 / 收银】
-  ⬜/⬜  V1 页面下单  submit.php（GET 跳转到收银台/直接支付）
-  ⬜/⬜  V1 API下单   mapi.php（返回 JSON，商户自渲染）
-  ⬜/⬜  V2 下单      pay/submit、pay/create（RSA 签名，REST 风格）
-  ⬜/⬜  收银台聚合页 cashier.php（无 type 时展示可选支付方式）
+  ⬜/🔨  V1 页面下单  submit.php（GET 跳转到收银台/直接支付）
+        —— 后端 POST /api/pay/submit 已打通(MD5验签/幂等/decimal金额/mock渠道下单)，
+           2026-07-21 真跑验证：正确签名下单→返回二维码链接；错签/改额/重复单/非法金额均正确拦截；
+           同 out_trade_no 三次提交只落一条订单(幂等成立)。缺：收银台页渲染(A3)、真实跳转。
+  ▪/⬜  V1 API下单   mapi.php（返回 JSON，商户自渲染）
+  ▪/⬜  V2 下单      pay/submit、pay/create（RSA 签名，REST 风格）
+  🎨/✅  收银台聚合页 cashier.php（无 type 时展示可选支付方式）
+        —— A3 完成：GET /api/pay/order/{trade_no} 公开查单 + 前端 CashierMock.vue
+           (/pay/mock/cashier/:trade_no) 展示订单+二维码占位+「模拟支付成功」触发回调→跳 /payok。
+           mock 渠道无真实二维码/多支付方式选择(留待 B 阶段真实渠道)。2026-07-21 真跑通过。
   ⬜/⬜  支付中间页   includes/pages/（扫码页/H5/JSAPI/公众号，按插件返回 type 渲染）
         —— 我们后端 internal/channel 有 interface 抽象，但零渲染、零下单入口。
 
 【查单 / 退款】
-  ⬜/⬜  V1 单笔查询  api.php?act=query
-  ⬜/⬜  V1 批量查询  api.php?act=orders
-  ⬜/⬜  V1 退款      api.php?act=refund
-  ⬜/⬜  V2 查单/退款/退款查询  pay/query、pay/refund、pay/refundquery
+  ▪/⬜  V1 单笔查询  api.php?act=query
+  ▪/⬜  V1 批量查询  api.php?act=orders
+  ▪/⬜  V1 退款      api.php?act=refund
+  ▪/⬜  V2 查单/退款/退款查询  pay/query、pay/refund、pay/refundquery
 
 【回调 / 通知（最关键的异步链路）】
-  ⬜/⬜  第三方回调路由  /pay/notify/{trade_no}/ → 插件 notify() 验签
-  ⬜/⬜  订单状态幂等更新 Payment::processOrder（防重复通知）
-  ⬜/⬜  订单入账        functions.processOrder（按 tid 入账：普通/充值/买组/保证金）
-  ⬜/⬜  商户异步通知     creat_callback + do_notify（回商户 notify_url，判 success）
-  ⬜/⬜  通知失败重试     进 cron 队列(1/3/20分/1/2时 多档重试)
-  ⬜/⬜  同步跳转 return  支付完成跳回商户 return_url
+  ▪/✅  第三方回调路由  /api/pay/notify/{trade_no} → 渠道 Notify() 解析(验签在渠道层)
+  ▪/✅  订单状态幂等更新 条件 UPDATE(status IN 0,4→1)，影响行数判重复回调，对齐 Payment::processOrder
+  ▪/✅  订单入账/结算出账  AccountRepo.ChangeUserMoney(事务+行锁+pay_record流水)：普通订单入账(add)已通；
+        结算生单出账/删除退回(C2 SettleRepo CreateWithDebit/DeleteWithRefund，含余额校验)已通。
+        充值/买组/保证金等按 tid 分支留待商户中心(阶段D)
+  ▪/✅  商户异步通知     buildCallbackParams(MD5签名) + do_notify(GET notify_url 判 success)
+  ▪/✅  通知失败重试     notify=重试计数，scheduler 每1min跑RetryNotify，退避1/2/16/36min/1h对齐epay，超5次放弃；真跑通过(见第三部分 cron)
+  ▪/🔨  同步跳转 return  支付完成跳回商户 return_url —— return_url 已落库，收银台支付成功后
+        跳 /payok(带 return_url)，"返回商户"按钮已可跳回；带签名参数的标准 return 回跳待完善
+        —— 2026-07-21 全链路真跑：下单→回调→status=1→余额+88入账→pay_record落1条→
+           商户notify收到success；重复回调幂等(余额不再变、流水仍1条)。
 
 【商户信息 / 代付 API】
-  ⬜/⬜  V2 商户信息     merchant/info
-  ⬜/⬜  V2 商户订单     merchant/orders
-  ⬜/⬜  V2 代付提交/查询/凭证/余额  transfer/submit|query|proof|balance
+  ▪/⬜  V2 商户信息     merchant/info
+  ▪/⬜  V2 商户订单     merchant/orders
+  ▪/⬜  V2 代付提交/查询/凭证/余额  transfer/submit|query|proof|balance
 
 【签名 / 安全】
-  ⬜  MD5 签名验签（V1：pid+key，ksort 去空去 sign）
-  ⬜  RSA SHA256 签名验签（V2：平台私钥签、商户公钥验）
+  ✅  MD5 签名验签（V1：pid+key，ksort 去空去 sign）
+      —— pkg/sign 逐字节对齐 epay getSignContent+makeSign+verifySign，
+         基准由 epay php8.2 现场计算，Go 单测 3 个全绿(2026-07-21)。
+  ⬜  RSA SHA256 签名验签（V2：平台私钥签、商户公钥验）—— Merchant 已留 keytype/publickey 字段
   ⬜  timestamp 防重放（V2，±300s）
-  ⬜  下单幂等（订单号 + 渠道流水号 唯一键）
-  ⬜  回调金额/状态二次校验防篡改
-  —— 全部未实现。这是接后端阶段 A 的主战场。
+  ✅  下单幂等（uid+out_trade_no）—— submit 幂等 + 参数变化拦截；回调侧条件 UPDATE 幂等改单
+  ✅  回调金额/状态二次校验防篡改 —— 回调金额 decimal 精确比对订单金额，不一致拒绝
+  —— MD5验签 + 下单/回调双向幂等 + 回调金额校验已落地(阶段A1+A4)；RSA/timestamp 待 V2。
 
 
 ================================================================
@@ -79,30 +95,61 @@
       我们改为 Go interface + registry(自研不抄约定)，但目前只有 interface 定义，零渠道落地。
 
 【插件框架】
-  ⬜  插件契约（Go PaymentChannel interface：Create/Query/Notify/Refund/Close）
-      —— interface 抽象已写(internal/channel/channel.go)，但无任何实现
-  ⬜  registry 注册表运行时为空（无一个 channel.Register 调用）
+  🔨  插件契约（Go PaymentChannel interface：Create/Query/Notify）
+      —— interface 抽象已写(internal/channel/channel.go)，mock 已按其实现；Refund/Close 待需求补
+  ✅  registry 注册表 —— mock 渠道 init() 自注册，server 匿名导入触发；Get/Keys 可用
   ⬜  插件元数据 / 密钥表单动态渲染（epay 据 $info.inputs 渲后台配置表单）
-  ⬜  mock 模拟渠道（阶段 A 用来跑通全链路，尚未建）
+  ✅  mock 模拟渠道 —— internal/channel/mock，Create 返回二维码链接 + Notify 解析回调；
+        2026-07-21 下单→回调→入账→通知 全链路真跑通过
 
 【支付方式 type（epay 6 种）】
-  🎨/⬜  支付宝 alipay   （前端 PayTypes 页有，后端无）
-  🎨/⬜  微信 wxpay
+  🎨/🔨  支付宝 alipay   （当面付扫码后端已打通，见下方插件区 alipayf2f）
+  🎨/🔨  微信 wxpay（Native 扫码后端已打通，见下方插件区 wxnative）
   🎨/⬜  QQ钱包 qqpay
   🎨/⬜  网银 bank
   🎨/⬜  京东 jdpay
   🎨/⬜  PayPal paypal
 
 【渠道层级（epay：type→plugin→channel→subchannel→roll 轮询）】
-  🎨/⬜  支付通道 CRUD（前端 Channels 页 mock）
+  ✅  支付通道 CRUD（前端 Channels 页）
+        —— C1 列表已切真接口：pay_channel 表(含 config 密钥字段) + GET /api/admin/channels
+           (名称/ID/插件/方式/状态筛选) + Channels.vue 接真数据；下单已接费率(选通道读 rate 算 getmoney)。
+           2026-07-21 真跑：money=100→通道rate=2%→getmoney=2.00→回调按分成入账。
+        —— C1 写操作已切真接口(2026-07-21)：POST/PUT/DELETE /api/admin/channels 系列
+           (create/update/delete/setStatus + config get/save)。校验对齐 epay：name/rate/plugin 必填、
+           rate/costrate 0~100、mode=1 强制 daytop=0、type 派生 typename/typeshowname、config 校验合法 JSON。
+           前端：新增/编辑抽屉(type↔plugin 联动)、复制、删除确认(Modal)、状态开关调真接口(失败回滚)、
+           密钥配置抽屉(通用 key-value JSON 编辑)。真跑验证：增/改/删/状态/密钥 + 各校验分支全通过。
+           缺：密钥表单按插件定制(留 B 阶段)、订单/测试支付两个行操作(占位)。
   🎨/⬜  子通道 subchannel（商户自定义）
   🎨/⬜  轮询组 roll（3 种模式：顺序/加权随机/固定优先）
   🎨/⬜  用户组通道分配（channel=0关/-1随机/-2子通道/正整数固定，组级覆盖费率）
 
 【51 个真实渠道插件（epay 全集，我们按 P0/P1/P2 分级逐步做）】
   P0 主流直连（阶段 B 目标 3~5 家）：
-    ⬜  支付宝系（alipay 当面付/网页/预授权）
-    ⬜  微信系（wxpay Native/JSAPI/H5，wxpayn V3）
+    🔨  支付宝系（alipay 当面付/网页/预授权）
+        —— alipayf2f(当面付扫码) 后端已实现并单测(2026-07-21，阶段B B1)：
+           pkg/alipay(RSA2 签名 getSignContent 逐字节对齐 cccyun/alipay-sdk AopClient +
+           私钥签名 + 支付宝公钥验签，单测自生成密钥全绿) + internal/channel/alipayf2f
+           (Create→alipay.trade.precreate 拿 qr_code、Notify 表单 RSA2 验签+trade_status 判定、
+           Query→alipay.trade.query 主动查单) + 复用 config 注入(seller_id 进 Extra) + 前端 pluginConfigFields 支付宝预设字段。
+           **真跑端到端验证通过**：真实 RSA2 签名表单回调→验签通过→订单翻转 status=1、
+           api_trade_no 落库、分成入账、pay_record 流水、幂等(重复回调余额不变)。
+           **下单需真实凭证才能连支付宝网关**(用户暂不提供)，回调链路已用真签名跑通。
+           2026-07-21 补主动查单：alipay.trade.query，parseQueryResp 判 TRADE_SUCCESS/FINISHED
+           (TRADE_NOT_EXIST 视未付非错误)，单测全绿。
+           缺：网页/APP/JSAPI/预授权、退款。
+    🔨  微信系（wxpay Native/JSAPI/H5，wxpayn V3）
+        —— wxnative(微信 Native V3 扫码) 后端已实现并单测(2026-07-21，阶段B B1)：
+           pkg/wxpayv3(RSA-SHA256 Authorization 签名 + 应答/回调验签 + AES-256-GCM 回调解密，
+           单测自生成密钥全绿) + internal/channel/wxnative(Create→/v3/pay/transactions/native
+           拿 code_url、Notify 验签+解密判 trade_state、Query 占位) + 通道 config JSON 注入
+           channel.Config + handler 注入回调原始 body/Wechatpay-* 头。前端「配置密钥」抽屉
+           按 wxnative 插件预设字段渲染(appid/mch_id/serial_no/api_v3_key/private_key/
+           public_key/notify_url)。**未接真实商户凭证**(用户暂不提供沙箱)，真凭证到位后走沙箱端到端。
+        —— 2026-07-21 补主动查单 Query：GET /v3/pay/transactions/out-trade-no/{no}，RSA 签名+验应答签+
+           trade_state=SUCCESS 判定，parseQueryResp 纯函数单测全绿。
+           缺：JSAPI/H5、退款。
     ⬜  个人免签一家（vmq / xorpay / ltzf / xunhupay 之一，无资质兜底）
   P1 二次聚合 / 国际：
     ⬜  epay/epayn（二次对接其它易支付）
@@ -115,17 +162,28 @@
 ================================================================
 第三部分 ★ 定时任务 cron（epay cron.php，我们完全没有）
 ================================================================
-说明：epay cron.php(423行) 是运维心脏。我们前端有 /admin/cron-settings 配置页(mock)，
-      但后端无任何定时任务代码、无 robfig/cron 或 asynq 依赖。全部 ⬜。
+说明：epay cron.php(423行) 是运维心脏。我们前端有 /admin/cron-settings 配置页(mock)。
+      2026-07-21 后端起了 internal/scheduler(ticker 驱动，不引第三方 cron 库)，通知重试+对账已真跑打通。
 
-  🎨/⬜  自动结算 settle（到期批量结算 + 转账打款）
-  🎨/⬜  超时订单关单 / 清理统计
-  🎨/⬜  异步通知 notify 失败重试（多档退避）
+  ✅  自动结算 settle（到期批量结算 + 余额扣减）
+        —— C2 结算域已建(2026-07-21)：scheduler 每小时跑 RunAutoSettle(服务层每日幂等锁，
+           当天已生成自动结算单则跳过)，选 余额≥门槛(30)+结算权限开+状态正常+填了账号姓名 的商户，
+           按 calcFee(0.5%,封底0.1封顶20)算 realmoney，生成 pay_settle 单并即时扣减商户余额(出账+流水)。
+           转账打款(transfer_*)归代付域(C3)，商户端申请提现归 D 阶段。
+  ✅  超时订单关单 / 清理
+        —— scheduler 每小时跑 CleanExpiredOrders：删 status=0 且 add_time<24h 前的未付单(对齐 epay
+           cron do=order 的 delete)。真跑边界验证：25h未付→清、1h未付→留、25h已付→留。清理统计(日报表)待补。
+  ✅  异步通知 notify 失败重试（多档退避）
+        —— internal/scheduler ticker 每 1min 跑 RetryNotify；notify 字段=重试计数(0成功/>0第N次/-1放弃)，
+           退避 1/2/16/36min/1h 对齐 epay cron do=notify，超 5 次放弃。repo FindNotifyPending
+           (notify>0 且到期 且近一天完成)。真跑：回调时商户 fail→入队→flip success→cron 重发→notify 归0。
+  🔨  未支付订单主动对账（我们扩展，epay 靠 notify2 手动兜底）
+        —— scheduler 每 5min 跑 ReconcileUnpaid，扫最近窗口未付真实渠道单，复用 QueryStatus 查渠道→幂等改单入账。
   🎨/⬜  分账 profitsharing 自动执行
-  🎨/⬜  风控 check（触发规则自动关停商户/通道）
+  🎨/⬜  风控 check（触发规则自动关停商户/通道）—— epay 连续N单通知失败自动关支付权限，待补
   🎨/⬜  投诉 complain 自动处理（冻结/回复/拉黑/退款）
   🎨/⬜  cron 访问密钥保护
-  —— 前端配置页存在，后端零支撑。接后端阶段 E 做。
+  —— 通知重试+对账已打通；自动结算/超时关单/分账/风控 待接后端阶段 E 续做。
 
 
 ================================================================
@@ -149,12 +207,21 @@
   🎨  退款金额/退款订单统计
       —— 列表已真，写操作(退款/冻结/补单)全 mock。
 
-【结算管理】
-  🎨  结算列表（按方式/状态筛选）  epay slist.php → Settle.vue [mock]
-  🎨  批量结算 / 批量改结算状态    epay settle.php → SettleSettings.vue
-  🎨  结算批次操作 / 结算结果查改
-  🎨  结算打款文件导出（网商/支付宝批量模板）
-  🎨  支付密码校验（结算/退款二次密码）
+【结算管理】(C2 结算域 2026-07-21 后端切真接口)
+  ✅  结算列表（账号/姓名/商户号/方式/状态/批次筛选）  epay slist.php → Settle.vue [真接口]
+        —— pay_settle 表 + GET /api/admin/settles(筛选/分页) + Settle.vue 接真数据。
+  ✅  生成结算批次（收当前所有待结算→正在结算）  epay ajax_settle create_batch
+        —— POST /api/admin/settle/batch，事务收批 status 0→2 + 建 pay_batch，无待结算记录时拦截。
+  ✅  批次一键完成（正在结算→已完成）  epay complete_batch
+        —— POST /api/admin/settle/batch/:batch/complete，批次内 status 2→1 + 写完成时间。
+  ✅  单条状态变更（待结算/正在结算/已完成/失败/删除退回）  epay setSettleStatus
+        —— PUT /api/admin/settles/:id/status。status=4 删除并把结算金额退回商户余额(事务+流水)。
+           真跑验证：删除 money=200 记录→uid=1 余额 1739.80→1939.80 精确+200。
+  ✅  结算批次列表  epay settle.php → GET /api/admin/settle/batches
+  🎨  真实转账打款 / 批量转账（调支付宝/微信转账接口）—— 归代付域(C3)，本次未做
+  🎨  结算打款文件导出（网商/支付宝批量模板）—— 归后续，本次未做
+  🎨  支付密码校验（结算/退款二次密码）—— 归后续
+        —— 计费规则(手续费率/门槛/封顶封底)现为 service 常量，待建 config 域迁移(见优化待办#5)。
 
 【商户管理】
   ✅  商户列表查询  epay ulist.php → Merchants.vue [真接口 GET /api/admin/merchants]
@@ -171,7 +238,7 @@
       —— 列表已真，其余全 mock。
 
 【支付接口】
-  🎨  支付通道 CRUD/费率/成功率  epay pay_channel.php → Channels.vue [mock]
+  ✅  支付通道 CRUD/费率/成功率  epay pay_channel.php → Channels.vue [列表+写操作全真接口]
   🎨  支付方式 启用/配置          epay pay_type.php → PayTypes.vue
   🎨  支付插件列表                epay pay_plugin.php → Plugins.vue
   🎨  通道轮询规则                epay pay_roll.php → Rolls.vue
@@ -216,7 +283,10 @@
   🎨  管理员账号/支付密码 account → (Settings/权限)
 
 【其他功能】
-  🎨  导出订单        epay export.php+download.php
+  🎨  导出订单        epay export.php+download.php → Orders.vue 导出抽屉[前端真导出]
+        —— 前端已实现按 时间范围/商户/方式/通道/状态 过滤 → 生成 CSV(18列,带BOM,Excel不乱码)下载。
+           2026-07-21 验证：选 0721 命中并导出 3 条。局限：只导当前已加载(≤100条)，
+           真·全量后端流式导出留待阶段C(见 优化待办.txt)。
   🎨  登录日志        epay log.php → Logs.vue / OpLogs.vue
   🎨  数据清理        epay clean.php → Clean.vue
   🎨  文章管理        epay article.php → Articles.vue
@@ -287,7 +357,12 @@
   🎨  服务协议 / 关于我们    → ClassicAgreement/About.vue
   🎨  支付成功 / 支付失败页   epay includes/pages → ClassicPayok/Payerr.vue
   ➖  官网内容 CMS(首页文案/文档后台可编辑)  —— 我们扩展,epay 无独立 CMS
-  ⬜  收银台聚合页视觉(cashier PC/H5)  epay cashier.php+main12.css → [见第一部分,未做]
+  🎨  收银台聚合页视觉(cashier PC/H5)  epay cashier.php+main12.css → CashierMock.vue [真实二维码已接]
+        —— A3 现代风收银台中间页(订单信息+扫码区+模拟支付)。
+        —— 2026-07-21 接真实二维码：下单 dispatch 回填 pay_type/qr_code 到订单，CashierView 输出，
+           收银台前端用 qrcode 库把真实渠道 code_url/qr_code 渲染成二维码图 + 3秒轮询查单(status=1 跳成功页)；
+           mock 渠道仍走"模拟支付"按钮(plugin=mock 判别)。真跑：mock 下单 qr_code 落库+CashierView 返回正常。
+           缺：H5/移动端唤起 App、微信内 JSSDK 调起。
   ⬜  扫码中间页(微信绿/其他蓝)  epay includes/pages → [未做]
   ⬜  个人收款码收银台(数字键盘仿微信)  epay paypage/ → [未做]
   ⏸  epay 11 套首页模板多选  —— 我们做 1 套精品,不追求 11 套

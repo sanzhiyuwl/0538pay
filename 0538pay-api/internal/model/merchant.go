@@ -12,6 +12,9 @@ import (
 type Merchant struct {
 	UID       uint            `gorm:"primaryKey;column:uid" json:"uid"`             // 商户号
 	GID       int             `gorm:"column:gid;index;default:0" json:"gid"`        // 用户组ID
+	AppKey    string          `gorm:"column:app_key;size:64" json:"-"`              // 商户通信密钥（MD5 验签，对齐 epay pre_user.key）
+	KeyType   int8            `gorm:"column:keytype;default:0" json:"-"`            // 签名类型 0=MD5 1=RSA（RSA 留待 V2）
+	PublicKey string          `gorm:"column:publickey;type:text" json:"-"`          // 商户 RSA 公钥（V2 用）
 	GroupEnd  *time.Time      `gorm:"column:group_end" json:"-"`                    // 用户组到期时间（原始）
 	Money     decimal.Decimal `gorm:"type:decimal(18,4);default:0" json:"-"`        // 余额（原始）
 	SettleID  int             `gorm:"column:settle_id;default:1" json:"settle_id"`  // 结算方式

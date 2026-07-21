@@ -36,10 +36,11 @@
     价值（收单/渠道/回调/结算/代付/分账/定时）几乎全是 mock。
 
 七大板块与 epay 的对齐状态（此处只做文字概述，不打勾；逐项打勾见对比清单）：
-  1. 对外收单 API + 支付全链路 …… 【未实现】核心缺口，/api/pay/* 整个不存在
-  2. 支付渠道插件（epay 51 个）…… 【未实现】仅有 Go interface 抽象，0 个渠道落地
-  3. 定时任务 cron ………………… 【未实现】前端配置页 mock，后端无任何定时代码
-  4. 管理后台（epay admin 49 文件）… 【前端好·后端仅列表】仅订单/商户列表真接口，余全 mock
+  1. 对外收单 API + 支付全链路 …… 【阶段A完成】下单→收银台→模拟支付→回调→幂等改单→入账→
+                                    流水→商户通知 全链路 mock 真跑通过(A1~A6)；V2/RSA/查退款/真实渠道待 B
+  2. 支付渠道插件（epay 51 个）…… 【框架通】mock 渠道 Create+Notify 跑通 interface+registry，真实渠道 0（阶段B）
+  3. 定时任务 cron ………………… 【打通】ticker 调度器已跑：notify 重试队列 + 未支付对账 + 超时关单 + 自动结算 均真跑通过(分账/风控自动化待后续)
+  4. 管理后台（epay admin 49 文件）… 【前端好·后端列表渐切真】订单/商户/通道列表真接口，余全 mock
   5. 商户中心（epay user 37 文件）… 【前端好·后端0接口】UI 全建好，商户端接口一个没有
   6. 官网 / 前端视觉 …………………… 【前端好】官网+文档+CMS 已成型；收银台/扫码中间页未做
   7. 我们独有（epay 无，加分项）…… 【前端好】SaaS 控制台 / RBAC 多管理员 / 官网 CMS，均 mock
@@ -116,34 +117,97 @@
   三个只读接口。故以下以"打通收单主链"为主轴；后台其余页面切真接口是配套，非主线。
 
   ----------------------------------------------------------------
-  阶段 A — 收单核心 MVP（最高优先，先啃风险）
+  阶段 A — 收单核心 MVP（最高优先，先啃风险）✅ 全部完成（2026-07-21）
   ----------------------------------------------------------------
   目标：一笔钱能真正从下单走到支付成功回调。先用【自建 mock 渠道】跑通全链路，
         不依赖真实第三方资质。做完这步，0538pay 才第一次是"支付系统"而非"支付管理界面"。
-    ⬜ A1 下单接口 POST /api/pay/submit（易支付协议兼容：pid+参数+MD5 签名验签、
-          幂等、金额 decimal）
-    ⬜ A2 渠道插件契约落地：PaymentChannel interface（下单/查单/退款/回调验签/关单）
-          + registry，先实现一个 mock 渠道（骨架里 internal/channel 已起了抽象，需补实现）
-    ⬜ A3 收银台/二维码中间页：下单后返回支付链接或二维码
-    ⬜ A4 回调 POST /api/pay/notify/{trade_no}：验签 → 幂等改单状态 → 触发商户异步通知
-    ⬜ A5 商户异步通知 do_notify：GET/POST 商户 notify_url，判返回含 success，
-          失败进重试队列
-    ⬜ A6 订单入账 + 资金流水记录（pay_record 表）
-    验收：mock 渠道下单 → 模拟回调 → 订单变已付 → 商户 notify 收到。
+    ✅ A1 下单接口 POST /api/pay/submit（易支付协议兼容：pid+参数+MD5 签名验签、
+          幂等、金额 decimal）—— 2026-07-21 完成并真跑验证。
+          · pkg/sign MD5 验签逐字节对齐 epay（基准由 epay php8.2 现场算，Go 单测 3 绿）
+          · uid+out_trade_no 幂等 + 参数变化拦截（同单三提只落一条，DB 核实）
+          · 全链路 curl：正确签名下单→二维码链接；错签/改额/非法金额/商户不存在均正确拦截
+    🔨 A2 渠道插件契约落地：PaymentChannel interface（下单/查单/回调验签）+ registry
+          —— mock 渠道已实现并自注册跑通（Create 返回二维码收银台链接）；
+             Refund/Close 及真实渠道待 B 阶段。
+    ✅ A3 收银台/二维码中间页（2026-07-21 完成）：GET /api/pay/order/{trade_no} 公开查单
+          + 前端 CashierMock.vue(/pay/mock/cashier/:trade_no)：展示订单+二维码占位+「模拟支付成功」
+          按钮触发回调 → 跳 /payok；已支付订单自动跳成功页防重复。前后端 build 全绿 + dev 真跑 200。
+    ✅ A4 回调 POST /api/pay/notify/{trade_no}：渠道解析 → 金额二次校验 → 条件UPDATE幂等改单
+          → 触发入账+通知。2026-07-21 完成并真跑（含重复回调幂等验证）。
+    ✅ A5 商户异步通知 do_notify：拼带 MD5 签名的回调 URL → GET 商户 notify_url → 判含 success；
+          失败置 notify=1 + notifytime(首档1分钟)。真跑：mock 商户端收到并回 success。
+          （重试队列本身留待阶段 E cron）
+    ✅ A6 订单入账 + 资金流水：AccountRepo.ChangeUserMoney（事务+行锁 FOR UPDATE + pay_record 插入），
+          对齐 epay changeUserMoney。真跑：余额 1580.60→1668.60(+88)，pay_record 落 1 条(action=1 订单收入)。
+    ✅ 验收达成（2026-07-21）：完整用户路径真跑——下单→拿 pay_url→收银台查单→模拟支付
+       →订单 status=1→余额入账(+66)→流水落库→商户 notify 收到 success→收银台复查 status=1。
+    ★★ 阶段 A（收单核心 MVP）全部完成 ★★ —— 收单主链首次端到端跑通，0538pay 从"支付管理界面"
+       正式成为"支付系统"。下一步进阶段 B（真实渠道接入）。
 
   ----------------------------------------------------------------
   阶段 B — 真实渠道接入（P0 主流 3~5 家）
   ----------------------------------------------------------------
-    ⬜ B1 支付宝（当面付/网页，smartwalle/alipay）
-    ⬜ B2 微信（Native/JSAPI，wechatpay-go；仓库已有 wechatpay 相关 skill 可复用）
+    🔨 B1 支付宝当面付扫码（2026-07-21，结构+单测+回调端到端真跑，下单待真实凭证）
+       —— pkg/alipay：RSA2 签名/验签，getSignContent(ksort/跳空/&k=v 拼接)逐字节对齐 epay 内置
+          cccyun/alipay-sdk 的 AopClient。单测自生成密钥：待签串格式、签名 round-trip、篡改验签失败 全绿。
+       —— internal/channel/alipayf2f：Create→alipay.trade.precreate 拿 qr_code；
+          Notify→表单 RSA2 验签(支付宝公钥)+trade_status=TRADE_SUCCESS 判定+金额；Query 占位。
+          复用 B2 建的 config 注入链路(seller_id 进 Extra)；main 匿名导入自注册。
+       —— 前端：pluginConfigFields 加支付宝当面付预设(appid/private_key/public_key/seller_id/notify_url)；
+          pluginsByType type=1 首项换 alipayf2f。
+       —— **真跑端到端(真实 RSA2 签名表单回调，非 mock)**：建通道+存密钥+下单落库→
+          POST 真签名回调→验签通过→订单 status=1、api_trade_no 落库、分成入账、pay_record 流水、
+          幂等(重复回调余额不变) 全部通过。下单连支付宝网关需真实私钥(用户暂不提供)。
+    🔨 B2 微信 Native V3（2026-07-21，结构+单测优先，未接真实凭证）
+       —— pkg/wxpayv3：手写 APIv3 密码学原语(不引第三方 SDK，与 pkg/sign 一致)——
+          RSA-SHA256 Authorization 头签名 + 应答/回调验签(平台公钥) + AES-256-GCM 回调解密。
+          单测自生成 RSA/AES 密钥，签名 round-trip / 验签篡改失败 / 解密错密钥失败 全绿。
+       —— internal/channel/wxnative：实现 PaymentChannel。Create→POST /v3/pay/transactions/native
+          拿 code_url(前端渲二维码)；Notify→验签+解密判 trade_state=SUCCESS；Query 占位(以回调为准)。
+          单测覆盖 下单体组装/金额分转换/回调成功/未支付/验签失败/错误APIv3密钥 全绿。
+       —— 接通密钥注入：channel.Config 扩微信字段 + service.buildChannelConfig 把通道 config JSON
+          注入 Config + dispatch/Notify 载入通道配置 + handler 注入回调原始 body/Wechatpay-* 头
+          (兼容表单型与 JSON 型两类回调)。main 匿名导入 wxnative 自注册。
+       —— 前端：Channels「配置密钥」抽屉按插件预设字段渲染(pluginConfigFields)，wxnative 走专用
+          表单(含 PEM textarea)，其它插件退回通用 key-value。
+       —— 真跑：建 wxnative 通道 + 存微信密钥 config + 回填 通过；mock 收单链回归(下单→回调→success)通过。
+          **待真实/沙箱商户凭证到位后做端到端真跑**。
     ⬜ B3 个人免签一家（vmq 类）作无资质兜底
     ⬜ B4 每家按 A2 interface 实现 + 后台通道配置页（config JSON 密钥表单）切真接口
+       —— B4 的「后台通道配置页按插件定制密钥表单」已随 B2 起步(pluginConfigFields 机制已建)。
+    ✅ B 收银台真实二维码（2026-07-21，横切）：下单 dispatch 回填 pay_type/qr_code 到订单，
+       CashierView 输出，收银台前端 qrcode 库渲染真实渠道 code_url/qr_code + 3 秒轮询查单自动跳成功页；
+       mock 渠道仍走模拟支付按钮。解锁 wxnative/alipayf2f 等扫码渠道的收银台可视化。缺 H5/App 唤起。
+    ✅ B 主动查单对账 Query（2026-07-21，横切）：wxnative.Query(GET out-trade-no/{no}+验签)、
+       alipayf2f.Query(alipay.trade.query)，parseQueryResp 纯函数判 trade_state 均单测全绿。
+       后端 GET /api/pay/query/:trade_no：本地未付时主动问渠道，渠道确认已付则走回调同一路径改单+入账(幂等)；
+       mock 渠道不查(以模拟回调为准)。收银台前端轮询改调它。对齐微信"不能仅依赖回调需结合查询"。
+       真跑：mock 未付→status0、回调后→status1、渠道查单失败优雅降级不崩、不存在订单报错，全通过。
+       为阶段 E 定时对账打地基（cron 可复用 QueryStatus 扫未付单）。
 
   ----------------------------------------------------------------
   阶段 C — 后台业务域横向切真接口（配套收单，按已固化五层样板）
   ----------------------------------------------------------------
-    ⬜ C1 通道管理 channels（B 阶段依赖它配密钥，优先）
-    ⬜ C2 资金流水 record / 结算 settle + 批次 batch
+    ✅ C1 通道管理 channels（B 阶段依赖它配密钥，优先）—— 列表+写操作全部切真接口
+       —— 2026-07-21 列表切真接口完成：pay_channel 表(含 config 密钥字段) + GET /api/admin/channels
+          (筛选/分页) + Channels.vue 接真数据 + seedchannels(mock/支付宝/微信/QQ 4条)。
+          下单已接费率：按 type 选已开启通道读 rate 算 getmoney(商户分成)，回调按分成入账。
+          真跑验证：money=100→通道rate=2%→getmoney=2.00→余额+2.00入账、流水订单收入2.00。
+       —— 2026-07-21 写操作切真接口完成：POST/PUT/DELETE /api/admin/channels 系列
+          (create/update/delete/setStatus + config get/save) + repo 写方法 + service 校验。
+          前端 Channels.vue：新增/编辑抽屉(type↔plugin 联动)+复制+删除确认(Modal)+
+          状态开关调真接口(失败回滚)+密钥配置抽屉(通用 key-value JSON 编辑)。
+          真跑验证：增/改/删/状态/密钥 + 各校验分支(空rate 400、rate≥100、mode=1强制daytop=0、
+          非法JSON拦截、删后再改报通道不存在) 全部通过。
+          剩：密钥表单按插件定制留 B4；行操作「订单/测试支付」仍占位。
+    🔨 C2 结算 settle + 批次 batch（2026-07-21 后端切真接口，资金流水 record 待单独切）
+       —— pay_settle + pay_batch 两表 + SettleRepo(明细/批次CRUD+收批+余额扣减退回，事务) +
+          SettleService(calcFee 计费对齐epay+批次生成+状态流转+RunAutoSettle) +
+          5 个接口挂 admin 分组(列表/批次列表/生成批次/批次完成/单条状态变更) +
+          Settle.vue 全切真接口(批次卡片/概况/明细表/生成批次/批次完成/行操作/删除退回确认Modal/批量)。
+       —— 计费单测 calcFee 全绿(常规/封底/封顶/门槛/极小额)；真跑端到端：seed 27明细3批次→
+          生成批次收批3条(0→2)→二次生成正确拦截→批次完成(2→1)→删除退回(uid余额精确+200)全通过。
+       —— 缺：资金流水 record 页(Records.vue)单独切真接口；真实转账打款归C3；计费配置迁移见优化待办#5。
     ⬜ C3 代付 transfer / 分账 profit-sharing
     ⬜ C4 风控 risk / 黑名单 blacklist / 域名 domain
     ⬜ C5 统计 statistics / 操作日志 log / 邀请码 regcode+invitecode
@@ -159,7 +223,24 @@
   ----------------------------------------------------------------
   阶段 E — 定时/异步 + 收尾
   ----------------------------------------------------------------
-    ⬜ E1 cron：自动结算 / 超时关单 / notify 重试队列 / 对账
+    ✅ E1 cron：notify 重试队列 + 对账 + 超时关单 + 自动结算 全部打通（2026-07-21）
+       —— internal/scheduler：ticker 驱动的轻量调度器(不引第三方 cron 库)，main 启动 + SIGINT/SIGTERM
+          优雅停机(先停调度器再 Shutdown HTTP)。默认通知重试每 1min、对账每 5min、每批 20 单。
+       —— 通知重试对齐 epay cron do=notify：notify 字段改为重试计数语义(0成功/>0待重试第N次/-1放弃)，
+          退避表 1/2/16/36min/1h(notifyBackoff 纯函数单测)，超 5 次置 -1 放弃；RetryNotify 扫
+          notify>0 且到期 且近一天完成的单重发，成功归0/失败递增退避。repo：SetNotifySuccess/
+          SetNotifyRetry/FindNotifyPending。首次通知失败也改走该语义(fireMerchantNotify)。
+       —— 对账 ReconcileUnpaid：扫最近窗口未支付真实渠道单，复用 QueryStatus 主动查渠道，确认已付则
+          幂等改单入账。repo FindUnpaidForReconcile(排除 mock)。
+       —— **真跑端到端**：mock 单回调时商户端返回 fail→订单 status=1 但 notify=1 入队→
+          flip 商户端为 success→scheduler tick 命中 RetryNotify→重发成功→notify 归 0。全链路通过。
+       —— 缺：自动结算(settle_task)、E2 风控自动关停支付权限。
+    ✅ E1b 超时关单（2026-07-21）：scheduler 每小时 CleanExpiredOrders 删 status=0 且
+       add_time<24h 前的未付单(对齐 epay cron do=order delete)。repo CleanExpiredUnpaid +
+       service CleanExpiredOrders。真跑边界：25h未付→清、1h未付→留、25h已付→留，精确。
+    ✅ E1c 自动结算（2026-07-21，随 C2 结算域建成）：scheduler 每小时 RunAutoSettle，
+       服务层每日幂等锁(当天已生成自动结算单则跳过)，选达标商户生成 pay_settle 单并即时扣减余额。
+       对齐 epay cron do=settle。详见 C2。
     ⬜ E2 SaaS 控制台 P2 剩余（免密登录/公告/白标）—— 低优先
     ⬜ E3 路由懒加载 / 代码分割（技术债 #1）
 

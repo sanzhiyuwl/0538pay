@@ -21,13 +21,27 @@ const (
 	PayTypeWap      PayType = "wap"      // 手机网页
 )
 
-// Config 是单个渠道实例的配置（来自通道表），各渠道自行解释 Extra。
+// Config 是单个渠道实例的配置（来自通道表 config JSON），各渠道自行解释所需字段。
+// 通用字段覆盖大多数渠道；渠道特有的键放 Extra（如微信 mch_id/serial_no/api_v3_key）。
 type Config struct {
-	AppID     string
-	Key       string
-	PrivateKey string
-	PublicKey  string
-	Extra     map[string]string
+	AppID      string            // 公众账号/应用 ID
+	Key        string            // MD5/APIv3 等对称密钥
+	PrivateKey string            // 商户私钥（PEM）
+	PublicKey  string            // 平台/渠道公钥（PEM）
+	MchID      string            // 商户号（微信等）
+	SerialNo   string            // 商户证书序列号（微信 APIv3）
+	NotifyURL  string            // 该渠道的回调地址（留空则用系统默认）
+	Extra      map[string]string // 渠道特有的其它键值
+}
+
+// ExtraOr 返回 Extra 中 key 的值，缺失时返回 def。
+func (c Config) ExtraOr(key, def string) string {
+	if c.Extra != nil {
+		if v, ok := c.Extra[key]; ok && v != "" {
+			return v
+		}
+	}
+	return def
 }
 
 // CreateReq 统一下单入参。
@@ -77,6 +91,16 @@ func Get(key string) (PaymentChannel, bool) {
 	c, ok := registry[key]
 	return c, ok
 }
+
+// 原始回调注入键：handler 把 JSON 型回调（如微信 APIv3）的原始报文体与验签头
+// 以下面这些保留键塞进 Notify 的 raw map，渠道层据此验签+解密。表单型回调用不到。
+const (
+	RawBody      = "_raw_body"      // 回调原始报文体
+	RawSignature = "_raw_signature" // 验签签名头
+	RawTimestamp = "_raw_timestamp" // 验签时间戳头
+	RawNonce     = "_raw_nonce"     // 验签随机串头
+	RawSerial    = "_raw_serial"    // 证书/公钥序列号头
+)
 
 // Keys 返回已注册的所有渠道 key，便于后台展示可用插件。
 func Keys() []string {
