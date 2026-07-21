@@ -150,7 +150,15 @@
         —— 2026-07-21 补主动查单 Query：GET /v3/pay/transactions/out-trade-no/{no}，RSA 签名+验应答签+
            trade_state=SUCCESS 判定，parseQueryResp 纯函数单测全绿。
            缺：JSAPI/H5、退款。
-    ⬜  个人免签一家（vmq / xorpay / ltzf / xunhupay 之一，无资质兜底）
+    ✅  免签渠道 epay(二次对接易支付 V1/MD5) —— B3 2026-07-21 实现并端到端真跑
+        —— internal/channel/epay:Create(MD5签名 POST 上游 /api/pay/submit 拿收银台) + Notify(同key验签+
+           trade_status判定) + Query(占位)。复用 pkg/sign(与本站上游同源)。config: appid(上游pid)/appkey/
+           appurl/uptype(上游终端方式)/notify_url基址。单测5个全绿(验签通过/篡改失败/未付/缺配置/key)。
+        —— **首次真实渠道下单端到端真跑**(无外部依赖/无资质):建epay通道指向本站自己 → 商户下单(type=epay)
+           → epay渠道真实HTTP POST上游submit(pid=1,uptype=mock) → 上游生成订单选mock渠道返回收银台 →
+           透传二维码 → 触发上游mock支付 → 上游回调本站商户订单notify_url → epay渠道MD5验签通过 → 入账status=1。
+           两层订单均翻转成功;伪造签名回调被验签拦截(FAIL)。补上"真实渠道下单从未真跑"缺口。
+        —— 缺:金额随机微调防并发(epay平台级pay_payaddstart,留注释)、vmq个人码监控、epayn(V2/RSA)。
   P1 二次聚合 / 国际：
     ⬜  epay/epayn（二次对接其它易支付）
     ⬜  paypal / stripe / alipayg / wxpayng（国际）

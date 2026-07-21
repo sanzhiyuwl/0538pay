@@ -1,8 +1,9 @@
 # 二进制产物
 /bin/
 *.exe
-server
-seed
+# 注：早期写作裸 server/seed 会误伤 cmd/server、cmd/seed* 源码目录，改为仅匹配根级编译产物
+/server
+/seed
 
 # 本机配置（含密钥/DSN），只提交 config.yaml 样例
 configs/config.local.yaml

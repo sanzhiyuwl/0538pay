@@ -38,7 +38,7 @@
 七大板块与 epay 的对齐状态（此处只做文字概述，不打勾；逐项打勾见对比清单）：
   1. 对外收单 API + 支付全链路 …… 【阶段A完成】下单→收银台→模拟支付→回调→幂等改单→入账→
                                     流水→商户通知 全链路 mock 真跑通过(A1~A6)；V2/RSA/查退款/真实渠道待 B
-  2. 支付渠道插件（epay 51 个）…… 【框架通】mock 渠道 Create+Notify 跑通 interface+registry，真实渠道 0（阶段B）
+  2. 支付渠道插件（epay 51 个）…… 【框架通·3渠道落地】mock + 支付宝当面付 + 微信Native(下单待凭证) + 免签epay(V1/MD5,已端到端真跑)；免签渠道首次实现真实下单全链路
   3. 定时任务 cron ………………… 【打通】ticker 调度器已跑：notify 重试队列 + 未支付对账 + 超时关单 + 自动结算 均真跑通过(分账/风控自动化待后续)
   4. 管理后台（epay admin 49 文件）… 【前端好·后端列表渐切真】订单/商户/通道列表真接口，余全 mock
   5. 商户中心（epay user 37 文件）… 【前端好·D1/D2/D3核心已通】登录态+工作台/订单/流水/结算/提现/退款+API密钥/改资料/改密码已切真接口，实名/充值/保证金/购买会员/RSA(V2)待续
@@ -172,7 +172,13 @@
           表单(含 PEM textarea)，其它插件退回通用 key-value。
        —— 真跑：建 wxnative 通道 + 存微信密钥 config + 回填 通过；mock 收单链回归(下单→回调→success)通过。
           **待真实/沙箱商户凭证到位后做端到端真跑**。
-    ⬜ B3 个人免签一家（vmq 类）作无资质兜底
+    ✅ B3 免签渠道 epay（二次对接易支付 V1/MD5，2026-07-21）——首次真实渠道下单端到端真跑
+       —— internal/channel/epay:Create(MD5签名POST上游submit)+Notify(验签+trade_status)+Query占位,
+          复用pkg/sign,单测5绿。config:appid/appkey/appurl/uptype/notify_url基址。
+       —— **真跑闭环(无资质无外部依赖)**:epay通道指向本站自己→商户下单type=epay→真实HTTP下单上游
+          (uptype=mock终结)→拿收银台二维码→上游mock支付→回调本站→epay渠道验签→入账status=1。
+          两层订单均翻转,伪造签名被拦。补上"真实渠道下单从未真跑"缺口(微信/支付宝下单仍待真实凭证)。
+       —— 缺:金额微调防并发、vmq个人码、epayn(V2/RSA)。
     ⬜ B4 每家按 A2 interface 实现 + 后台通道配置页（config JSON 密钥表单）切真接口
        —— B4 的「后台通道配置页按插件定制密钥表单」已随 B2 起步(pluginConfigFields 机制已建)。
     ✅ B 收银台真实二维码（2026-07-21，横切）：下单 dispatch 回填 pay_type/qr_code 到订单，

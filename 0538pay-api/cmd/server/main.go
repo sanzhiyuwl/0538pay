@@ -1,0 +1,113 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/0538pay/api/internal/config"
+	"github.com/0538pay/api/internal/handler"
+	"github.com/0538pay/api/internal/model"
+	"github.com/0538pay/api/internal/repository"
+	"github.com/0538pay/api/internal/router"
+	"github.com/0538pay/api/internal/scheduler"
+	"github.com/0538pay/api/internal/service"
+	"github.com/0538pay/api/pkg/jwtauth"
+	"github.com/gin-gonic/gin"
+
+	// 支付渠道：匿名导入以触发各渠道 init() 自注册到 registry。
+	_ "github.com/0538pay/api/internal/channel/alipayf2f"
+	_ "github.com/0538pay/api/internal/channel/epay"
+	_ "github.com/0538pay/api/internal/channel/mock"
+	_ "github.com/0538pay/api/internal/channel/wxnative"
+)
+
+func main() {
+	configPath := flag.String("config", "./configs", "配置目录路径")
+	flag.Parse()
+
+	// 1. 配置
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		log.Fatalf("加载配置失败: %v", err)
+	}
+
+	// 2. 数据库 + 自动建表
+	db, err := model.NewDB(cfg.Database)
+	if err != nil {
+		log.Fatalf("连接数据库失败: %v", err)
+	}
+	if err := model.AutoMigrate(db); err != nil {
+		log.Fatalf("自动建表失败: %v", err)
+	}
+
+	// 3. 依赖装配（repo → service → handler）
+	jm := jwtauth.New(cfg.JWT.Secret, cfg.JWT.ExpireHours)
+
+	adminRepo := repository.NewAdminRepo(db)
+	orderRepo := repository.NewOrderRepo(db)
+	merchantRepo := repository.NewMerchantRepo(db)
+	accountRepo := repository.NewAccountRepo(db)
+	channelRepo := repository.NewChannelRepo(db)
+
+	authSvc := service.NewAuthService(adminRepo, jm)
+	orderSvc := service.NewOrderService(orderRepo)
+	merchantSvc := service.NewMerchantService(merchantRepo)
+	channelSvc := service.NewChannelService(channelRepo)
+	paySvc := service.NewPayService(merchantRepo, orderRepo, accountRepo, channelRepo)
+	settleRepo := repository.NewSettleRepo(db)
+	settleSvc := service.NewSettleService(settleRepo, merchantRepo)
+	recordRepo := repository.NewRecordRepo(db)
+	recordSvc := service.NewRecordService(recordRepo)
+	merchantAuthSvc := service.NewMerchantAuthService(merchantRepo, jm)
+	merchantCenterSvc := service.NewMerchantCenterService(
+		merchantRepo, orderRepo, recordRepo, settleRepo, accountRepo, channelRepo, paySvc,
+	)
+
+	deps := router.Deps{
+		JWT:            jm,
+		Auth:           handler.NewAuthHandler(authSvc),
+		Order:          handler.NewOrderHandler(orderSvc),
+		Merchant:       handler.NewMerchantHandler(merchantSvc),
+		Channel:        handler.NewChannelHandler(channelSvc),
+		Pay:            handler.NewPayHandler(paySvc),
+		Settle:         handler.NewSettleHandler(settleSvc),
+		MerchantAuth:   handler.NewMerchantAuthHandler(merchantAuthSvc),
+		MerchantCenter: handler.NewMerchantCenterHandler(merchantCenterSvc, orderSvc, recordSvc),
+	}
+
+	// 4. 定时任务（阶段E）：商户通知重试 + 未支付对账 + 超时关单 + 自动结算。
+	sch := scheduler.New(paySvc, settleSvc)
+	sch.Start()
+
+	// 5. 路由 + 启动（HTTP 起独立协程，主协程等信号做优雅停机）。
+	gin.SetMode(cfg.Server.Mode)
+	r := gin.Default()
+	router.Setup(r, deps)
+
+	srv := &http.Server{Addr: cfg.Server.Addr, Handler: r}
+	go func() {
+		log.Printf("0538pay-api 启动于 %s", cfg.Server.Addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("服务启动失败: %v", err)
+		}
+	}()
+
+	// 等待 SIGINT/SIGTERM，先停调度器再停 HTTP，做到优雅退出。
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+	log.Printf("收到停止信号，正在优雅关闭…")
+	sch.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("HTTP 优雅关闭超时: %v", err)
+	}
+	log.Printf("已退出")
+}
