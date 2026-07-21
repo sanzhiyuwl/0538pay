@@ -73,7 +73,7 @@ async function login() {
           <div class="brand-copy">
             <h2 class="brand-slogan">三只鱼<span class="brand-pay">PAY</span></h2>
             <span class="brand-rule" aria-hidden="true"></span>
-            <p class="brand-sub">专业的支付进件服务</p>
+            <p class="brand-sub">一站式支付进件 · 聚合清算 · 智能风控服务</p>
           </div>
 
           <ul class="brand-tags">

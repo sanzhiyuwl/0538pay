@@ -1,0 +1,331 @@
+================================================================
+0538pay ✕ 彩虹易支付(epay) 功能逐项对比清单
+================================================================
+用途：以 epay.test 全部功能为基准，逐条列出「我们做到哪一步」。这是"精仿完整度"
+      的权威核对表。判断某功能有没有、做到几成，先查本文件；进度节奏看 开发进度总览.txt。
+生成方式：4 个只读子代理分头通读 epay 源码(admin/user/收单链路/插件) + 清点 0538pay 现状，
+      合成本表（2026-07-21）。
+可信度：★ 已用真实代码校准（2026-07-21）。3 个只读代理逐项核对 admin-web 前端(mock vs
+      真接口/文件是否存在) + 0538pay-api 后端(路由/表/渠道/cron)。校准结论：清单描述几乎
+      全部属实；仅纠正 1 处——商户登录页「极验验证码」由 🎨 降为 ⬜(代码里根本没做，
+      极验只在后台配置项)。后端"4 路由/3 表/渠道零实现/无cron/无收单API"经代码逐条确认属实。
+      故本表状态可作代码级可信，非结构推断。
+最后更新：2026-07-21（代码校准）
+对照基准：epay.test（彩虹易支付，VERSION=3085，原生PHP，51插件，约29表）。
+我们方案：admin-web(Vue3四端,前端已成型) + 0538pay-api(Go/Gin/GORM，后端刚起步)。
+
+----------------------------------------------------------------
+图例（每项标注"前端UI 状态 / 后端API 状态"两轴）
+----------------------------------------------------------------
+  ✅ 完成    前后端打通、真库真接口、跑通验证
+  🎨 仅前端  UI 页面已建，但数据是 mock，后端无对应接口
+  ⬜ 未实现  前端后端都没有
+  ➖ epay无  我们独有、epay 没有的东西（如 SaaS 控制台）
+  ⏸ 暂缓    有意推迟
+
+一句话现状：前端 4 端约 90+ 页面几乎全部建好(绝大多数 mock)；后端只有
+  "登录 + 订单列表 + 商户列表" 3 个真接口。epay 的心脏——对外收单 API、
+  支付渠道插件、回调、定时任务——全部为零。精仿完整度：界面≈90%，后端能力≈5%。
+
+
+================================================================
+第一部分 ★ 对外收单 API + 支付全链路（epay 核心价值，我们最缺）
+================================================================
+说明：这是易支付的心脏。epay 有 V1(旧,MD5签名) 和 V2(新,RSA签名) 两套对外协议，
+      商户系统靠它们下单/查单/退款/代付。我们目前 /api/pay/* 整个不存在。
+
+【下单 / 收银】
+  ⬜/⬜  V1 页面下单  submit.php（GET 跳转到收银台/直接支付）
+  ⬜/⬜  V1 API下单   mapi.php（返回 JSON，商户自渲染）
+  ⬜/⬜  V2 下单      pay/submit、pay/create（RSA 签名，REST 风格）
+  ⬜/⬜  收银台聚合页 cashier.php（无 type 时展示可选支付方式）
+  ⬜/⬜  支付中间页   includes/pages/（扫码页/H5/JSAPI/公众号，按插件返回 type 渲染）
+        —— 我们后端 internal/channel 有 interface 抽象，但零渲染、零下单入口。
+
+【查单 / 退款】
+  ⬜/⬜  V1 单笔查询  api.php?act=query
+  ⬜/⬜  V1 批量查询  api.php?act=orders
+  ⬜/⬜  V1 退款      api.php?act=refund
+  ⬜/⬜  V2 查单/退款/退款查询  pay/query、pay/refund、pay/refundquery
+
+【回调 / 通知（最关键的异步链路）】
+  ⬜/⬜  第三方回调路由  /pay/notify/{trade_no}/ → 插件 notify() 验签
+  ⬜/⬜  订单状态幂等更新 Payment::processOrder（防重复通知）
+  ⬜/⬜  订单入账        functions.processOrder（按 tid 入账：普通/充值/买组/保证金）
+  ⬜/⬜  商户异步通知     creat_callback + do_notify（回商户 notify_url，判 success）
+  ⬜/⬜  通知失败重试     进 cron 队列(1/3/20分/1/2时 多档重试)
+  ⬜/⬜  同步跳转 return  支付完成跳回商户 return_url
+
+【商户信息 / 代付 API】
+  ⬜/⬜  V2 商户信息     merchant/info
+  ⬜/⬜  V2 商户订单     merchant/orders
+  ⬜/⬜  V2 代付提交/查询/凭证/余额  transfer/submit|query|proof|balance
+
+【签名 / 安全】
+  ⬜  MD5 签名验签（V1：pid+key，ksort 去空去 sign）
+  ⬜  RSA SHA256 签名验签（V2：平台私钥签、商户公钥验）
+  ⬜  timestamp 防重放（V2，±300s）
+  ⬜  下单幂等（订单号 + 渠道流水号 唯一键）
+  ⬜  回调金额/状态二次校验防篡改
+  —— 全部未实现。这是接后端阶段 A 的主战场。
+
+
+================================================================
+第二部分 ★ 支付渠道插件体系（epay 51 插件，我们 0 实现）
+================================================================
+说明：epay 用"约定式插件"——plugins/{name}/{name}_plugin.php，每个类实现
+      submit/notify/return/refund/qrcode/jspay/h5/transfer 等方法，静态 $info 定义元数据
+      (name/showname/types/inputs密钥表单/select子产品 等)，init 注册到全局。
+      我们改为 Go interface + registry(自研不抄约定)，但目前只有 interface 定义，零渠道落地。
+
+【插件框架】
+  ⬜  插件契约（Go PaymentChannel interface：Create/Query/Notify/Refund/Close）
+      —— interface 抽象已写(internal/channel/channel.go)，但无任何实现
+  ⬜  registry 注册表运行时为空（无一个 channel.Register 调用）
+  ⬜  插件元数据 / 密钥表单动态渲染（epay 据 $info.inputs 渲后台配置表单）
+  ⬜  mock 模拟渠道（阶段 A 用来跑通全链路，尚未建）
+
+【支付方式 type（epay 6 种）】
+  🎨/⬜  支付宝 alipay   （前端 PayTypes 页有，后端无）
+  🎨/⬜  微信 wxpay
+  🎨/⬜  QQ钱包 qqpay
+  🎨/⬜  网银 bank
+  🎨/⬜  京东 jdpay
+  🎨/⬜  PayPal paypal
+
+【渠道层级（epay：type→plugin→channel→subchannel→roll 轮询）】
+  🎨/⬜  支付通道 CRUD（前端 Channels 页 mock）
+  🎨/⬜  子通道 subchannel（商户自定义）
+  🎨/⬜  轮询组 roll（3 种模式：顺序/加权随机/固定优先）
+  🎨/⬜  用户组通道分配（channel=0关/-1随机/-2子通道/正整数固定，组级覆盖费率）
+
+【51 个真实渠道插件（epay 全集，我们按 P0/P1/P2 分级逐步做）】
+  P0 主流直连（阶段 B 目标 3~5 家）：
+    ⬜  支付宝系（alipay 当面付/网页/预授权）
+    ⬜  微信系（wxpay Native/JSAPI/H5，wxpayn V3）
+    ⬜  个人免签一家（vmq / xorpay / ltzf / xunhupay 之一，无资质兜底）
+  P1 二次聚合 / 国际：
+    ⬜  epay/epayn（二次对接其它易支付）
+    ⬜  paypal / stripe / alipayg / wxpayng（国际）
+  P2 持牌机构（资质门槛高，最后做）：
+    ⬜  allinpay / lakala / yeepay / chinaums / swiftpass 等
+  —— epay 共 51 个插件目录，我们不追求 51 个全做，按能拿到资质 + 需求分级实现。
+
+
+================================================================
+第三部分 ★ 定时任务 cron（epay cron.php，我们完全没有）
+================================================================
+说明：epay cron.php(423行) 是运维心脏。我们前端有 /admin/cron-settings 配置页(mock)，
+      但后端无任何定时任务代码、无 robfig/cron 或 asynq 依赖。全部 ⬜。
+
+  🎨/⬜  自动结算 settle（到期批量结算 + 转账打款）
+  🎨/⬜  超时订单关单 / 清理统计
+  🎨/⬜  异步通知 notify 失败重试（多档退避）
+  🎨/⬜  分账 profitsharing 自动执行
+  🎨/⬜  风控 check（触发规则自动关停商户/通道）
+  🎨/⬜  投诉 complain 自动处理（冻结/回复/拉黑/退款）
+  🎨/⬜  cron 访问密钥保护
+  —— 前端配置页存在，后端零支撑。接后端阶段 E 做。
+
+
+================================================================
+第四部分 管理后台（epay admin 49 文件 → 我们 AdminLayout）
+================================================================
+说明：这是我们完成度最高的部分——UI 几乎全部对齐 epay 并通过自检。
+      绝大多数是 🎨(前端建好/mock)，仅订单列表、商户列表已切真接口。
+      标注格式：epay菜单/文件 → 我们视图 [状态]。
+
+【平台首页】
+  🎨  仪表盘统计（订单数/商户数/余额/结算/成功率/收入统计表）
+      epay index.php → 我们 Dashboard.vue [mock]
+
+【订单管理】
+  ✅  订单列表查询（筛选/分页）  epay order.php → Orders.vue [真接口 GET /api/admin/orders]
+  🎨  订单详情 / 子订单
+  🎨  API退款 / 手动退款
+  🎨  冻结 / 解冻订单
+  🎨  重新通知 / 补单
+  🎨  删除订单 / 批量操作
+  🎨  退款金额/退款订单统计
+      —— 列表已真，写操作(退款/冻结/补单)全 mock。
+
+【结算管理】
+  🎨  结算列表（按方式/状态筛选）  epay slist.php → Settle.vue [mock]
+  🎨  批量结算 / 批量改结算状态    epay settle.php → SettleSettings.vue
+  🎨  结算批次操作 / 结算结果查改
+  🎨  结算打款文件导出（网商/支付宝批量模板）
+  🎨  支付密码校验（结算/退款二次密码）
+
+【商户管理】
+  ✅  商户列表查询  epay ulist.php → Merchants.vue [真接口 GET /api/admin/merchants]
+  🎨  添加 / 编辑商户  epay uset.php
+  🎨  余额充值 / 扣除
+  🎨  查看/重置商户密钥、生成 RSA
+  🎨  用户组列表/新增/删除  epay glist/gedit.php → Groups.vue
+  🎨  用户组购买价配置       epay group.php
+  🎨  资金明细流水            epay record.php → Records.vue
+  🎨  支付统计（按方式/通道，可导出）  epay ustat.php → MerchantStats.vue
+  🎨  支付用户统计            epay buyerstat(菜单有文件缺) → BuyerStats.vue
+  🎨  授权域名审核/管理        epay domain.php → Domains.vue
+  🎨  邀请码增删/清空          epay invitecode.php → InviteCodes.vue
+      —— 列表已真，其余全 mock。
+
+【支付接口】
+  🎨  支付通道 CRUD/费率/成功率  epay pay_channel.php → Channels.vue [mock]
+  🎨  支付方式 启用/配置          epay pay_type.php → PayTypes.vue
+  🎨  支付插件列表                epay pay_plugin.php → Plugins.vue
+  🎨  通道轮询规则                epay pay_roll.php → Rolls.vue
+  🎨  微信公众号/小程序账号        epay pay_weixin.php → Wechat.vue
+  🎨  企业微信账号                epay pay_wework.php → Wework.vue
+  🎨  微信客服支付(H5跳转)         epay set_wxkf.php → WxkfSettings.vue
+  🎨  获取用户标识(openid工具)     epay gettoken.php → GetToken.vue
+  🎨  支付相关配置                epay set.php?mod=pay → PaySettings.vue
+
+【财务管理 / 代付】
+  🎨  手动转账付款(单笔)  epay transfer_add.php → Transfer.vue [mock]
+  🎨  付款记录/撤销/改状态/退款/凭证  epay transfer.php → TransferRecords.vue
+  🎨  批量转账付款        epay transfer_batch.php
+  🎨  计费/账单            → Billing.vue（我们细化项）
+
+【风控管理】
+  🎨  风控拦截记录        epay risk.php → Risk.vue [mock]
+  🎨  黑名单增删查         epay blacklist.php → Blacklist.vue
+  🎨  风控检测配置(频率/人机验证)  epay set.php?mod=risk → RiskSettings.vue
+
+【分账】
+  🎨  分账接收方规则 CRUD/启停  epay ps_receiver.php → ProfitSharing.vue [mock]
+  🎨  分账记录/发起/解冻/回退/改额  epay ps_order.php
+
+【系统设置（epay set.php 16 个 mod）】
+  🎨  网站信息配置 site        → Settings.vue [mock]
+  🎨  注册相关(开放/审核/付费)  set?mod=site → RegSettings.vue
+  🎨  支付相关配置 pay          → PaySettings.vue（见支付接口）
+  🎨  风控检测 risk            → RiskSettings.vue（见风控）
+  🎨  结算规则 settle          → SettleSettings.vue（见结算）
+  🎨  转账付款配置 transfer     → (Transfer相关)
+  🎨  快捷登录 oauth(QQ/微信/支付宝)  → OAuthSettings.vue
+  🎨  消息提醒 notice(公众号/邮件)    → NoticeSettings.vue
+  🎨  实名认证 certificate(支付宝/腾讯云/阿里云OCR)  → CertSettings.vue
+  🎨  邮箱与短信 mail(SMTP/短信模板)  → MailSettings.vue
+  🎨  网站公告 gonggao          → Announcements.vue
+  🎨  首页模板 template          → TemplateSettings.vue
+  🎨  网站LOGO upimg            → (Settings内)
+  🎨  IP获取方式 iptype          → (OtherSettings)
+  🎨  计划任务 cron             → CronSettings.vue（后端见第三部分）
+  🎨  中转代理 proxy            → OtherSettings.vue
+  🎨  管理员账号/支付密码 account → (Settings/权限)
+
+【其他功能】
+  🎨  导出订单        epay export.php+download.php
+  🎨  登录日志        epay log.php → Logs.vue / OpLogs.vue
+  🎨  数据清理        epay clean.php → Clean.vue
+  🎨  文章管理        epay article.php → Articles.vue
+  🎨  单点登录(后台免密进商户中心)  epay sso.php [未做]
+
+【权限（我们扩展，epay 是单管理员）】
+  ➖🎨  多管理员 Admins.vue / 角色 Roles.vue / 操作日志 OpLogs.vue
+        —— epay 只有单管理员单级权限，我们做了 RBAC 雏形(前端 mock)。
+
+
+================================================================
+第五部分 商户中心（epay user 37 文件 → 我们 MerchantLayout /m）
+================================================================
+说明：UI 全部建好(21 视图)，数据全 mock，后端商户端接口 0 个（router.go 里注明
+      "merchant 分组后续补"）。全部 🎨。接后端阶段 D 做。
+
+【登录 / 注册 / 找回】
+  🎨  密码登录        epay login.php(type=1) → MerchantLogin.vue
+  🎨  密钥登录        epay login.php(type=0)
+  ⬜  极验滑动验证码   epay 有；我们商户登录页未做（代码核实无验证码组件，
+                      极验仅出现在后台 RegSettings 的配置项，与登录页无关）
+  🎨  QQ 快捷登录/扫码  epay connect.php/qrlogin.php
+  🎨  微信快捷登录      epay wxlogin.php
+  🎨  支付宝快捷登录     epay oauth.php
+  🎨  注册(邀请码/须知/验证码)  epay reg.php → MerchantReg.vue
+  🎨  找回密码          epay findpwd.php → MerchantFindpwd.vue
+  🎨  强制完善资料       epay completeinfo.php → MerchantComplete.vue
+
+【用户中心首页】
+  🎨  工作台仪表盘(余额/订单/结算/今昨收入/费率表/曲线)  epay index.php → MerchantHome.vue
+
+【个人资料 / 账户】
+  🎨  API信息(商户ID/MD5密钥/RSA公私钥)  epay userinfo.php?mod=api → MerchantApi.vue
+  🎨  重置密钥 / 生成 RSA 对
+  🎨  修改资料(密保手机邮箱/结算账号/通知)  epay editinfo.php → MerchantProfile.vue
+  🎨  修改登录密码       epay userinfo.php?mod=account
+  🎨  消息通知/语音播报设置
+  🎨  实名认证(个人/企业,支付宝人脸/微信)  epay certificate.php → MerchantCertificate.vue
+  🎨  保证金(查看/充值/退还)  epay deposit.php → MerchantDeposit.vue
+
+【查询】
+  🎨  订单记录查询/详情/退款/补单  epay order.php → MerchantOrders.vue
+  🎨  结算记录                    epay settle.php → MerchantSettle.vue
+  🎨  资金明细                    epay record.php → MerchantRecords.vue
+  🎨  申请提现                    epay apply.php → MerchantApply.vue
+  🎨  余额充值                    epay recharge.php → MerchantRecharge.vue
+  🎨  购买会员(升级费率组)         epay groupbuy.php → MerchantGroupbuy.vue
+  🎨  授权域名管理                epay domain.php → MerchantDomains.vue
+  ⬜  交易投诉(complain_open)      epay complain.php → [我们未做,epay源码也缺此文件]
+
+【其他 / 增值】
+  🎨  代付管理/记录             epay transfer.php → MerchantTransfer.vue
+  🎨  新增代付(支付宝/微信/银行卡)  epay transfer_add.php
+  🎨  聚合收款码                 epay onecode.php → MerchantOnecode.vue
+  🎨  邀请返现(链接/比例/统计)     epay invite.php → MerchantInvite.vue
+  🎨  使用说明                    epay help.php → MerchantHelp.vue
+  🎨  站内信/通知抽屉             （我们扩展）
+  ⬜  测试支付(1元)              epay test.php → [未做]
+
+
+================================================================
+第六部分 官网 / 前端视觉（epay template + paypage → 我们 SiteLayout）
+================================================================
+说明：epay 有 11 套首页模板 + 独立收银台视觉。我们做了 1 套现代 SaaS 官网 + CMS。
+
+  🎨  官网首页(营销落地页)   epay template/default+index1~10 → SiteHome.vue [CMS可编辑]
+  🎨  开发者文档            epay doc → ClassicDocs.vue [CMS结构化]
+  🎨  服务协议 / 关于我们    → ClassicAgreement/About.vue
+  🎨  支付成功 / 支付失败页   epay includes/pages → ClassicPayok/Payerr.vue
+  ➖  官网内容 CMS(首页文案/文档后台可编辑)  —— 我们扩展,epay 无独立 CMS
+  ⬜  收银台聚合页视觉(cashier PC/H5)  epay cashier.php+main12.css → [见第一部分,未做]
+  ⬜  扫码中间页(微信绿/其他蓝)  epay includes/pages → [未做]
+  ⬜  个人收款码收银台(数字键盘仿微信)  epay paypage/ → [未做]
+  ⏸  epay 11 套首页模板多选  —— 我们做 1 套精品,不追求 11 套
+
+
+================================================================
+第七部分 ➖ 我们独有 / epay 没有的（SaaS 化方向）
+================================================================
+说明：这些是我们把"支付系统"升级为"多租户 SaaS 平台"的扩展，epay 本身没有。
+      不算精仿缺口，是加分项。全部前端 mock。
+
+  ➖🎨  SaaS 控制台 /console —— 平台方多租户管理（epay 无此层）
+  ➖🎨    租户管理(套餐/期限/权限/通道/配额)  Console.vue
+  ➖🎨    租户套餐定价  ConsolePlans.vue
+  ➖🎨    租户计费      ConsoleBilling.vue
+  ➖🎨    分站总览      ConsoleOverview.vue
+  ➖🎨    操作审计      ConsoleLogs.vue
+  ➖⬜    P2剩余: 免密登录分站/下发公告/白标定制/独立域名SSL  [未做]
+  ➖🎨  后台 RBAC 多管理员+角色（epay 单管理员）
+
+
+================================================================
+★ 结论与差距总结
+================================================================
+1. 精仿"界面层"≈90% 完成：admin 后台、商户中心、官网 UI 基本全对齐 epay 并超出
+   (多了 SaaS 控制台 + RBAC + CMS)。这是我们最扎实的部分。
+
+2. 精仿"能力层"≈5% 完成：epay 真正的价值(收单/渠道/回调/结算/代付/分账/定时)
+   在我们这里几乎全是 mock。后端只有 登录+订单列表+商户列表 3 个只读真接口。
+
+3. 最大且唯一的关键缺口 = 收单主链(第一/二/三部分)：
+   下单→选通道→插件下单→收银台→回调验签→改单→入账→通知商户→结算/代付/分账→定时。
+   这条链一通，0538pay 才从"支付管理界面"变成"支付系统"。
+
+4. 补齐顺序(对应 开发进度总览.txt 的阶段 A~E)：
+   A 收单核心MVP(mock渠道跑通全链路) → B 真实渠道3~5家 → C 后台业务域切真接口
+   → D 商户中心接后端 → E 定时任务+收尾。
+   横向(后台页面切真接口)价值不掉、可后置；纵向(收单链路)是未验证的最大风险,先啃。
+
+5. 不追求 1:1 的项：epay 11 套首页模板(我们 1 套精品)、51 插件全做(按资质分级)、
+   单管理员权限(我们升级为 RBAC)、投诉功能(epay 源码本身该文件缺失,核对后再定)。
