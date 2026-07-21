@@ -1,19 +1,31 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Copy, Check, RefreshCw, KeyRound, ShieldCheck, FileText } from 'lucide-vue-next'
 import { Panel, Button, Select, Modal } from '@/components/ui'
+import { fetchApiInfo, resetApiKey } from '@/lib/api/merchantCenter'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
-// 商户 API 信息（对齐 epay userinfo.php?mod=api）
+const toast = useToast()
+
+// 商户 API 信息（V1 MD5 真接口；V2 RSA 部分待 V2 协议上线）
 const api = ref({
-  apiurl: 'https://0538pay.com/',
-  uid: 1001,
-  mdkey: 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6',
-  platformPublicKey:
-    'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0f8s...（平台公钥，商户验签平台回调用）...IDAQAB',
-  merchantPublicKey:
-    'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA9k2p...（商户公钥，已上传平台）...IDAQAB',
-  keytype: '0', // 0=MD5+RSA兼容 1=仅RSA
+  apiurl: '',
+  uid: 0,
+  mdkey: '',
+  keytype: '0', // 0=MD5+RSA兼容 1=仅RSA（V2，暂只前端展示）
 })
+async function loadApi() {
+  try {
+    const info = await fetchApiInfo()
+    api.value.apiurl = info.apiurl
+    api.value.uid = info.uid
+    api.value.mdkey = info.mdkey
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : 'API 信息加载失败')
+  }
+}
+onMounted(loadApi)
 
 const keytypeOptions = [
   { value: '0', label: 'MD5 + RSA 兼容模式' },
@@ -29,27 +41,34 @@ function copy(key: string, val: string) {
   }).catch(() => {})
 }
 
-// 重置 MD5 密钥（原型：本地随机生成展示）
-function resetMdKey() {
-  const chars = 'abcdef0123456789'
-  let s = ''
-  for (let i = 0; i < 32; i++) s += chars[(i * 7 + 3) % chars.length]
-  api.value.mdkey = s
+// 重置 MD5 密钥（真接口，原密钥立即失效）
+const resetting = ref(false)
+async function resetMdKey() {
+  if (resetting.value) return
+  resetting.value = true
+  try {
+    const res = await resetApiKey()
+    api.value.mdkey = res.mdkey
+    toast.success('密钥已重置，请同步更新对接代码')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '重置失败')
+  } finally {
+    resetting.value = false
+  }
 }
 
-// 生成/重置 RSA 密钥对：私钥一次性弹窗
+// V2 RSA 密钥对：V2 协议尚未上线，暂提示待开放
 const rsaOpen = ref(false)
 const newPrivateKey = ref('')
 function genRsaPair() {
-  newPrivateKey.value =
-    'MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ...（这是新生成的商户私钥，仅此一次展示，请妥善保存，平台不存储）...Kj3n8Q=='
-  rsaOpen.value = true
+  toast.info('RSA（V2 接口）即将开放，敬请期待')
 }
 
 const keytypeSaved = ref('0')
 const keytypeDirty = computed(() => keytypeSaved.value !== api.value.keytype)
 function saveKeytype() {
-  keytypeSaved.value = api.value.keytype
+  toast.info('签名模式（V2）即将开放')
+  api.value.keytype = keytypeSaved.value
 }
 </script>
 
@@ -104,25 +123,9 @@ function saveKeytype() {
         <Button size="sm" @click="genRsaPair"><KeyRound />生成/重置密钥对</Button>
       </template>
       <div class="max-w-3xl space-y-3.5">
-        <div class="row-field">
-          <label class="lbl mt-2">平台公钥</label>
-          <div class="flex flex-1 items-start gap-2">
-            <textarea :value="api.platformPublicKey" readonly rows="3" class="field-input flex-1 resize-none bg-muted/40 py-2 font-mono text-[12px] leading-relaxed" style="height:auto" />
-            <Button variant="outline" size="sm" @click="copy('ppk', api.platformPublicKey)">
-              <component :is="copiedKey === 'ppk' ? Check : Copy" class="size-4" />
-            </Button>
-          </div>
+        <div class="rounded bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          RSA（V2 接口）签名与密钥对管理即将开放。当前请使用上方 V1 接口（MD5 签名）对接。
         </div>
-        <div class="row-field">
-          <label class="lbl mt-2">商户公钥</label>
-          <div class="flex flex-1 items-start gap-2">
-            <textarea :value="api.merchantPublicKey" readonly rows="3" class="field-input flex-1 resize-none bg-muted/40 py-2 font-mono text-[12px] leading-relaxed" style="height:auto" />
-            <Button variant="outline" size="sm" @click="copy('mpk', api.merchantPublicKey)">
-              <component :is="copiedKey === 'mpk' ? Check : Copy" class="size-4" />
-            </Button>
-          </div>
-        </div>
-        <p class="text-xs text-muted-foreground">商户私钥仅在生成时展示一次，平台不存储，请妥善保管。若遗失可重新生成密钥对。</p>
       </div>
     </Panel>
 

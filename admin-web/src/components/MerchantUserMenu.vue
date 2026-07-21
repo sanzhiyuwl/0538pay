@@ -5,9 +5,13 @@ import { onClickOutside } from '@vueuse/core'
 import { ChevronDown, IdCard, KeyRound, SquarePen, Power } from 'lucide-vue-next'
 import { Modal, Button } from '@/components/ui'
 import { useMerchantAuthStore } from '@/stores/merchantAuth'
+import { changePassword } from '@/lib/api/merchantCenter'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
 const router = useRouter()
 const merchantAuth = useMerchantAuthStore()
+const toast = useToast()
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 onClickOutside(root, () => (open.value = false))
@@ -26,10 +30,29 @@ function logout() {
 
 // ===== 修改密码弹窗（商户端仅登录密码）=====
 const pwdOpen = ref(false)
+const pwdSaving = ref(false)
 const pwd = reactive({ oldpwd: '', newpwd: '', newpwd2: '' })
-function savePwd() {
-  pwdOpen.value = false
-  pwd.oldpwd = pwd.newpwd = pwd.newpwd2 = ''
+async function savePwd() {
+  if (pwdSaving.value) return
+  if (pwd.newpwd.length < 6) {
+    toast.error('新密码至少 6 位')
+    return
+  }
+  if (pwd.newpwd !== pwd.newpwd2) {
+    toast.error('两次输入的新密码不一致')
+    return
+  }
+  pwdSaving.value = true
+  try {
+    await changePassword(pwd.oldpwd, pwd.newpwd)
+    toast.success('登录密码已修改')
+    pwdOpen.value = false
+    pwd.oldpwd = pwd.newpwd = pwd.newpwd2 = ''
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '修改失败')
+  } finally {
+    pwdSaving.value = false
+  }
 }
 
 function go(to: string) {

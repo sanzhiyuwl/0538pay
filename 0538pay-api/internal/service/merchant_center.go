@@ -1,12 +1,16 @@
 package service
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"strings"
 	"time"
 
 	"github.com/0538pay/api/internal/dto"
 	"github.com/0538pay/api/internal/model"
 	"github.com/0538pay/api/internal/repository"
 	"github.com/shopspring/decimal"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // MerchantCenterService 商户中心业务：工作台聚合、结算记录、提现、退款、重新通知。
@@ -353,6 +357,105 @@ func (s *MerchantCenterService) Refund(uid uint, tradeNo string) error {
 		return err
 	}
 	return nil
+}
+
+// ===== API 信息 / 资料 / 密码 =====
+
+// ApiInfo 返回商户 API 信息（V1 MD5 密钥）。
+func (s *MerchantCenterService) ApiInfo(uid uint) (*dto.MerchantApiInfo, error) {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, maErr("商户不存在")
+	}
+	return &dto.MerchantApiInfo{
+		UID:    m.UID,
+		MDKey:  m.AppKey,
+		APIURL: "https://0538pay.com/", // 接口地址（接站点配置域后动态）
+	}, nil
+}
+
+// ResetKey 重置商户 MD5 通信密钥，返回新密钥。对齐 epay resetKey：随机 32 位。
+// 副作用：原密钥立即失效，商户对接代码需同步更新。
+func (s *MerchantCenterService) ResetKey(uid uint) (string, error) {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return "", err
+	}
+	if m == nil {
+		return "", maErr("商户不存在")
+	}
+	key, err := randomHex(32)
+	if err != nil {
+		return "", err
+	}
+	if err := s.merchants.UpdateFields(uid, map[string]interface{}{"app_key": key}); err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+// UpdateProfile 修改商户资料（收款账号 + 联系方式 + 扣费模式，仅模型已有字段）。
+func (s *MerchantCenterService) UpdateProfile(uid uint, req dto.MerchantProfileReq) error {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return maErr("商户不存在")
+	}
+	if req.SettleID < 1 || req.SettleID > 5 {
+		return maErr("结算方式不合法")
+	}
+	if req.Mode != 0 && req.Mode != 1 {
+		return maErr("扣费模式不合法")
+	}
+	fields := map[string]interface{}{
+		"settle_id": req.SettleID,
+		"account":   strings.TrimSpace(req.Account),
+		"username":  strings.TrimSpace(req.Username),
+		"email":     strings.TrimSpace(req.Email),
+		"qq":        strings.TrimSpace(req.QQ),
+		"url":       strings.TrimSpace(req.URL),
+		"mode":      req.Mode,
+	}
+	return s.merchants.UpdateFields(uid, fields)
+}
+
+// ChangePassword 修改登录密码（bcrypt）。已设密码则校验旧密码。
+func (s *MerchantCenterService) ChangePassword(uid uint, req dto.MerchantPwdReq) error {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return maErr("商户不存在")
+	}
+	newPwd := strings.TrimSpace(req.NewPwd)
+	if len(newPwd) < 6 {
+		return maErr("新密码至少 6 位")
+	}
+	if m.Password != "" {
+		if bcrypt.CompareHashAndPassword([]byte(m.Password), []byte(req.OldPwd)) != nil {
+			return maErr("原密码不正确")
+		}
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPwd), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.merchants.UpdateFields(uid, map[string]interface{}{"password": string(hash)})
+}
+
+// randomHex 生成 n 位十六进制随机串（密钥用）。
+func randomHex(n int) (string, error) {
+	b := make([]byte, (n+1)/2)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b)[:n], nil
 }
 
 // Renotify 重新通知商户（补单/重发回调）：仅对已支付订单，复用支付服务的通知重发。

@@ -88,6 +88,11 @@ func Setup(r *gin.Engine, d Deps) {
 			mAuthed.POST("/apply", d.MerchantCenter.Apply)
 			mAuthed.POST("/order/refund", d.MerchantCenter.Refund)
 			mAuthed.POST("/order/notify", d.MerchantCenter.Renotify)
+			// D3 资料/密钥/密码
+			mAuthed.GET("/apikey", d.MerchantCenter.ApiInfo)
+			mAuthed.POST("/apikey/reset", d.MerchantCenter.ResetKey)
+			mAuthed.PUT("/profile", d.MerchantCenter.UpdateProfile)
+			mAuthed.PUT("/password", d.MerchantCenter.ChangePassword)
 		}
 	}
 

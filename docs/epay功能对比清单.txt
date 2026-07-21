@@ -330,12 +330,18 @@
            +四数据卡(余额/已结算/订单总数/今日订单)+通道费率表+结算趋势图。统计口径对齐 epay getcount
            (已支付订单数/今昨收入按 money 求和/已结算按 realmoney 求和)。真跑:余额¥1889.66等真实值渲染。
 
-【个人资料 / 账户】
-  🎨  API信息(商户ID/MD5密钥/RSA公私钥)  epay userinfo.php?mod=api → MerchantApi.vue
-  🎨  重置密钥 / 生成 RSA 对
-  🎨  修改资料(密保手机邮箱/结算账号/通知)  epay editinfo.php → MerchantProfile.vue
-  🎨  修改登录密码       epay userinfo.php?mod=account
-  🎨  消息通知/语音播报设置
+【个人资料 / 账户】(D3 2026-07-21 核心块切真接口)
+  ✅  API信息(商户ID/MD5密钥)  epay userinfo.php?mod=api → MerchantApi.vue [真接口]
+        —— GET /api/merchant/apikey 返回商户ID+MD5密钥(AppKey)+接口地址。
+  ✅  重置MD5密钥         epay resetKey → POST /api/merchant/apikey/reset [真接口]
+        —— 随机32位hex,原密钥立即失效。真跑:重置生成新密钥。
+  ⬜/🎨  生成RSA对 / keytype 签名模式  —— 属 V2 协议(V2 后端未实现),前端保留UI标注"V2待开放",不接后端(不造悬空)
+  ✅  修改资料(结算账号/联系方式/扣费模式)  epay editinfo.php → MerchantProfile.vue [真接口]
+        —— PUT /api/merchant/profile:settle_id/account/username/email/qq/url/mode(仅Merchant模型已有字段)。
+           真跑:改QQ生效。密保手机改绑(需验证码)/keylogin/refund/transfer/remain_money(模型无字段) 保留UI待后续。
+  ✅  修改登录密码       epay userinfo.php?mod=account → PUT /api/merchant/password [真接口]
+        —— bcrypt,已设密码校验旧密码,新密码≥6位。真跑:改密后旧密码失效/新密码可登录/错误旧密码拒绝。
+  🎨  消息通知/语音播报设置  —— Merchant 模型无 msgconfig 字段,待通知域(前端保留UI)
   🎨  实名认证(个人/企业,支付宝人脸/微信)  epay certificate.php → MerchantCertificate.vue
   🎨  保证金(查看/充值/退还)  epay deposit.php → MerchantDeposit.vue
 

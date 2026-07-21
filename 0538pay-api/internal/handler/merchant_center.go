@@ -179,6 +179,74 @@ func (h *MerchantCenterHandler) Refund(c *gin.Context) {
 	resp.OK(c, gin.H{"trade_no": req.TradeNo, "status": 2})
 }
 
+// ApiInfo GET /api/merchant/apikey API 信息（V1 MD5 密钥）
+func (h *MerchantCenterHandler) ApiInfo(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	info, err := h.svc.ApiInfo(uid)
+	if err != nil {
+		failMC(c, err)
+		return
+	}
+	resp.OK(c, info)
+}
+
+// ResetKey POST /api/merchant/apikey/reset 重置 MD5 密钥
+func (h *MerchantCenterHandler) ResetKey(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	key, err := h.svc.ResetKey(uid)
+	if err != nil {
+		failMC(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"mdkey": key})
+}
+
+// UpdateProfile PUT /api/merchant/profile 修改资料
+func (h *MerchantCenterHandler) UpdateProfile(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var req dto.MerchantProfileReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.UpdateProfile(uid, req); err != nil {
+		failMC(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}
+
+// ChangePassword PUT /api/merchant/password 修改登录密码
+func (h *MerchantCenterHandler) ChangePassword(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var req dto.MerchantPwdReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.ChangePassword(uid, req); err != nil {
+		failMC(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}
+
 // Renotify POST /api/merchant/order/notify 重新通知（补单）
 func (h *MerchantCenterHandler) Renotify(c *gin.Context) {
 	uid, ok := currentUID(c)

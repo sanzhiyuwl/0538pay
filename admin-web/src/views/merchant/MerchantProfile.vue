@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { Save, ShieldCheck, Link2, Unlink, QrCode } from 'lucide-vue-next'
 import { Panel, Button, Select, Switch } from '@/components/ui'
 import {
@@ -12,12 +12,37 @@ import {
   modeOptions,
   bindConfig,
 } from '@/lib/mock/merchant/profile'
+import { fetchMerchantInfo } from '@/lib/api/merchantAuth'
+import { updateProfile } from '@/lib/api/merchantCenter'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
+import { useMerchantAuthStore } from '@/stores/merchantAuth'
+
+const toast = useToast()
+const merchantAuth = useMerchantAuthStore()
 
 const settle = reactive({ ...settleConfig })
 const contact = reactive({ ...contactConfig })
-const msg = reactive({ ...msgConfig })
+const msg = reactive({ ...msgConfig }) // 消息提醒：后端暂无字段，保留本地态
 const mode = reactive({ ...modeConfig })
-const binds = reactive({ ...bindConfig })
+const binds = reactive({ ...bindConfig }) // 第三方绑定：待 OAuth 域
+
+// 拉当前商户资料填充（收款账号/联系方式/扣费模式为真数据）
+onMounted(async () => {
+  try {
+    const info = await fetchMerchantInfo()
+    settle.stype = String(info.settle_id || 1)
+    settle.account = info.account
+    settle.username = info.username
+    contact.phone = info.phone
+    contact.email = info.email
+    contact.qq = info.qq
+    contact.url = info.url
+    mode.mode = String(info.mode || 0)
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '资料加载失败')
+  }
+})
 
 // 收款账号：微信结算时账号标签变化
 const accountLabel = computed(() => {
@@ -30,7 +55,29 @@ const accountLabel = computed(() => {
   }
 })
 
-function save() {}
+const saving = ref(false)
+// 保存资料（收款账号 + 联系方式 + 扣费模式，一次提交后端已有字段）
+async function save() {
+  if (saving.value) return
+  saving.value = true
+  try {
+    await updateProfile({
+      settle_id: Number(settle.stype),
+      account: settle.account,
+      username: settle.username,
+      email: contact.email,
+      qq: contact.qq,
+      url: contact.url,
+      mode: Number(mode.mode),
+    })
+    toast.success('资料已保存')
+    await merchantAuth.refreshInfo() // 同步顶栏/工作台
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
 const socials = [
   { key: 'qq', label: 'QQ', color: 'text-[#12b7f5]' },
   { key: 'wx', label: '微信', color: 'text-[#07c160]' },
@@ -127,7 +174,7 @@ function toggleBind(key: 'qq' | 'wx' | 'alipay') {
           </div>
         </div>
       </div>
-      <div class="mt-5 border-t border-border/60 pt-4"><Button @click="save"><Save />保存消息提醒</Button></div>
+      <div class="mt-5 border-t border-border/60 pt-4"><Button @click="toast.info('消息提醒设置即将开放')"><Save />保存消息提醒</Button></div>
     </Panel>
 
     <!-- 手续费扣除模式 -->

@@ -14,6 +14,11 @@ export interface MerchantInfo {
   phone: string
   qq: string
   gid: number
+  settle_id: number
+  account: string
+  username: string
+  url: string
+  mode: number
 }
 
 export interface MerchantLoginResp {

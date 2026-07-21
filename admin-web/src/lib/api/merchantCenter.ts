@@ -118,3 +118,33 @@ export function fetchApplyInfo(): Promise<ApplyInfo> {
 export function submitApply(amount: string): Promise<{ ok: boolean }> {
   return request('/merchant/apply', { method: 'POST', body: { amount } })
 }
+
+// ===== API 信息 / 资料 / 密码（D3）=====
+export interface ApiInfo {
+  uid: number
+  mdkey: string
+  apiurl: string
+}
+export function fetchApiInfo(): Promise<ApiInfo> {
+  return request<ApiInfo>('/merchant/apikey')
+}
+export function resetApiKey(): Promise<{ mdkey: string }> {
+  return request('/merchant/apikey/reset', { method: 'POST' })
+}
+
+export interface ProfileReq {
+  settle_id: number
+  account: string
+  username: string
+  email: string
+  qq: string
+  url: string
+  mode: number
+}
+export function updateProfile(body: ProfileReq): Promise<{ ok: boolean }> {
+  return request('/merchant/profile', { method: 'PUT', body })
+}
+
+export function changePassword(oldpwd: string, newpwd: string): Promise<{ ok: boolean }> {
+  return request('/merchant/password', { method: 'PUT', body: { oldpwd, newpwd } })
+}

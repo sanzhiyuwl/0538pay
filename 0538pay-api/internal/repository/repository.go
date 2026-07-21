@@ -116,6 +116,11 @@ func (r *MerchantRepo) List(q dto.MerchantQuery) ([]model.Merchant, int64, error
 	return list, total, nil
 }
 
+// UpdateFields 更新商户指定字段（白名单 map，供资料/密钥/密码更新）。
+func (r *MerchantRepo) UpdateFields(uid uint, fields map[string]interface{}) error {
+	return r.db.Model(&model.Merchant{}).Where("uid = ?", uid).Updates(fields).Error
+}
+
 // FindSettleable 取满足自动结算条件的商户：余额 >= 门槛、结算权限开(settle=1)、
 // 状态正常(status=1)、已填结算账号+姓名。对齐 epay cron do=settle 的商户筛选。
 func (r *MerchantRepo) FindSettleable(minMoney decimal.Decimal, limit int) ([]model.Merchant, error) {

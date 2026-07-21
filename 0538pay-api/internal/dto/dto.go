@@ -216,6 +216,31 @@ type ApplyReq struct {
 	Amount string `json:"amount" binding:"required"` // 提现金额
 }
 
+// MerchantApiInfo 商户 API 信息（对齐前端 MerchantApi.vue，V1 MD5 部分）。
+// RSA/keytype 属 V2 协议，V2 未实现前不下发（避免造悬空数据）。
+type MerchantApiInfo struct {
+	UID    uint   `json:"uid"`
+	MDKey  string `json:"mdkey"` // 商户通信密钥（MD5 验签，即 AppKey）
+	APIURL string `json:"apiurl"`
+}
+
+// MerchantProfileReq 修改商户资料入参（仅模型已有字段：收款账号 + 联系方式 + 扣费模式）。
+type MerchantProfileReq struct {
+	SettleID int    `json:"settle_id"` // 结算方式
+	Account  string `json:"account"`   // 收款账号
+	Username string `json:"username"`  // 真实姓名
+	Email    string `json:"email"`
+	QQ       string `json:"qq"`
+	URL      string `json:"url"`
+	Mode     int8   `json:"mode"` // 手续费扣除模式 0/1
+}
+
+// MerchantPwdReq 修改登录密码入参。
+type MerchantPwdReq struct {
+	OldPwd string `json:"oldpwd"` // 旧密码（已设密码时必填）
+	NewPwd string `json:"newpwd" binding:"required"`
+}
+
 // RefundReq 订单退款入参（商户端）。
 type RefundReq struct {
 	TradeNo string `json:"trade_no" binding:"required"`
@@ -267,7 +292,7 @@ type MerchantLoginResp struct {
 	Info  MerchantInfo `json:"info"`
 }
 
-// MerchantInfo 当前登录商户的基础信息（工作台/顶栏展示，无敏感字段）。
+// MerchantInfo 当前登录商户的基础信息 + 资料字段（工作台/顶栏/资料页共用）。
 type MerchantInfo struct {
 	UID      uint   `json:"uid"`
 	Name     string `json:"name"`     // 商户名（暂用 uid 派生，接商户名字段后补）
@@ -280,6 +305,11 @@ type MerchantInfo struct {
 	Phone    string `json:"phone"`
 	QQ       string `json:"qq"`
 	GID      int    `json:"gid"`
+	SettleID int    `json:"settle_id"` // 结算方式
+	Account  string `json:"account"`   // 收款账号
+	Username string `json:"username"`  // 真实姓名
+	URL      string `json:"url"`       // 网站域名
+	Mode     int8   `json:"mode"`      // 手续费扣除模式
 }
 
 // SettleView 结算明细对外响应，字段/json tag 对齐前端 mock/settle.ts 的 SettleRecord。

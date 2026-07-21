@@ -102,17 +102,22 @@ func (s *MerchantAuthService) CurrentInfo(uid uint) (*dto.MerchantInfo, error) {
 
 func toMerchantInfo(m *model.Merchant) dto.MerchantInfo {
 	return dto.MerchantInfo{
-		UID:    m.UID,
-		Name:   merchantName(m.UID),
-		Money:  m.Money.StringFixed(2),
-		Status: m.Status,
-		Pay:    m.Pay,
-		Settle: m.Settle,
-		Cert:   m.Cert,
-		Email:  m.Email,
-		Phone:  m.Phone,
-		QQ:     m.QQ,
-		GID:    m.GID,
+		UID:      m.UID,
+		Name:     merchantName(m.UID),
+		Money:    m.Money.StringFixed(2),
+		Status:   m.Status,
+		Pay:      m.Pay,
+		Settle:   m.Settle,
+		Cert:     m.Cert,
+		Email:    m.Email,
+		Phone:    m.Phone,
+		QQ:       m.QQ,
+		GID:      m.GID,
+		SettleID: m.SettleID,
+		Account:  m.Account,
+		Username: m.Username,
+		URL:      m.URL,
+		Mode:     m.Mode,
 	}
 }
 
