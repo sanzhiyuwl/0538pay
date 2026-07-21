@@ -2,25 +2,29 @@
 import { ref, computed, onMounted } from 'vue'
 import { Copy, Check, RefreshCw, KeyRound, ShieldCheck, FileText } from 'lucide-vue-next'
 import { Panel, Button, Select, Modal } from '@/components/ui'
-import { fetchApiInfo, resetApiKey } from '@/lib/api/merchantCenter'
+import { fetchApiInfo, resetApiKey, genRsaKeyPair, setKeyType } from '@/lib/api/merchantCenter'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 
 const toast = useToast()
 
-// 商户 API 信息（V1 MD5 真接口；V2 RSA 部分待 V2 协议上线）
+// 商户 API 信息（V1 MD5 + V2 RSA 真接口）
 const api = ref({
   apiurl: '',
   uid: 0,
   mdkey: '',
-  keytype: '0', // 0=MD5+RSA兼容 1=仅RSA（V2，暂只前端展示）
+  keytype: '0', // 0=MD5+RSA兼容 1=仅RSA安全
 })
+const hasRsa = ref(false)
 async function loadApi() {
   try {
     const info = await fetchApiInfo()
     api.value.apiurl = info.apiurl
     api.value.uid = info.uid
     api.value.mdkey = info.mdkey
+    api.value.keytype = String(info.keytype)
+    keytypeSaved.value = String(info.keytype)
+    hasRsa.value = info.has_rsa
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : 'API 信息加载失败')
   }
@@ -57,18 +61,36 @@ async function resetMdKey() {
   }
 }
 
-// V2 RSA 密钥对：V2 协议尚未上线，暂提示待开放
+// V2 RSA 密钥对：生成后私钥一次性展示（平台不存），公钥入库
 const rsaOpen = ref(false)
 const newPrivateKey = ref('')
-function genRsaPair() {
-  toast.info('RSA（V2 接口）即将开放，敬请期待')
+const genning = ref(false)
+async function genRsaPair() {
+  if (genning.value) return
+  genning.value = true
+  try {
+    const res = await genRsaKeyPair()
+    newPrivateKey.value = res.private_key
+    rsaOpen.value = true
+    hasRsa.value = true
+    toast.success('RSA 密钥对已生成，请立即保存私钥')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '生成失败')
+  } finally {
+    genning.value = false
+  }
 }
 
 const keytypeSaved = ref('0')
 const keytypeDirty = computed(() => keytypeSaved.value !== api.value.keytype)
-function saveKeytype() {
-  toast.info('签名模式（V2）即将开放')
-  api.value.keytype = keytypeSaved.value
+async function saveKeytype() {
+  try {
+    await setKeyType(Number(api.value.keytype))
+    keytypeSaved.value = api.value.keytype
+    toast.success('签名模式已保存')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  }
 }
 </script>
 
@@ -123,9 +145,18 @@ function saveKeytype() {
         <Button size="sm" @click="genRsaPair"><KeyRound />生成/重置密钥对</Button>
       </template>
       <div class="max-w-3xl space-y-3.5">
-        <div class="rounded bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-          RSA（V2 接口）签名与密钥对管理即将开放。当前请使用上方 V1 接口（MD5 签名）对接。
+        <div class="row-field">
+          <label class="lbl">RSA 公钥</label>
+          <div class="flex flex-1 items-center gap-2">
+            <div class="flex-1 rounded bg-muted/40 px-3 py-2 text-sm" :class="hasRsa ? 'text-success' : 'text-muted-foreground'">
+              {{ hasRsa ? '已配置（平台已保存你的公钥用于验签）' : '未配置，点击右上角生成密钥对' }}
+            </div>
+          </div>
         </div>
+        <p class="text-xs text-muted-foreground">
+          生成密钥对时，私钥仅展示一次且平台不存储，请立即保存。用商户私钥对请求签名（SHA256withRSA），
+          请求需带 timestamp（±5 分钟）与 sign_type=RSA。
+        </p>
       </div>
     </Panel>
 

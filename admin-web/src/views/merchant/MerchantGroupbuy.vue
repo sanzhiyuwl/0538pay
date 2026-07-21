@@ -1,19 +1,43 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Crown, Check, Minus, Plus } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, Modal } from '@/components/ui'
-import { groupPlans, currentGroup, buyPayOptions, type GroupPlan } from '@/lib/mock/merchant/groupbuy'
+import { fetchGroups, buyGroup, type GroupPlan, type GroupCurrent } from '@/lib/api/merchantCenter'
+import { ApiError } from '@/lib/api/client'
+import { useMerchantAuthStore } from '@/stores/merchantAuth'
+import { useToast } from '@/composables/useToast'
 import { formatMoney } from '@/lib/utils'
+
+const toast = useToast()
+const auth = useMerchantAuthStore()
+
+const plans = ref<GroupPlan[]>([])
+const current = ref<GroupCurrent>({ gid: 0, name: '', expire: '—' })
+const busy = ref(false)
+
+// 余额支付即时；渠道待凭证
+const buyPayOptions = [{ value: 'balance', label: '余额支付' }]
+
+async function load() {
+  try {
+    const res = await fetchGroups()
+    plans.value = res.plans
+    current.value = res.current
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载会员套餐失败')
+  }
+}
+onMounted(load)
 
 // 购买弹窗
 const buyOpen = ref(false)
 const plan = ref<GroupPlan | null>(null)
-const num = ref(1) // 购买月数
-const payType = ref('0')
+const num = ref(1)
+const payType = ref('balance')
 function openBuy(p: GroupPlan) {
   plan.value = p
   num.value = 1
-  payType.value = '0'
+  payType.value = 'balance'
   buyOpen.value = true
 }
 const totalPrice = computed(() => {
@@ -26,8 +50,19 @@ function decNum() {
 function incNum() {
   num.value++
 }
-function submitBuy() {
-  buyOpen.value = false
+async function submitBuy() {
+  if (!plan.value || busy.value) return
+  busy.value = true
+  try {
+    await buyGroup(plan.value.id, num.value, payType.value)
+    toast.success(`已购买 ${plan.value.name}`)
+    buyOpen.value = false
+    await Promise.all([load(), auth.refreshInfo()])
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '购买失败')
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -41,20 +76,20 @@ function submitBuy() {
         </div>
         <div>
           <div class="text-sm text-muted-foreground">当前等级</div>
-          <div class="mt-0.5 text-lg font-semibold">{{ currentGroup.name }}</div>
+          <div class="mt-0.5 text-lg font-semibold">{{ current.name }}</div>
         </div>
         <div class="ml-auto text-right">
           <div class="text-sm text-muted-foreground">到期时间</div>
-          <div class="mt-0.5 text-sm">{{ currentGroup.expire }}</div>
+          <div class="mt-0.5 text-sm">{{ current.expire }}</div>
         </div>
       </div>
     </Panel>
 
     <!-- 套餐卡片 -->
     <div class="grid grid-cols-1 gap-2.5 md:grid-cols-3">
-      <Panel v-for="p in groupPlans" :key="p.id" :title="p.name">
+      <Panel v-for="p in plans" :key="p.id" :title="p.name">
         <template #actions>
-          <Badge v-if="p.recommended" variant="success">推荐</Badge>
+          <Badge v-if="p.id === current.gid" variant="success">当前等级</Badge>
         </template>
         <div class="flex flex-col">
           <div class="flex items-baseline gap-1">
@@ -73,8 +108,8 @@ function submitBuy() {
               <span class="ml-auto">{{ p.expire === 0 ? '永久' : `${p.expire} 个月` }}</span>
             </li>
           </ul>
-          <Button class="mt-5 w-full" :variant="p.recommended ? 'default' : 'outline'" @click="openBuy(p)">
-            立即购买
+          <Button class="mt-5 w-full" variant="default" @click="openBuy(p)">
+            {{ p.id === current.gid ? '续期' : '立即购买' }}
           </Button>
         </div>
       </Panel>
@@ -102,10 +137,11 @@ function submitBuy() {
           <span class="text-sm text-muted-foreground">应付金额</span>
           <span class="text-xl font-semibold tabular-nums text-primary">¥{{ formatMoney(totalPrice) }}</span>
         </div>
+        <p class="text-xs text-muted-foreground">余额支付即时扣款并升级/续期；渠道支付待支付渠道凭证接入。</p>
       </div>
       <template #footer>
         <Button variant="outline" size="sm" @click="buyOpen = false">取消</Button>
-        <Button size="sm" @click="submitBuy">确认支付</Button>
+        <Button size="sm" :disabled="busy" @click="submitBuy">确认支付</Button>
       </template>
     </Modal>
   </div>
