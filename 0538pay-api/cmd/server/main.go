@@ -23,6 +23,7 @@ import (
 	// 支付渠道：匿名导入以触发各渠道 init() 自注册到 registry。
 	_ "github.com/0538pay/api/internal/channel/alipayf2f"
 	_ "github.com/0538pay/api/internal/channel/epay"
+	_ "github.com/0538pay/api/internal/channel/epayn"
 	_ "github.com/0538pay/api/internal/channel/mock"
 	_ "github.com/0538pay/api/internal/channel/wxnative"
 )
@@ -64,9 +65,25 @@ func main() {
 	settleSvc := service.NewSettleService(settleRepo, merchantRepo)
 	recordRepo := repository.NewRecordRepo(db)
 	recordSvc := service.NewRecordService(recordRepo)
+	transferRepo := repository.NewTransferRepo(db)
+	transferSvc := service.NewTransferService(transferRepo, merchantRepo, adminRepo)
+	profitRepo := repository.NewProfitRepo(db)
+	profitSvc := service.NewProfitService(profitRepo, channelRepo)
+	paySvc.SetProfitService(profitSvc) // 注入分账：下单匹配规则 + 支付成功建分账单
+	riskSvc := service.NewRiskService(repository.NewRiskRepo(db))
+	blacklistSvc := service.NewBlacklistService(repository.NewBlacklistRepo(db))
+	domainSvc := service.NewDomainService(repository.NewDomainRepo(db))
+	paySvc.SetRiskServices(riskSvc, blacklistSvc, domainSvc) // 注入下单拦截：黑名单/域名白名单/关键词风控
+	statSvc := service.NewStatService(repository.NewStatRepo(db), channelRepo)
+	logSvc := service.NewLogService(repository.NewLogRepo(db))
+	inviteSvc := service.NewInviteService(repository.NewInviteRepo(db))
+	siteConfigSvc := service.NewSiteConfigService(repository.NewSiteConfigRepo(db))
 	merchantAuthSvc := service.NewMerchantAuthService(merchantRepo, jm)
+	authSvc.SetLogService(logSvc)         // 后台登录写日志
+	merchantAuthSvc.SetLogService(logSvc) // 商户登录写日志
+	groupRepo := repository.NewGroupRepo(db)
 	merchantCenterSvc := service.NewMerchantCenterService(
-		merchantRepo, orderRepo, recordRepo, settleRepo, accountRepo, channelRepo, paySvc,
+		merchantRepo, orderRepo, recordRepo, settleRepo, accountRepo, channelRepo, groupRepo, paySvc,
 	)
 
 	deps := router.Deps{
@@ -77,8 +94,18 @@ func main() {
 		Channel:        handler.NewChannelHandler(channelSvc),
 		Pay:            handler.NewPayHandler(paySvc),
 		Settle:         handler.NewSettleHandler(settleSvc),
+		Record:         handler.NewRecordHandler(recordSvc),
+		Transfer:       handler.NewTransferHandler(transferSvc),
+		Profit:         handler.NewProfitHandler(profitSvc),
+		Risk:           handler.NewRiskHandler(riskSvc),
+		Blacklist:      handler.NewBlacklistHandler(blacklistSvc),
+		Domain:         handler.NewDomainHandler(domainSvc),
+		Stat:           handler.NewStatHandler(statSvc),
+		Log:            handler.NewLogHandler(logSvc),
+		Invite:         handler.NewInviteHandler(inviteSvc),
+		SiteConfig:     handler.NewSiteConfigHandler(siteConfigSvc),
 		MerchantAuth:   handler.NewMerchantAuthHandler(merchantAuthSvc),
-		MerchantCenter: handler.NewMerchantCenterHandler(merchantCenterSvc, orderSvc, recordSvc),
+		MerchantCenter: handler.NewMerchantCenterHandler(merchantCenterSvc, orderSvc, recordSvc, transferSvc),
 	}
 
 	// 4. 定时任务（阶段E）：商户通知重试 + 未支付对账 + 超时关单 + 自动结算。

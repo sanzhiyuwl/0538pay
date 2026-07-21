@@ -1,0 +1,355 @@
+package service
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/0538pay/api/internal/dto"
+	"github.com/0538pay/api/internal/model"
+	"github.com/0538pay/api/internal/repository"
+	"github.com/shopspring/decimal"
+	"golang.org/x/crypto/bcrypt"
+)
+
+// 代付计费与限额配置（对齐 epay pre_config 的 transfer_* 键，先固化为常量，待 config 域迁移）。
+// transfer_rate 为空时 epay 回退到 settle_rate；此处直接复用结算费率常量保持一致。
+var (
+	transferRate     = settleRate                        // 代付手续费率（%），对齐 epay 空则用 settle_rate
+	transferMinMoney = decimal.RequireFromString("1")    // 单笔最小
+	transferMaxMoney = decimal.RequireFromString("20000") // 单笔最大
+)
+
+const transferMaxLimit = 10 // 同一收款账号+方式每日代付次数上限（0=不限）
+
+// 付款方式 → 默认通道 id（对齐 epay transfer_alipay/wxpay/qqpay/bank，0=未开启该方式）。
+// 待 config/通道域联动后改为读配置；当前给出占位默认，真实打款待渠道凭证。
+var transferDefaultChannel = map[string]int{
+	"alipay": 1,
+	"wxpay":  2,
+	"qqpay":  3,
+	"bank":   4,
+}
+
+var transferTypes = map[string]bool{"alipay": true, "wxpay": true, "qqpay": true, "bank": true}
+
+// TransferService 代付业务：列表/统计、发起（后台免费 / 商户扣款）、状态流转、退回。
+type TransferService struct {
+	repo      *repository.TransferRepo
+	merchants *repository.MerchantRepo
+	admins    *repository.AdminRepo
+}
+
+func NewTransferService(
+	repo *repository.TransferRepo,
+	merchants *repository.MerchantRepo,
+	admins *repository.AdminRepo,
+) *TransferService {
+	return &TransferService{repo: repo, merchants: merchants, admins: admins}
+}
+
+// TransferError 携带业务错误码与提示。
+type TransferError struct {
+	Code int
+	Msg  string
+}
+
+func (e *TransferError) Error() string { return e.Msg }
+
+func tfErr(msg string) *TransferError { return &TransferError{Code: 1106, Msg: msg} }
+
+// calcTransferFee 计算代付手续费（对齐 epay：need = money + money*rate/100，round 2）。返回手续费。
+func calcTransferFee(money decimal.Decimal) decimal.Decimal {
+	if transferRate.LessThanOrEqual(decimal.Zero) {
+		return decimal.Zero
+	}
+	return money.Mul(transferRate).Div(hundred).Round(2)
+}
+
+// List 后台代付列表（分页 + 筛选）。
+func (s *TransferService) List(q dto.TransferQuery) ([]dto.TransferView, int64, error) {
+	q.Normalize()
+	list, total, err := s.repo.List(q)
+	if err != nil {
+		return nil, 0, err
+	}
+	views := make([]dto.TransferView, 0, len(list))
+	for i := range list {
+		views = append(views, toTransferView(&list[i]))
+	}
+	return views, total, nil
+}
+
+// ListByMerchant 商户端代付列表：强制注入当前商户 uid，防越权。
+func (s *TransferService) ListByMerchant(uid uint, q dto.TransferQuery) ([]dto.TransferView, int64, error) {
+	q.UID = &uid
+	return s.List(q)
+}
+
+// Stats 后台代付概况统计。
+func (s *TransferService) Stats(q dto.TransferQuery) (dto.TransferStats, error) {
+	q.Normalize()
+	tm, sm, sc, pc, fc, err := s.repo.Stats(q)
+	if err != nil {
+		return dto.TransferStats{}, err
+	}
+	return dto.TransferStats{
+		Total:           sc + pc + fc,
+		TotalMoney:      tm.InexactFloat64(),
+		SuccessMoney:    sm.InexactFloat64(),
+		SuccessCount:    sc,
+		ProcessingCount: pc,
+		FailCount:       fc,
+	}, nil
+}
+
+// CreateByAdmin 后台管理员发起代付（uid=0）：校验管理员密码 → 不收费不扣款直接落库(处理中)。
+// 真实渠道打款待凭证，此处仅落库进入处理中状态（对齐 epay admin/transfer_add：uid=0 免费）。
+func (s *TransferService) CreateByAdmin(adminID uint, req dto.TransferCreateReq) (string, error) {
+	if err := s.verifyAdminPwd(adminID, req.Password); err != nil {
+		return "", err
+	}
+	money, bizNo, err := s.validateCommon(req)
+	if err != nil {
+		return "", err
+	}
+	t := &model.Transfer{
+		BizNo:     bizNo,
+		UID:       0, // 管理员发起哨兵值
+		Type:      req.Type,
+		Channel:   s.resolveChannel(req),
+		Account:   strings.TrimSpace(req.Account),
+		Username:  strings.TrimSpace(req.Username),
+		Money:     money,
+		CostMoney: money, // 后台不收费，扣款额=到账额（且不实际扣）
+		AddTime:   time.Now(),
+		Status:    0,
+		Desc:      req.Desc,
+	}
+	if err := s.repo.CreateAdmin(t); err != nil {
+		if err == repository.ErrDuplicateBizNo {
+			return "", tfErr("交易号已存在，请勿重复提交")
+		}
+		return "", err
+	}
+	return bizNo, nil
+}
+
+// CreateByMerchant 商户发起代付：校验登录密码/结算权限/限额/次数 → 计费 → 即时扣款落库(处理中)。
+// 对齐 epay user/transfer_add：走完整校验 + changeUserMoney 扣 need_money。真实打款待渠道凭证。
+func (s *TransferService) CreateByMerchant(uid uint, req dto.TransferCreateReq) (string, error) {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return "", err
+	}
+	if m == nil {
+		return "", tfErr("商户不存在")
+	}
+	if m.Settle != 1 {
+		return "", tfErr("结算功能未开启，无法发起代付")
+	}
+	// 身份校验：商户登录密码（对齐 epay user 端校验登录密码）
+	if m.Password == "" {
+		return "", tfErr("请先设置登录密码后再发起代付")
+	}
+	if bcrypt.CompareHashAndPassword([]byte(m.Password), []byte(req.Password)) != nil {
+		return "", tfErr("登录密码不正确")
+	}
+
+	money, bizNo, err := s.validateCommon(req)
+	if err != nil {
+		return "", err
+	}
+
+	// 同一收款账号+方式每日次数限制
+	if transferMaxLimit > 0 {
+		cnt, err := s.repo.CountTodayByAccount(uid, req.Type, strings.TrimSpace(req.Account), dayStart(time.Now()))
+		if err != nil {
+			return "", err
+		}
+		if int(cnt) >= transferMaxLimit {
+			return "", tfErr("该收款账号今日代付已达次数上限")
+		}
+	}
+
+	fee := calcTransferFee(money)
+	cost := money.Add(fee)
+	t := &model.Transfer{
+		BizNo:     bizNo,
+		UID:       uid,
+		Type:      req.Type,
+		Channel:   s.resolveChannel(req),
+		Account:   strings.TrimSpace(req.Account),
+		Username:  strings.TrimSpace(req.Username),
+		Money:     money,
+		CostMoney: cost,
+		AddTime:   time.Now(),
+		Status:    0,
+		Desc:      req.Desc,
+	}
+	if err := s.repo.CreateWithDebit(t); err != nil {
+		switch err {
+		case repository.ErrInsufficientBalance:
+			return "", tfErr("余额不足，需 ¥" + cost.StringFixed(2))
+		case repository.ErrDuplicateBizNo:
+			return "", tfErr("交易号已存在，请勿重复提交")
+		}
+		return "", err
+	}
+	return bizNo, nil
+}
+
+// SetStatus 后台手动改状态（1成功/2失败，不动资金，对齐 epay setTransferStatus）。
+// 改为成功写付款时间；改为失败写失败原因。资金退回请用 Refund（仅处理中可退）。
+func (s *TransferService) SetStatus(bizNo string, req dto.TransferStatusReq) error {
+	t, err := s.repo.FindByBizNo(bizNo)
+	if err != nil {
+		return err
+	}
+	if t == nil {
+		return tfErr("代付记录不存在")
+	}
+	switch req.Status {
+	case 1:
+		return s.repo.SetStatus(bizNo, map[string]interface{}{
+			"status": 1, "pay_time": time.Now(), "result": "",
+		})
+	case 2:
+		return s.repo.SetStatus(bizNo, map[string]interface{}{
+			"status": 2, "result": req.Result,
+		})
+	default:
+		return tfErr("状态值不合法")
+	}
+}
+
+// Refund 退回代付：仅处理中(status=0)可退，置失败并把 CostMoney 退回商户（管理员发起不退）。
+// 对齐 epay refundTransfer：条件 UPDATE 防重复退款。
+func (s *TransferService) Refund(bizNo string) error {
+	t, err := s.repo.FindByBizNo(bizNo)
+	if err != nil {
+		return err
+	}
+	if t == nil {
+		return tfErr("代付记录不存在")
+	}
+	if t.Status != 0 {
+		return tfErr("仅处理中的代付可退回")
+	}
+	refunded, err := s.repo.FailWithRefund(bizNo, "转账已退回")
+	if err != nil {
+		return err
+	}
+	if !refunded && t.UID > 0 {
+		// 并发下已被其它请求处理：视为状态已变更
+		return tfErr("代付状态已变更，退回未执行")
+	}
+	return nil
+}
+
+// Delete 删除代付记录（不退款，对齐 epay delTransfer）。
+func (s *TransferService) Delete(bizNo string) error {
+	t, err := s.repo.FindByBizNo(bizNo)
+	if err != nil {
+		return err
+	}
+	if t == nil {
+		return tfErr("代付记录不存在")
+	}
+	return s.repo.Delete(bizNo)
+}
+
+// validateCommon 校验发起代付的公共入参并生成/校验交易号，返回解析后的到账金额与交易号。
+func (s *TransferService) validateCommon(req dto.TransferCreateReq) (decimal.Decimal, string, error) {
+	if !transferTypes[req.Type] {
+		return decimal.Zero, "", tfErr("付款方式不合法")
+	}
+	if strings.TrimSpace(req.Account) == "" {
+		return decimal.Zero, "", tfErr("请填写收款账号")
+	}
+	if l := len([]rune(req.Desc)); l > 32 {
+		return decimal.Zero, "", tfErr("备注最多 32 字")
+	}
+	money, err := decimal.NewFromString(strings.TrimSpace(req.Money))
+	if err != nil || money.LessThanOrEqual(decimal.Zero) {
+		return decimal.Zero, "", tfErr("请输入有效的转账金额")
+	}
+	// 保留两位（对齐 epay 金额精度），拒绝更细粒度输入以免与扣款不一致
+	if !money.Equal(money.Round(2)) {
+		return decimal.Zero, "", tfErr("金额最多两位小数")
+	}
+	if transferMinMoney.GreaterThan(decimal.Zero) && money.LessThan(transferMinMoney) {
+		return decimal.Zero, "", tfErr("单笔最低 ¥" + transferMinMoney.StringFixed(2))
+	}
+	if transferMaxMoney.GreaterThan(decimal.Zero) && money.GreaterThan(transferMaxMoney) {
+		return decimal.Zero, "", tfErr("单笔最高 ¥" + transferMaxMoney.StringFixed(2))
+	}
+	bizNo, err := s.resolveBizNo(req.BizNo)
+	if err != nil {
+		return decimal.Zero, "", err
+	}
+	return money, bizNo, nil
+}
+
+// resolveBizNo 校验或生成 19 位数字交易号（对齐 epay：strlen==19 && is_numeric）。
+func (s *TransferService) resolveBizNo(in string) (string, error) {
+	in = strings.TrimSpace(in)
+	if in == "" {
+		return genBizNo(), nil
+	}
+	if len(in) != 19 || !isNumeric(in) {
+		return "", tfErr("交易号必须为 19 位数字")
+	}
+	return in, nil
+}
+
+// resolveChannel 取本次代付使用的通道 id：入参优先，否则按付款方式取默认通道。
+func (s *TransferService) resolveChannel(req dto.TransferCreateReq) int {
+	if req.Channel > 0 {
+		return req.Channel
+	}
+	return transferDefaultChannel[req.Type]
+}
+
+// verifyAdminPwd 校验后台管理员密码（无独立支付密码，用登录密码二次确认，对齐 admin_paypwd 意图）。
+func (s *TransferService) verifyAdminPwd(adminID uint, pwd string) error {
+	a, err := s.admins.FindByID(adminID)
+	if err != nil {
+		return tfErr("管理员不存在")
+	}
+	if bcrypt.CompareHashAndPassword([]byte(a.Password), []byte(pwd)) != nil {
+		return tfErr("管理员密码不正确")
+	}
+	return nil
+}
+
+// genBizNo 生成 19 位数字交易号：YmdHis(14) + 5 位纳秒派生随机（对齐 epay YmdHis+rand(11111,99999)）。
+func genBizNo() string {
+	now := time.Now()
+	rand5 := 11111 + int(now.UnixNano()%88888)
+	return now.Format("20060102150405") + fmt.Sprintf("%05d", rand5)
+}
+
+func toTransferView(t *model.Transfer) dto.TransferView {
+	var payTime *string
+	if t.PayTime != nil {
+		s := t.PayTime.Format(timeLayout)
+		payTime = &s
+	}
+	return dto.TransferView{
+		BizNo:      t.BizNo,
+		PayOrderNo: t.PayOrderNo,
+		UID:        t.UID,
+		Type:       t.Type,
+		Channel:    t.Channel,
+		Account:    t.Account,
+		Username:   t.Username,
+		Money:      t.Money.StringFixed(2),
+		CostMoney:  t.CostMoney.StringFixed(2),
+		Desc:       t.Desc,
+		AddTime:    t.AddTime.Format(timeLayout),
+		PayTime:    payTime,
+		Status:     t.Status,
+		Result:     t.Result,
+	}
+}

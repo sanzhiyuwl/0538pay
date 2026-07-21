@@ -17,11 +17,15 @@ import (
 type MerchantAuthService struct {
 	repo *repository.MerchantRepo
 	jm   *jwtauth.Manager
+	log  *LogService // 登录日志（可空）
 }
 
 func NewMerchantAuthService(repo *repository.MerchantRepo, jm *jwtauth.Manager) *MerchantAuthService {
 	return &MerchantAuthService{repo: repo, jm: jm}
 }
+
+// SetLogService 注入登录日志服务。
+func (s *MerchantAuthService) SetLogService(l *LogService) { s.log = l }
 
 // MerchantAuthError 携带业务提示，handler 统一返回 code=1101。
 type MerchantAuthError struct{ Msg string }
@@ -30,8 +34,8 @@ func (e *MerchantAuthError) Error() string { return e.Msg }
 
 func maErr(msg string) *MerchantAuthError { return &MerchantAuthError{Msg: msg} }
 
-// Login 校验商户凭据并签发 token。
-func (s *MerchantAuthService) Login(req dto.MerchantLoginReq) (*dto.MerchantLoginResp, error) {
+// Login 校验商户凭据并签发 token。ip 用于登录日志。
+func (s *MerchantAuthService) Login(req dto.MerchantLoginReq, ip string) (*dto.MerchantLoginResp, error) {
 	account := strings.TrimSpace(req.Account)
 	if account == "" || req.Password == "" {
 		return nil, maErr("账号或密码不能为空")
@@ -83,6 +87,9 @@ func (s *MerchantAuthService) Login(req dto.MerchantLoginReq) (*dto.MerchantLogi
 	token, err := s.jm.Generate(m.UID, merchantName(m.UID), "merchant", "merchant")
 	if err != nil {
 		return nil, err
+	}
+	if s.log != nil {
+		s.log.Record(m.UID, "普通登录", ip, "")
 	}
 	return &dto.MerchantLoginResp{Token: token, Info: toMerchantInfo(m)}, nil
 }

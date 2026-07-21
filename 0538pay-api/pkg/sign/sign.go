@@ -29,6 +29,10 @@ func Content(params map[string]string) string {
 		if k == "sign" || k == "sign_type" {
 			continue
 		}
+		// 内部注入键（下划线前缀，如 _ip）不参与验签——非商户上送字段。
+		if strings.HasPrefix(k, "_") {
+			continue
+		}
 		if isEmpty(params[k]) {
 			continue
 		}

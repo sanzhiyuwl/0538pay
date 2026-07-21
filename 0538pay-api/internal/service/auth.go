@@ -16,17 +16,22 @@ var ErrInvalidCredential = errors.New("用户名或密码错误")
 type AuthService struct {
 	repo *repository.AdminRepo
 	jm   *jwtauth.Manager
+	log  *LogService // 登录日志（可空）
 }
 
 func NewAuthService(repo *repository.AdminRepo, jm *jwtauth.Manager) *AuthService {
 	return &AuthService{repo: repo, jm: jm}
 }
 
-// Login 校验凭据并签发 token。
-func (s *AuthService) Login(req dto.LoginReq) (*dto.LoginResp, error) {
+// SetLogService 注入登录日志服务。
+func (s *AuthService) SetLogService(l *LogService) { s.log = l }
+
+// Login 校验凭据并签发 token。ip 用于登录日志。
+func (s *AuthService) Login(req dto.LoginReq, ip string) (*dto.LoginResp, error) {
 	admin, err := s.repo.FindByUsername(req.Username)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			s.recordFail(ip)
 			return nil, ErrInvalidCredential
 		}
 		return nil, err
@@ -35,6 +40,7 @@ func (s *AuthService) Login(req dto.LoginReq) (*dto.LoginResp, error) {
 		return nil, errors.New("账号已停用")
 	}
 	if bcrypt.CompareHashAndPassword([]byte(admin.Password), []byte(req.Password)) != nil {
+		s.recordFail(ip)
 		return nil, ErrInvalidCredential
 	}
 
@@ -42,5 +48,15 @@ func (s *AuthService) Login(req dto.LoginReq) (*dto.LoginResp, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s.log != nil {
+		s.log.Record(0, "登录后台", ip, "") // uid=0 表示管理员
+	}
 	return &dto.LoginResp{Token: token, Nickname: admin.Nickname, Role: admin.Role}, nil
+}
+
+// recordFail 记录一条管理员登录失败日志（对齐 epay 防爆破日志）。
+func (s *AuthService) recordFail(ip string) {
+	if s.log != nil {
+		s.log.Record(0, "登录失败", ip, "")
+	}
 }

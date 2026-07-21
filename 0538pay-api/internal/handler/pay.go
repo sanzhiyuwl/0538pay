@@ -24,6 +24,7 @@ func NewPayHandler(svc *service.PayService) *PayHandler {
 // 全量参数进 map 用于验签。返回 JSON（自研 code=0 约定）。
 func (h *PayHandler) Submit(c *gin.Context) {
 	params := collectParams(c)
+	params["_ip"] = c.ClientIP() // 注入真实客户端 IP（黑名单校验用，键名加 _ 前缀不参与验签）
 	out, err := h.svc.Submit(c.Request.Context(), params)
 	if err != nil {
 		if pe, ok := err.(*service.PayError); ok {

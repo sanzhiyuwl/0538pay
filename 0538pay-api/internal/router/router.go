@@ -17,6 +17,16 @@ type Deps struct {
 	Channel        *handler.ChannelHandler
 	Pay            *handler.PayHandler
 	Settle         *handler.SettleHandler
+	Record         *handler.RecordHandler
+	Transfer       *handler.TransferHandler
+	Profit         *handler.ProfitHandler
+	Risk           *handler.RiskHandler
+	Blacklist      *handler.BlacklistHandler
+	Domain         *handler.DomainHandler
+	Stat           *handler.StatHandler
+	Log            *handler.LogHandler
+	Invite         *handler.InviteHandler
+	SiteConfig     *handler.SiteConfigHandler
 	MerchantAuth   *handler.MerchantAuthHandler
 	MerchantCenter *handler.MerchantCenterHandler
 }
@@ -54,6 +64,52 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.GET("/settle/batches", d.Settle.Batches)
 			authed.POST("/settle/batch", d.Settle.CreateBatch)
 			authed.POST("/settle/batch/:batch/complete", d.Settle.CompleteBatch)
+
+			// 资金流水（C2 尾巴：后台资金明细页）
+			authed.GET("/records", d.Record.List)
+			authed.GET("/records/stats", d.Record.Stats)
+
+			// 代付 / 转账（C3）
+			authed.GET("/transfers", d.Transfer.List)
+			authed.GET("/transfers/stats", d.Transfer.Stats)
+			authed.POST("/transfers", d.Transfer.Create)
+			authed.PUT("/transfers/:biz/status", d.Transfer.SetStatus)
+			authed.POST("/transfers/:biz/refund", d.Transfer.Refund)
+			authed.DELETE("/transfers/:biz", d.Transfer.Delete)
+
+			// 分账（C3）
+			authed.GET("/ps/orders", d.Profit.List)
+			authed.GET("/ps/orders/stats", d.Profit.Stats)
+			authed.POST("/ps/orders/:id/op", d.Profit.Operate)
+
+			// 风控（C4，只读）
+			authed.GET("/risks", d.Risk.List)
+			// 黑名单（C4）
+			authed.GET("/blacklist", d.Blacklist.List)
+			authed.GET("/blacklist/stats", d.Blacklist.Stats)
+			authed.POST("/blacklist", d.Blacklist.Add)
+			authed.DELETE("/blacklist/:id", d.Blacklist.Delete)
+			authed.POST("/blacklist/batch-delete", d.Blacklist.BatchDelete)
+			// 授权域名（C4）
+			authed.GET("/domains", d.Domain.List)
+			authed.GET("/domains/stats", d.Domain.Stats)
+			authed.POST("/domains", d.Domain.Add)
+			authed.PUT("/domains/:id/status", d.Domain.SetStatus)
+			authed.DELETE("/domains/:id", d.Domain.Delete)
+			authed.POST("/domains/batch", d.Domain.BatchOp)
+
+			// 统计（C5，只读聚合）
+			authed.GET("/stat/pay", d.Stat.PayStat)
+			// 登录日志（C5，只读）
+			authed.GET("/logs", d.Log.List)
+			// 邀请码（C5）
+			authed.GET("/invitecodes", d.Invite.List)
+			authed.POST("/invitecodes/generate", d.Invite.Generate)
+			authed.DELETE("/invitecodes/:id", d.Invite.Delete)
+			authed.POST("/invitecodes/clear", d.Invite.Clear)
+
+			// 官网 CMS 内容保存（后台鉴权写）
+			authed.PUT("/site/config/:key", d.SiteConfig.Save)
 		}
 	}
 
@@ -68,6 +124,12 @@ func Setup(r *gin.Engine, d Deps) {
 		// 第三方渠道回调（GET/POST 均支持，验签在渠道层）
 		pay.POST("/notify/:trade_no", d.Pay.Notify)
 		pay.GET("/notify/:trade_no", d.Pay.Notify)
+	}
+
+	// 官网 CMS 内容读取（公开，官网前端读）
+	site := api.Group("/site")
+	{
+		site.GET("/config/:key", d.SiteConfig.Get)
 	}
 
 	// 商户中心（阶段D）
@@ -91,8 +153,22 @@ func Setup(r *gin.Engine, d Deps) {
 			// D3 资料/密钥/密码
 			mAuthed.GET("/apikey", d.MerchantCenter.ApiInfo)
 			mAuthed.POST("/apikey/reset", d.MerchantCenter.ResetKey)
+			mAuthed.POST("/apikey/rsa", d.MerchantCenter.GenRSAKey)      // V2 生成 RSA 密钥对
+			mAuthed.PUT("/apikey/keytype", d.MerchantCenter.SetKeyType)  // V2 设置签名模式
 			mAuthed.PUT("/profile", d.MerchantCenter.UpdateProfile)
 			mAuthed.PUT("/password", d.MerchantCenter.ChangePassword)
+			// 代付（C3 商户端）
+			mAuthed.GET("/transfers", d.MerchantCenter.Transfers)
+			mAuthed.POST("/transfer", d.MerchantCenter.TransferCreate)
+			// 保证金 / 购买会员（D3 增值）
+			mAuthed.GET("/deposit", d.MerchantCenter.DepositInfo)
+			mAuthed.POST("/deposit/recharge", d.MerchantCenter.DepositRecharge)
+			mAuthed.POST("/deposit/withdraw", d.MerchantCenter.DepositWithdraw)
+			mAuthed.GET("/groups", d.MerchantCenter.GroupPlans)
+			mAuthed.POST("/groups/buy", d.MerchantCenter.BuyGroup)
+			mAuthed.POST("/recharge", d.MerchantCenter.Recharge)
+			mAuthed.GET("/cert", d.MerchantCenter.CertInfo)
+			mAuthed.POST("/cert", d.MerchantCenter.CertSubmit)
 		}
 	}
 

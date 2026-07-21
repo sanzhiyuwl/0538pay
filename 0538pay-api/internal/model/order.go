@@ -40,6 +40,8 @@ type Order struct {
 	Status      int8            `gorm:"not null;default:0;index" json:"status"`           // 0未付1已付2退款3冻结4预授权
 	Settle      int8            `gorm:"not null;default:0" json:"settle"`                 // 结算子状态 0/1/2/3
 	Combine     int8            `gorm:"not null;default:0" json:"combine"`                // 是否合单 0/1
+	Profits     uint            `gorm:"not null;default:0" json:"-"`                      // 命中的分账规则 id（0=不分账，对齐 epay pre_order.profits）
+	Tid         int8            `gorm:"not null;default:0;index" json:"-"`                // 订单业务类型(对齐 epay pre_order.tid)：0普通 2充值余额 4购买会员 5充值保证金
 	Notify      int8            `gorm:"not null;default:0;index" json:"-"`                // 商户通知状态/重试计数：0成功或无需 / >0 待重试第N次 / -1 放弃(对齐 epay notify 字段)
 	NotifyTime  *time.Time      `json:"-"`                                                // 下次通知重试时间（可空）
 }

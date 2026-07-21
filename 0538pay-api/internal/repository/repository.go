@@ -20,6 +20,18 @@ func atoiOrZero(s string) int {
 	return n
 }
 
+// parseDate 解析 yyyy-mm-dd 日期（时间范围筛选用）。空串或格式不符返回 ok=false。
+func parseDate(s string) (time.Time, bool) {
+	if s == "" {
+		return time.Time{}, false
+	}
+	t, err := time.ParseInLocation("2006-01-02", s, time.Local)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
 // AdminRepo 管理员数据访问。
 type AdminRepo struct{ db *gorm.DB }
 
@@ -29,6 +41,15 @@ func NewAdminRepo(db *gorm.DB) *AdminRepo { return &AdminRepo{db: db} }
 func (r *AdminRepo) FindByUsername(username string) (*model.Admin, error) {
 	var a model.Admin
 	if err := r.db.Where("username = ?", username).First(&a).Error; err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// FindByID 按主键查管理员（代付发起时二次校验密码用），未找到返回 gorm.ErrRecordNotFound。
+func (r *AdminRepo) FindByID(id uint) (*model.Admin, error) {
+	var a model.Admin
+	if err := r.db.Where("id = ?", id).First(&a).Error; err != nil {
 		return nil, err
 	}
 	return &a, nil
@@ -274,13 +295,106 @@ func (r *AccountRepo) ChangeUserMoney(uid uint, amount decimal.Decimal, add bool
 	})
 }
 
+// DepositFromBalance 保证金充值(余额支付路径)：从 money 扣 amount 转入 deposit，事务内完成。
+// 对齐 epay deposit_recharge typeid=0：changeUserMoney(减,'充值保证金') + deposit 累加。
+// 余额不足返回 ErrInsufficientBalance。写一条余额减少流水（type=充值保证金）。
+func (r *AccountRepo) DepositFromBalance(uid uint, amount decimal.Decimal) error {
+	if amount.LessThanOrEqual(decimal.Zero) {
+		return nil
+	}
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var m model.Merchant
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("uid = ?", uid).First(&m).Error; err != nil {
+			return err
+		}
+		if m.Money.LessThan(amount) {
+			return ErrInsufficientBalance
+		}
+		newMoney := m.Money.Sub(amount)
+		newDeposit := m.Deposit.Add(amount)
+		if err := tx.Model(&model.Merchant{}).Where("uid = ?", uid).
+			Updates(map[string]interface{}{"money": newMoney, "deposit": newDeposit}).Error; err != nil {
+			return err
+		}
+		rec := model.PayRecord{
+			UID: uid, Action: 2, Money: amount,
+			OldMoney: m.Money, NewMoney: newMoney,
+			Type: "充值保证金", Date: time.Now(),
+		}
+		return tx.Create(&rec).Error
+	})
+}
+
+// DepositWithdraw 保证金提取：从 deposit 扣 amount 转回 money，事务内完成。
+// 对齐 epay deposit_withdraw：deposit 减 + changeUserMoney(加,'提取保证金')。
+// 保证金不足返回 ErrInsufficientDeposit。写一条余额增加流水。
+func (r *AccountRepo) DepositWithdraw(uid uint, amount decimal.Decimal) error {
+	if amount.LessThanOrEqual(decimal.Zero) {
+		return nil
+	}
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var m model.Merchant
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("uid = ?", uid).First(&m).Error; err != nil {
+			return err
+		}
+		if m.Deposit.LessThan(amount) {
+			return ErrInsufficientDeposit
+		}
+		newDeposit := m.Deposit.Sub(amount)
+		newMoney := m.Money.Add(amount)
+		if err := tx.Model(&model.Merchant{}).Where("uid = ?", uid).
+			Updates(map[string]interface{}{"money": newMoney, "deposit": newDeposit}).Error; err != nil {
+			return err
+		}
+		rec := model.PayRecord{
+			UID: uid, Action: 1, Money: amount,
+			OldMoney: m.Money, NewMoney: newMoney,
+			Type: "提取保证金", Date: time.Now(),
+		}
+		return tx.Create(&rec).Error
+	})
+}
+
+// BuyGroupWithBalance 余额支付购买会员：从 money 扣 price 并改用户组 gid + 到期时间，事务内完成。
+// 对齐 epay groupbuy typeid=0：changeUserMoney(减,'购买会员') + changeUserGroup。
+// 余额不足返回 ErrInsufficientBalance。endTime 为 nil 表示永久组。写一条余额减少流水。
+func (r *AccountRepo) BuyGroupWithBalance(uid uint, price decimal.Decimal, gid int, endTime *time.Time) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var m model.Merchant
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("uid = ?", uid).First(&m).Error; err != nil {
+			return err
+		}
+		if m.Money.LessThan(price) {
+			return ErrInsufficientBalance
+		}
+		newMoney := m.Money.Sub(price)
+		if err := tx.Model(&model.Merchant{}).Where("uid = ?", uid).
+			Updates(map[string]interface{}{"money": newMoney, "gid": gid, "group_end": endTime}).Error; err != nil {
+			return err
+		}
+		if price.GreaterThan(decimal.Zero) {
+			rec := model.PayRecord{
+				UID: uid, Action: 2, Money: price,
+				OldMoney: m.Money, NewMoney: newMoney,
+				Type: "购买会员", Date: time.Now(),
+			}
+			return tx.Create(&rec).Error
+		}
+		return nil
+	})
+}
+
 // RecordRepo 资金流水（pay_record）数据访问。
 type RecordRepo struct{ db *gorm.DB }
 
 func NewRecordRepo(db *gorm.DB) *RecordRepo { return &RecordRepo{db: db} }
 
-// List 分页查询资金流水，支持 action 与 类型/单号 关键词筛选（商户端按 uid 限定）。
-func (r *RecordRepo) List(q dto.RecordQuery) ([]model.PayRecord, int64, error) {
+// recordFilters 把 RecordQuery 的筛选条件套到查询上（列表与统计共用，保证口径一致）。
+// column+value 走字段白名单模糊；时间范围按 date 列 [start, end+1d) 半开区间。
+func (r *RecordRepo) recordFilters(q dto.RecordQuery) *gorm.DB {
 	tx := r.db.Model(&model.PayRecord{})
 	if q.UID != nil {
 		tx = tx.Where("uid = ?", *q.UID)
@@ -288,9 +402,30 @@ func (r *RecordRepo) List(q dto.RecordQuery) ([]model.PayRecord, int64, error) {
 	if q.Action != nil {
 		tx = tx.Where("action = ?", *q.Action)
 	}
+	if q.Type != "" {
+		tx = tx.Where("type = ?", q.Type)
+	}
 	if q.Keyword != "" {
 		tx = tx.Where("type LIKE ? OR trade_no LIKE ?", "%"+q.Keyword+"%", "%"+q.Keyword+"%")
 	}
+	if q.Value != "" {
+		allowed := map[string]bool{"type": true, "money": true, "trade_no": true}
+		if allowed[q.Column] {
+			tx = tx.Where(q.Column+" LIKE ?", "%"+q.Value+"%")
+		}
+	}
+	if t, ok := parseDate(q.StartTime); ok {
+		tx = tx.Where("date >= ?", t)
+	}
+	if t, ok := parseDate(q.EndTime); ok {
+		tx = tx.Where("date < ?", t.Add(24*time.Hour)) // 含结束日当天
+	}
+	return tx
+}
+
+// List 分页查询资金流水，支持 action / 类型 / column+value / 时间范围筛选（商户端按 uid 限定）。
+func (r *RecordRepo) List(q dto.RecordQuery) ([]model.PayRecord, int64, error) {
+	tx := r.recordFilters(q)
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -304,6 +439,30 @@ func (r *RecordRepo) List(q dto.RecordQuery) ([]model.PayRecord, int64, error) {
 		return nil, 0, err
 	}
 	return list, total, nil
+}
+
+// Stats 在当前筛选条件下汇总增/减金额与笔数（对齐 epay record_stats）。
+func (r *RecordRepo) Stats(q dto.RecordQuery) (incMoney, decMoney decimal.Decimal, incCount, decCount int64, err error) {
+	type agg struct {
+		Action int8
+		Sum    decimal.Decimal
+		Cnt    int64
+	}
+	var rows []agg
+	err = r.recordFilters(q).
+		Select("action, COALESCE(SUM(money),0) AS sum, COUNT(*) AS cnt").
+		Group("action").Scan(&rows).Error
+	if err != nil {
+		return
+	}
+	for _, row := range rows {
+		if row.Action == 1 {
+			incMoney, incCount = row.Sum, row.Cnt
+		} else if row.Action == 2 {
+			decMoney, decCount = row.Sum, row.Cnt
+		}
+	}
+	return
 }
 
 // OrderRepo 订单数据访问。

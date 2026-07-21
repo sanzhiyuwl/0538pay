@@ -1,19 +1,22 @@
 package service
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"time"
 
 	"github.com/0538pay/api/internal/dto"
 	"github.com/0538pay/api/internal/model"
 	"github.com/0538pay/api/internal/repository"
+	"github.com/0538pay/api/pkg/sign"
 	"github.com/shopspring/decimal"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// MerchantCenterService 商户中心业务：工作台聚合、结算记录、提现、退款、重新通知。
+// MerchantCenterService 商户中心业务：工作台聚合、结算记录、提现、退款、重新通知、保证金、购买会员。
 type MerchantCenterService struct {
 	merchants *repository.MerchantRepo
 	orders    *repository.OrderRepo
@@ -21,6 +24,7 @@ type MerchantCenterService struct {
 	settles   *repository.SettleRepo
 	accounts  *repository.AccountRepo
 	channels  *repository.ChannelRepo
+	groups    *repository.GroupRepo
 	pay       *PayService // 复用商户通知重发
 }
 
@@ -31,12 +35,293 @@ func NewMerchantCenterService(
 	settles *repository.SettleRepo,
 	accounts *repository.AccountRepo,
 	channels *repository.ChannelRepo,
+	groups *repository.GroupRepo,
 	pay *PayService,
 ) *MerchantCenterService {
 	return &MerchantCenterService{
 		merchants: merchants, orders: orders, records: records,
-		settles: settles, accounts: accounts, channels: channels, pay: pay,
+		settles: settles, accounts: accounts, channels: channels, groups: groups, pay: pay,
 	}
+}
+
+// 保证金门槛（对齐 epay user_deposit_min，先固化，待 config 域迁移）。
+var depositMin = decimal.RequireFromString("1000")
+
+// DepositInfo 返回保证金页信息。
+func (s *MerchantCenterService) DepositInfo(uid uint) (*dto.DepositInfo, error) {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, maErr("商户不存在")
+	}
+	return &dto.DepositInfo{
+		Deposit:    m.Deposit.InexactFloat64(),
+		DepositMin: depositMin.InexactFloat64(),
+		Money:      m.Money.InexactFloat64(),
+	}, nil
+}
+
+// DepositRecharge 保证金充值。余额支付路径即时划转(money→deposit)；渠道支付待凭证(返回错误提示)。
+func (s *MerchantCenterService) DepositRecharge(uid uint, req dto.DepositReq) error {
+	amount, err := decimal.NewFromString(strings.TrimSpace(req.Amount))
+	if err != nil || amount.LessThanOrEqual(decimal.Zero) {
+		return maErr("请输入有效的充值金额")
+	}
+	if req.PayType != "" && req.PayType != "balance" {
+		return maErr("渠道充值保证金待支付渠道凭证接入，请先用余额支付")
+	}
+	if err := s.accounts.DepositFromBalance(uid, amount); err != nil {
+		if err == repository.ErrInsufficientBalance {
+			return maErr("可用余额不足")
+		}
+		return err
+	}
+	return nil
+}
+
+// DepositWithdraw 保证金提取回余额。
+func (s *MerchantCenterService) DepositWithdraw(uid uint, req dto.DepositReq) error {
+	amount, err := decimal.NewFromString(strings.TrimSpace(req.Amount))
+	if err != nil || amount.LessThanOrEqual(decimal.Zero) {
+		return maErr("请输入有效的提取金额")
+	}
+	if err := s.accounts.DepositWithdraw(uid, amount); err != nil {
+		if err == repository.ErrInsufficientDeposit {
+			return maErr("保证金余额不足")
+		}
+		return err
+	}
+	return nil
+}
+
+// ===== 实名认证（第三方认证待凭证）=====
+
+// 实名工本费（对齐 epay cert_money，先固化，待 config 域迁移）。
+var certMoney = decimal.RequireFromString("0")
+
+// CertInfo 返回实名认证页信息（脱敏）。
+func (s *MerchantCenterService) CertInfo(uid uint) (*dto.CertInfo, error) {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, maErr("商户不存在")
+	}
+	info := &dto.CertInfo{
+		Cert:      m.Cert,
+		CertType:  m.CertType,
+		CertName:  maskName(m.CertName),
+		CertNo:    maskIDNo(m.CertNo),
+		CertCorp:  m.CertCorp,
+		CertMoney: certMoney.InexactFloat64(),
+		Method:    "支付宝身份验证", // 认证方式由平台配置，第三方认证待凭证
+		CorpOpen:  true,
+	}
+	if m.CertTime != nil {
+		info.CertTime = m.CertTime.Format(timeLayout)
+	}
+	return info, nil
+}
+
+// CertSubmit 提交实名认证。
+// 第三方认证（支付宝/微信/阿里云人脸+三要素）依赖外部凭证，当前无法真实核验：
+// 存入认证信息为"审核中"(cert=0)，实际通过需第三方回调置 cert=1（待凭证接入）。
+// 工本费认证成功才扣（对齐 epay），故此处不扣费。
+func (s *MerchantCenterService) CertSubmit(uid uint, req dto.CertSubmitReq) error {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return maErr("商户不存在")
+	}
+	if m.Cert == 1 && m.CertType >= req.CertType {
+		return maErr("您已完成实名认证")
+	}
+	name := strings.TrimSpace(req.CertName)
+	no := strings.TrimSpace(req.CertNo)
+	if len([]rune(name)) < 2 {
+		return maErr("请输入真实姓名")
+	}
+	if !validIDNo(no) {
+		return maErr("身份证号格式不正确")
+	}
+	if req.CertType == 1 && strings.TrimSpace(req.CertCorp) == "" {
+		return maErr("请填写企业名称")
+	}
+	// 工本费余额校验（认证成功才扣，此处仅预检）
+	if certMoney.GreaterThan(decimal.Zero) && m.Money.LessThan(certMoney) {
+		return maErr("余额不足以支付实名认证工本费")
+	}
+	// 存审核中信息（cert=0），真实核验待第三方凭证
+	fields := map[string]interface{}{
+		"cert_type": req.CertType,
+		"cert_name": name,
+		"cert_no":   no,
+		"cert_corp": strings.TrimSpace(req.CertCorp),
+	}
+	if err := s.merchants.UpdateFields(uid, fields); err != nil {
+		return err
+	}
+	return maErr("实名信息已提交，第三方认证渠道待接入凭证，暂无法完成核验")
+}
+
+// maskName 姓名脱敏（保留首字，其余打星）。
+func maskName(name string) string {
+	r := []rune(name)
+	if len(r) <= 1 {
+		return name
+	}
+	return string(r[0]) + strings.Repeat("*", len(r)-1)
+}
+
+// maskIDNo 证件号脱敏（保留前3后4）。
+func maskIDNo(no string) string {
+	if len(no) <= 7 {
+		return no
+	}
+	return no[:3] + strings.Repeat("*", len(no)-7) + no[len(no)-4:]
+}
+
+// validIDNo 简单身份证号校验（18位数字，末位可 X）。
+func validIDNo(no string) bool {
+	if len(no) != 18 {
+		return false
+	}
+	for i, c := range no {
+		if c >= '0' && c <= '9' {
+			continue
+		}
+		if i == 17 && (c == 'X' || c == 'x') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// ===== 余额充值 =====
+
+// Recharge 余额充值：下内部订单(tid=2)走渠道支付，回调入账（对齐 epay recharge）。
+// mock 渠道可端到端真跑；真实渠道待凭证。返回收银台信息（trade_no + pay_url/qrcode）。
+func (s *MerchantCenterService) Recharge(uid uint, req dto.RechargeReq) (*dto.SubmitResp, error) {
+	amount, err := decimal.NewFromString(strings.TrimSpace(req.Amount))
+	if err != nil || amount.LessThanOrEqual(decimal.Zero) {
+		return nil, maErr("请输入有效的充值金额")
+	}
+	plugin := req.Plugin
+	if plugin == "" {
+		plugin = "mock"
+	}
+	resp, err := s.pay.CreateInternalOrder(context.Background(), uid, 2, "余额充值", amount, plugin)
+	if err != nil {
+		return nil, maErr("充值下单失败: " + err.Error())
+	}
+	return resp, nil
+}
+
+// ===== 购买会员 =====
+
+// GroupPlans 返回可购买会员套餐列表。
+func (s *MerchantCenterService) GroupPlans() ([]dto.GroupPlanView, error) {
+	list, err := s.groups.ListBuyable()
+	if err != nil {
+		return nil, err
+	}
+	views := make([]dto.GroupPlanView, 0, len(list))
+	for i := range list {
+		g := &list[i]
+		views = append(views, dto.GroupPlanView{
+			ID: g.GID, Name: g.Name,
+			Price: g.Price.InexactFloat64(), Expire: g.Expire,
+			Rates: parseGroupRates(g.Info),
+		})
+	}
+	return views, nil
+}
+
+// CurrentGroup 返回商户当前会员状态。
+func (s *MerchantCenterService) CurrentGroup(uid uint) (*dto.GroupCurrentView, error) {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, maErr("商户不存在")
+	}
+	expire := "—"
+	if m.GroupEnd != nil {
+		expire = m.GroupEnd.Format("2006-01-02")
+	}
+	return &dto.GroupCurrentView{GID: m.GID, Name: groupName(m.GID), Expire: expire}, nil
+}
+
+// BuyGroup 购买会员。余额支付即时扣款升组；渠道支付待凭证。
+// 时长：续期(购买当前组)从原到期往后加；新购从当前时间往后加；expire=0 永久(endtime=nil)。
+func (s *MerchantCenterService) BuyGroup(uid uint, req dto.GroupBuyReq) error {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return maErr("商户不存在")
+	}
+	g, err := s.groups.FindByID(req.GID)
+	if err != nil {
+		return err
+	}
+	if g == nil || g.IsBuy != 1 {
+		return maErr("该会员套餐不可购买")
+	}
+	// 防重复：已是该永久组
+	if m.GID == g.GID && m.GroupEnd == nil && g.Expire == 0 {
+		return maErr("您已是该会员且为永久有效")
+	}
+
+	num := req.Num
+	if num < 1 {
+		num = 1
+	}
+	price := g.Price
+	var endTime *time.Time
+	if g.Expire > 0 {
+		price = g.Price.Mul(decimal.NewFromInt(int64(num)))
+		months := num * g.Expire
+		base := time.Now()
+		// 续期：购买的是当前组，从现有到期时间往后加
+		if m.GID == g.GID && m.GroupEnd != nil && m.GroupEnd.After(base) {
+			base = *m.GroupEnd
+		}
+		t := base.AddDate(0, months, 0)
+		endTime = &t
+	}
+	// expire=0 永久组：endTime=nil，price=单价
+
+	if req.PayType != "" && req.PayType != "balance" {
+		return maErr("渠道购买会员待支付渠道凭证接入，请先用余额支付")
+	}
+	if err := s.accounts.BuyGroupWithBalance(uid, price, g.GID, endTime); err != nil {
+		if err == repository.ErrInsufficientBalance {
+			return maErr("可用余额不足，需 ¥" + price.StringFixed(2))
+		}
+		return err
+	}
+	return nil
+}
+
+// parseGroupRates 解析用户组 Info JSON 的费率说明。格式宽松：[{label,rate}]；解析失败返回空。
+func parseGroupRates(info string) []dto.GroupRateItem {
+	if strings.TrimSpace(info) == "" {
+		return []dto.GroupRateItem{}
+	}
+	var items []dto.GroupRateItem
+	if err := json.Unmarshal([]byte(info), &items); err != nil {
+		return []dto.GroupRateItem{}
+	}
+	return items
 }
 
 // dayStart 返回某时刻当天 00:00:00（本地时区）。
@@ -371,10 +656,50 @@ func (s *MerchantCenterService) ApiInfo(uid uint) (*dto.MerchantApiInfo, error) 
 		return nil, maErr("商户不存在")
 	}
 	return &dto.MerchantApiInfo{
-		UID:    m.UID,
-		MDKey:  m.AppKey,
-		APIURL: "https://0538pay.com/", // 接口地址（接站点配置域后动态）
+		UID:     m.UID,
+		MDKey:   m.AppKey,
+		APIURL:  "https://0538pay.com/", // 接口地址（接站点配置域后动态）
+		KeyType: m.KeyType,
+		HasRSA:  m.PublicKey != "",
 	}, nil
+}
+
+// GenRSAKeyPair 生成商户 RSA 密钥对（V2）：仅公钥入库，私钥一次性返回（对齐 epay：私钥不落库）。
+// 返回私钥（单行 base64，商户须自行保存）。
+func (s *MerchantCenterService) GenRSAKeyPair(uid uint) (string, error) {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return "", err
+	}
+	if m == nil {
+		return "", maErr("商户不存在")
+	}
+	priv, pub, err := sign.GenerateRSAKeyPair()
+	if err != nil {
+		return "", err
+	}
+	if err := s.merchants.UpdateFields(uid, map[string]interface{}{"publickey": pub}); err != nil {
+		return "", err
+	}
+	return priv, nil
+}
+
+// SetKeyType 设置商户签名模式（0=MD5+RSA兼容 1=仅RSA安全）。仅RSA模式需已配公钥。
+func (s *MerchantCenterService) SetKeyType(uid uint, keytype int8) error {
+	if keytype != 0 && keytype != 1 {
+		return maErr("签名模式不合法")
+	}
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return maErr("商户不存在")
+	}
+	if keytype == 1 && m.PublicKey == "" {
+		return maErr("请先生成 RSA 密钥对再切换到仅 RSA 安全模式")
+	}
+	return s.merchants.UpdateFields(uid, map[string]interface{}{"keytype": keytype})
 }
 
 // ResetKey 重置商户 MD5 通信密钥，返回新密钥。对齐 epay resetKey：随机 32 位。

@@ -14,6 +14,9 @@ import (
 // ErrInsufficientBalance 商户余额不足以生成结算单（生单即扣款，余额不够则拒绝）。
 var ErrInsufficientBalance = errors.New("商户余额不足")
 
+// ErrInsufficientDeposit 保证金不足（提取保证金时超额）。
+var ErrInsufficientDeposit = errors.New("保证金余额不足")
+
 // ErrNoPending 当前不存在待结算记录（生成批次时）。对齐 epay create_batch 的报错。
 var ErrNoPending = errors.New("当前不存在待结算的记录")
 

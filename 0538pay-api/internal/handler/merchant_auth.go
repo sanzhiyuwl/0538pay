@@ -35,7 +35,7 @@ func (h *MerchantAuthHandler) Login(c *gin.Context) {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
 		return
 	}
-	out, err := h.svc.Login(req)
+	out, err := h.svc.Login(req, c.ClientIP())
 	if err != nil {
 		failFromMerchantAuthErr(c, err)
 		return

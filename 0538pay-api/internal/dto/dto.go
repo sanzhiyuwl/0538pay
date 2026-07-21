@@ -219,9 +219,16 @@ type ApplyReq struct {
 // MerchantApiInfo 商户 API 信息（对齐前端 MerchantApi.vue，V1 MD5 部分）。
 // RSA/keytype 属 V2 协议，V2 未实现前不下发（避免造悬空数据）。
 type MerchantApiInfo struct {
-	UID    uint   `json:"uid"`
-	MDKey  string `json:"mdkey"` // 商户通信密钥（MD5 验签，即 AppKey）
-	APIURL string `json:"apiurl"`
+	UID      uint   `json:"uid"`
+	MDKey    string `json:"mdkey"`  // 商户通信密钥（MD5 验签，即 AppKey）
+	APIURL   string `json:"apiurl"`
+	KeyType  int8   `json:"keytype"` // 0=MD5+RSA兼容 1=仅RSA安全
+	HasRSA   bool   `json:"has_rsa"` // 是否已配置 RSA 公钥
+}
+
+// KeyTypeReq 设置签名模式入参。
+type KeyTypeReq struct {
+	KeyType int8 `json:"keytype"`
 }
 
 // MerchantProfileReq 修改商户资料入参（仅模型已有字段：收款账号 + 联系方式 + 扣费模式）。
@@ -248,8 +255,10 @@ type RefundReq struct {
 }
 
 // RecordView 资金流水对外响应，对齐前端 mock/merchant/records.ts（金额用 number）+ epay pre_record。
+// UID 供后台列表展示商户号（商户端可忽略）。
 type RecordView struct {
 	ID       uint    `json:"id"`
+	UID      uint    `json:"uid"`      // 商户号（后台列表用）
 	Action   int8    `json:"action"`   // 1=增加 2=减少
 	Money    float64 `json:"money"`    // 变更金额
 	OldMoney float64 `json:"oldmoney"` // 变更前余额
@@ -259,13 +268,20 @@ type RecordView struct {
 	Date     string  `json:"date"`     // 时间
 }
 
-// RecordQuery 资金流水查询入参（商户端：按类型/关键词筛选 + 分页）。
+// RecordQuery 资金流水查询入参。
+// 商户端：service 强制注入 UID + 按 action/keyword 筛选（越权由注入覆盖保证）。
+// 后台：可按 uid/type/column+value/时间范围筛选（对齐 epay record.php + ajax_user.php recordList）。
 type RecordQuery struct {
-	Page     int    `form:"page"`
-	PageSize int    `form:"pageSize"`
-	Action   *int   `form:"action"`  // 1增2减，可空
-	Keyword  string `form:"keyword"` // 类型文案 / 关联单号 模糊
-	UID      *uint  `form:"-"`       // 商户号（商户端强制注入）
+	Page      int    `form:"page"`
+	PageSize  int    `form:"pageSize"`
+	Action    *int   `form:"action"`    // 1增2减，可空
+	Keyword   string `form:"keyword"`   // 类型文案 / 关联单号 模糊（商户端）
+	UID       *uint  `form:"uid"`       // 商户号（商户端 service 强制覆盖；后台按 query 筛选）
+	Type      string `form:"type"`      // 操作类型文案精确匹配（后台）
+	Column    string `form:"column"`    // 后台模糊搜索字段：type/money/trade_no
+	Value     string `form:"value"`     // 后台模糊搜索值
+	StartTime string `form:"starttime"` // 时间范围起（yyyy-mm-dd）
+	EndTime   string `form:"endtime"`   // 时间范围止（yyyy-mm-dd）
 }
 
 // Normalize 补默认分页值并做安全上限。
@@ -276,6 +292,16 @@ func (q *RecordQuery) Normalize() {
 	if q.PageSize <= 0 || q.PageSize > 100 {
 		q.PageSize = 20
 	}
+}
+
+// RecordStats 资金明细统计（对齐 epay ajax_user.php record_stats：增加/减少/总计金额 + 计数）。
+type RecordStats struct {
+	IncMoney   float64 `json:"incMoney"`   // 增加金额合计
+	DecMoney   float64 `json:"decMoney"`   // 减少金额合计
+	TotalMoney float64 `json:"totalMoney"` // 净变更（增 - 减）
+	IncCount   int64   `json:"incCount"`   // 入账笔数
+	DecCount   int64   `json:"decCount"`   // 出账笔数
+	TotalCount int64   `json:"totalCount"` // 总笔数
 }
 
 // MerchantLoginReq 商户登录入参（对齐 epay user/login.php 双模式）。
@@ -427,6 +453,414 @@ func (q *MerchantQuery) Normalize() {
 	if q.PageSize <= 0 || q.PageSize > 100 {
 		q.PageSize = 20
 	}
+}
+
+// ===== 代付 / 转账（C3）=====
+
+// TransferView 代付记录对外响应，字段/json tag 对齐前端 mock/transfer.ts 的 TransferRecord。
+// 金额格式化为两位小数字符串；后台端展示 uid（0=管理员发起）。
+type TransferView struct {
+	BizNo      string  `json:"biz_no"`       // 交易号
+	PayOrderNo string  `json:"pay_order_no"` // 第三方转账单号
+	UID        uint    `json:"uid"`          // 商户号（0=管理员）
+	Type       string  `json:"type"`         // 付款方式 alipay/wxpay/qqpay/bank
+	Channel    int     `json:"channel"`      // 通道 id
+	Account    string  `json:"account"`      // 收款账号
+	Username   string  `json:"username"`     // 收款姓名
+	Money      string  `json:"money"`        // 到账金额
+	CostMoney  string  `json:"costmoney"`    // 商户扣款（含手续费）
+	Desc       string  `json:"desc"`         // 备注
+	AddTime    string  `json:"addtime"`      // 提交时间
+	PayTime    *string `json:"paytime"`      // 付款时间（处理中为 null）
+	Status     int8    `json:"status"`       // 0处理中 1成功 2失败
+	Result     string  `json:"result"`       // 失败原因
+}
+
+// TransferStats 代付概况统计（对齐前端 calcTransferStats）。
+type TransferStats struct {
+	Total           int64   `json:"total"`
+	TotalMoney      float64 `json:"totalMoney"`
+	SuccessMoney    float64 `json:"successMoney"`
+	SuccessCount    int64   `json:"successCount"`
+	ProcessingCount int64   `json:"processingCount"`
+	FailCount       int64   `json:"failCount"`
+}
+
+// TransferQuery 代付列表查询入参（对齐 transfer.php 的搜索/筛选/分页）。
+type TransferQuery struct {
+	Page     int    `form:"page"`
+	PageSize int    `form:"pageSize"`
+	Keyword  string `form:"keyword"` // 交易号/收款账号/姓名 模糊
+	UID      *uint  `form:"uid"`     // 商户号（后台按 query；商户端 service 强制注入）
+	Type     string `form:"type"`    // 付款方式
+	Status   *int   `form:"status"`  // 状态（-1/空=全部）
+}
+
+// Normalize 补默认分页值并做安全上限。
+func (q *TransferQuery) Normalize() {
+	if q.Page <= 0 {
+		q.Page = 1
+	}
+	if q.PageSize <= 0 || q.PageSize > 100 {
+		q.PageSize = 20
+	}
+}
+
+// TransferCreateReq 发起代付入参（后台与商户端共用；后台 uid=0 免费，商户端走费率+余额校验）。
+type TransferCreateReq struct {
+	BizNo    string `json:"biz_no"`   // 交易号（19位数字；空则后端自动生成）
+	Type     string `json:"type" binding:"required"` // alipay/wxpay/qqpay/bank
+	Channel  int    `json:"channel"`  // 通道 id（可空，取该方式默认通道）
+	Account  string `json:"account" binding:"required"` // 收款账号
+	Username string `json:"username"` // 收款姓名（选填）
+	Money    string `json:"money" binding:"required"`   // 到账金额
+	Desc     string `json:"desc"`     // 备注（≤32字）
+	Password string `json:"password"` // 身份校验：后台=管理员密码 / 商户=登录密码
+}
+
+// TransferStatusReq 后台手动改单条代付状态（不动资金）。
+// Status: 1成功 2失败；Result 失败原因（可选）。
+type TransferStatusReq struct {
+	Status int8   `json:"status"`
+	Result string `json:"result"`
+}
+
+// TransferBizReq 仅带交易号的操作入参（退回/删除/查询）。
+type TransferBizReq struct {
+	BizNo string `json:"biz_no" binding:"required"`
+}
+
+// ===== 分账 profit-sharing（C3）=====
+
+// PsOrderView 分账订单对外响应，字段/json tag 对齐前端 mock/profitsharing.ts 的 PsOrder。
+type PsOrderView struct {
+	ID          uint   `json:"id"`
+	TradeNo     string `json:"trade_no"`     // 系统订单号
+	APITradeNo  string `json:"api_trade_no"` // 接口订单号
+	RID         uint   `json:"rid"`          // 分账规则 id
+	RuleName    string `json:"rulename"`     // 规则名称（派生：比例 + 接收方）
+	ChannelID   int    `json:"channelid"`    // 支付通道 id
+	ChannelName string `json:"channelname"`  // 通道名称
+	Receiver    string `json:"receiver"`     // 接收方
+	Money       string `json:"money"`        // 分账金额
+	AddTime     string `json:"addtime"`      // 时间
+	Status      int8   `json:"status"`       // 0待分账 1已提交 2成功 3失败 4取消
+	Result      string `json:"result"`       // 失败原因
+}
+
+// PsStats 分账统计概况（对齐前端 calcPsStats）。
+type PsStats struct {
+	TotalMoney   float64 `json:"totalMoney"`
+	SuccessMoney float64 `json:"successMoney"`
+	FailMoney    float64 `json:"failMoney"`
+	TotalCount   int64   `json:"totalCount"`
+	SuccessCount int64   `json:"successCount"`
+	FailCount    int64   `json:"failCount"`
+	SuccessRate  float64 `json:"successRate"`
+}
+
+// PsOrderQuery 分账订单列表查询入参（对齐 ps_order.php 的搜索/筛选/分页）。
+type PsOrderQuery struct {
+	Page      int    `form:"page"`
+	PageSize  int    `form:"pageSize"`
+	RID       *uint  `form:"rid"`       // 分账规则 id
+	Status    *int   `form:"status"`    // 状态（-1/空=全部）
+	Column    string `form:"column"`    // 搜索字段 trade_no/api_trade_no/money
+	Value     string `form:"value"`     // 搜索值
+	StartTime string `form:"starttime"` // 时间范围起
+	EndTime   string `form:"endtime"`   // 时间范围止
+}
+
+// Normalize 补默认分页值并做安全上限。
+func (q *PsOrderQuery) Normalize() {
+	if q.Page <= 0 {
+		q.Page = 1
+	}
+	if q.PageSize <= 0 || q.PageSize > 100 {
+		q.PageSize = 20
+	}
+}
+
+// PsStatusReq 分账订单状态操作入参（提交/查询/回退/取消/改金额/删除，用 action 区分）。
+type PsStatusReq struct {
+	Action string `json:"action"` // submit/query/return/cancel/editmoney/delete
+	Money  string `json:"money"`  // editmoney 时的新金额
+}
+
+// ===== 风控 / 黑名单 / 域名（C4）=====
+
+// RiskView 风控记录对外响应（只读），对齐前端 mock/risk.ts 的 RiskRecord。
+type RiskView struct {
+	ID      uint   `json:"id"`
+	UID     uint   `json:"uid"`
+	Type    int8   `json:"type"`    // 0关键词屏蔽 1成功率 2通知失败 3投诉率
+	Content string `json:"content"` // 风控内容
+	URL     string `json:"url"`     // 风控网址
+	Date    string `json:"date"`    // 时间
+}
+
+// RiskQuery 风控记录查询入参（对齐 riskList：精确等值搜索 column+value + 类型）。
+type RiskQuery struct {
+	Page     int    `form:"page"`
+	PageSize int    `form:"pageSize"`
+	Column   string `form:"column"` // uid/url/content
+	Value    string `form:"value"`  // 精确等值
+	Type     *int   `form:"type"`   // -1/空=全部
+}
+
+func (q *RiskQuery) Normalize() {
+	if q.Page <= 0 {
+		q.Page = 1
+	}
+	if q.PageSize <= 0 || q.PageSize > 100 {
+		q.PageSize = 20
+	}
+}
+
+// BlacklistView 黑名单对外响应，对齐前端 mock/blacklist.ts 的 BlackItem。
+type BlacklistView struct {
+	ID      uint    `json:"id"`
+	Type    int8    `json:"type"`    // 0支付账号 1IP
+	Content string  `json:"content"` // 账号/IP
+	AddTime string  `json:"addtime"` // 添加时间
+	EndTime *string `json:"endtime"` // 过期时间（null=永久）
+	Remark  string  `json:"remark"`  // 备注
+}
+
+// BlacklistQuery 黑名单查询入参（对齐 blackList：kw 精确等值 + 类型）。
+type BlacklistQuery struct {
+	Page     int    `form:"page"`
+	PageSize int    `form:"pageSize"`
+	Keyword  string `form:"kw"`   // content 精确等值
+	Type     *int   `form:"type"` // -1/空=全部
+}
+
+func (q *BlacklistQuery) Normalize() {
+	if q.Page <= 0 {
+		q.Page = 1
+	}
+	if q.PageSize <= 0 || q.PageSize > 100 {
+		q.PageSize = 20
+	}
+}
+
+// BlacklistAddReq 添加黑名单入参（对齐 addBlack）。
+type BlacklistAddReq struct {
+	Type    int8   `json:"type"`
+	Content string `json:"content" binding:"required"`
+	Days    int    `json:"days"`   // 有效期天数，0=永久
+	Remark  string `json:"remark"`
+}
+
+// DomainView 授权域名对外响应，对齐前端 mock/domains.ts 的 DomainItem。
+type DomainView struct {
+	ID      uint    `json:"id"`
+	UID     uint    `json:"uid"`
+	Domain  string  `json:"domain"`
+	Status  int8    `json:"status"`  // 0待审核 1正常 2拒绝
+	AddTime string  `json:"addtime"` // 添加时间
+	EndTime *string `json:"endtime"` // 审核时间（null=未审核）
+}
+
+// DomainQuery 授权域名查询入参（对齐 domainList：uid + kw 精确等值 + 状态）。
+type DomainQuery struct {
+	Page     int    `form:"page"`
+	PageSize int    `form:"pageSize"`
+	UID      *uint  `form:"uid"`
+	Keyword  string `form:"kw"`      // domain 精确等值
+	Status   *int   `form:"dstatus"` // -1/空=全部
+}
+
+func (q *DomainQuery) Normalize() {
+	if q.Page <= 0 {
+		q.Page = 1
+	}
+	if q.PageSize <= 0 || q.PageSize > 100 {
+		q.PageSize = 20
+	}
+}
+
+// DomainAddReq 后台添加授权域名入参（后台加免审 status=1）。
+type DomainAddReq struct {
+	UID    uint   `json:"uid" binding:"required"`
+	Domain string `json:"domain" binding:"required"`
+}
+
+// DomainStatusReq 域名审核/状态变更入参。
+type DomainStatusReq struct {
+	Status int8 `json:"status"` // 1通过 2拒绝
+}
+
+// ===== 官网 CMS（自研）=====
+
+// SiteConfigReq 保存官网 CMS 文档入参（value 为整份 JSON 字符串）。
+type SiteConfigReq struct {
+	Value string `json:"value"`
+}
+
+// ===== 统计 / 日志 / 邀请码（C5）=====
+
+// StatColumn 统计表列定义（key + 中文名）。
+type StatColumn struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+// StatRow 统计表一行（一个商户）：各列金额 + 合计。
+type StatRow struct {
+	UID    uint               `json:"uid"`
+	Name   string             `json:"name"`   // 商户标识（结算姓名/域名/派生）
+	Values map[string]float64 `json:"values"` // 各列金额
+	Total  float64            `json:"total"`  // 行合计
+}
+
+// StatResult 商户支付统计结果（交叉透视表 + 列合计）。
+type StatResult struct {
+	Columns   []StatColumn       `json:"columns"`
+	Rows      []StatRow          `json:"rows"`
+	Totals    map[string]float64 `json:"totals"` // 列合计
+	Grand     float64            `json:"grand"`  // 总计
+}
+
+// StatQuery 商户支付统计查询入参（对齐 ustat.php：method + type + 时间范围）。
+type StatQuery struct {
+	Method    string `form:"method"`    // type=按支付方式 / channel=按支付通道
+	Type      int    `form:"type"`      // 0订单金额 1支付金额 2分成金额 3手续费利润 4代付金额
+	StartDay  string `form:"startday"`  // yyyy-mm-dd
+	EndDay    string `form:"endday"`    // yyyy-mm-dd
+}
+
+// LogView 登录日志对外响应，对齐前端 mock。
+type LogView struct {
+	ID   uint   `json:"id"`
+	UID  uint   `json:"uid"`
+	Type string `json:"type"`
+	IP   string `json:"ip"`
+	City string `json:"city"`
+	Date string `json:"date"`
+}
+
+// LogQuery 登录日志查询入参（对齐 logList：column 精确等值 + 分页）。
+type LogQuery struct {
+	Page     int    `form:"page"`
+	PageSize int    `form:"pageSize"`
+	Column   string `form:"column"` // uid/ip
+	Value    string `form:"value"`
+}
+
+func (q *LogQuery) Normalize() {
+	if q.Page <= 0 {
+		q.Page = 1
+	}
+	if q.PageSize <= 0 || q.PageSize > 100 {
+		q.PageSize = 20
+	}
+}
+
+// InviteView 邀请码对外响应，对齐前端 mock/invitecodes.ts。
+type InviteView struct {
+	ID      uint    `json:"id"`
+	Code    string  `json:"code"`
+	Status  int8    `json:"status"`  // 0未使用 1已使用
+	AddTime string  `json:"addtime"` // 生成时间
+	UseTime *string `json:"usetime"` // 使用时间
+	UID     *uint   `json:"uid"`     // 使用者
+}
+
+// InviteQuery 邀请码查询入参。
+type InviteQuery struct {
+	Page     int    `form:"page"`
+	PageSize int    `form:"pageSize"`
+	Keyword  string `form:"kw"`     // code 精确等值
+	Status   *int   `form:"status"` // -1/空=全部
+}
+
+func (q *InviteQuery) Normalize() {
+	if q.Page <= 0 {
+		q.Page = 1
+	}
+	if q.PageSize <= 0 || q.PageSize > 100 {
+		q.PageSize = 20
+	}
+}
+
+// InviteGenReq 批量生成邀请码入参。
+type InviteGenReq struct {
+	Num int `json:"num"` // 生成个数
+}
+
+// ===== 实名认证（D3，第三方认证待凭证）=====
+
+// CertInfo 实名认证页信息。
+type CertInfo struct {
+	Cert      int8   `json:"cert"`       // 0未认证/审核中 1已认证
+	CertType  int8   `json:"certtype"`   // 0个人 1企业
+	CertName  string `json:"certname"`   // 脱敏姓名
+	CertNo    string `json:"certno"`     // 脱敏证件号
+	CertCorp  string `json:"certcorp"`   // 企业名
+	CertTime  string `json:"certtime"`   // 认证时间
+	CertMoney float64 `json:"certmoney"` // 工本费
+	Method    string `json:"method"`     // 认证方式说明
+	CorpOpen  bool   `json:"corpopen"`   // 是否开放企业认证
+}
+
+// CertSubmitReq 实名认证提交入参。
+type CertSubmitReq struct {
+	CertType int8   `json:"certtype"` // 0个人 1企业
+	CertName string `json:"certname" binding:"required"`
+	CertNo   string `json:"certno" binding:"required"`
+	CertCorp string `json:"certcorp"` // 企业名（企业认证时）
+}
+
+// RechargeReq 余额充值入参（金额 + 渠道插件）。余额本身是充值目标，故无余额支付选项。
+type RechargeReq struct {
+	Amount string `json:"amount" binding:"required"`
+	Plugin string `json:"plugin"` // 渠道插件（mock 可真跑；真实渠道待凭证）
+}
+
+// ===== 保证金 / 购买会员（D3 增值）=====
+
+// DepositInfo 保证金页信息（当前保证金/门槛/可用余额）。
+type DepositInfo struct {
+	Deposit    float64 `json:"deposit"`    // 当前保证金
+	DepositMin float64 `json:"depositMin"` // 最低保证金要求
+	Money      float64 `json:"money"`      // 可用余额
+}
+
+// DepositReq 保证金充值/提取入参（金额）。
+type DepositReq struct {
+	Amount string `json:"amount" binding:"required"`
+	// PayType: balance=余额支付(即时) / 其它=渠道(待凭证)。充值时用。
+	PayType string `json:"pay_type"`
+}
+
+// GroupPlanView 会员套餐对外响应，对齐前端 mock/merchant/groupbuy.ts 的 GroupPlan。
+type GroupPlanView struct {
+	ID     int      `json:"id"`     // gid
+	Name   string   `json:"name"`
+	Price  float64  `json:"price"`  // 单期售价
+	Expire int      `json:"expire"` // 有效期月数（0=永久）
+	Rates  []GroupRateItem `json:"rates"` // 费率说明
+}
+
+// GroupRateItem 费率项（通道名 + 费率）。
+type GroupRateItem struct {
+	Label string `json:"label"`
+	Rate  string `json:"rate"`
+}
+
+// GroupCurrentView 当前会员状态。
+type GroupCurrentView struct {
+	GID    int    `json:"gid"`
+	Name   string `json:"name"`
+	Expire string `json:"expire"` // 到期时间（"—"=永久/无）
+}
+
+// GroupBuyReq 购买会员入参。
+type GroupBuyReq struct {
+	GID     int    `json:"gid" binding:"required"`
+	Num     int    `json:"num"`      // 购买月数（永久组忽略）
+	PayType string `json:"pay_type"` // balance=余额支付(即时) / 其它=渠道(待凭证)
 }
 
 // OrderQuery 订单列表查询入参（对齐 order.php 的搜索/分页）。

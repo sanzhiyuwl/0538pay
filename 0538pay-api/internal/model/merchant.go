@@ -26,7 +26,12 @@ type Merchant struct {
 	URL       string          `gorm:"size:255" json:"url"`                          // 域名
 	AddTime   time.Time       `gorm:"index" json:"-"`                               // 添加时间（原始）
 	Status    int8            `gorm:"not null;default:2;index" json:"status"`       // 0封禁1正常2未审核
-	Cert      int8            `gorm:"default:0" json:"cert"`                        // 实名 0/1
+	Cert      int8            `gorm:"default:0" json:"cert"`                        // 实名 0未认证/审核中 1已认证
+	CertType  int8            `gorm:"default:0" json:"certtype"`                    // 0个人 1企业
+	CertName  string          `gorm:"size:64" json:"-"`                             // 真实姓名（脱敏后输出）
+	CertNo    string          `gorm:"size:32" json:"-"`                             // 证件号（脱敏后输出）
+	CertCorp  string          `gorm:"size:128" json:"-"`                            // 企业名称
+	CertTime  *time.Time      `gorm:"column:cert_time" json:"-"`                    // 认证通过时间
 	Pay       int8            `gorm:"default:2" json:"pay"`                         // 支付权限 0关1开2未审核
 	Settle    int8            `gorm:"default:0" json:"settle"`                      // 结算权限 0/1
 	UpID      int             `gorm:"column:upid;default:0" json:"upid"`            // 邀请方

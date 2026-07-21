@@ -3,7 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/0538pay/api/internal/channel"
@@ -37,10 +40,85 @@ type PayService struct {
 	orders    *repository.OrderRepo
 	accounts  *repository.AccountRepo
 	channels  *repository.ChannelRepo
+	profit    *ProfitService    // 分账（可空；SetProfitService 注入，避免构造顺序耦合）
+	risk      *RiskService      // 风控关键词拦截（可空）
+	blacklist *BlacklistService // 黑名单拦截（可空）
+	domain    *DomainService    // 域名白名单校验（可空）
 }
 
 func NewPayService(m *repository.MerchantRepo, o *repository.OrderRepo, a *repository.AccountRepo, ch *repository.ChannelRepo) *PayService {
 	return &PayService{merchants: m, orders: o, accounts: a, channels: ch}
+}
+
+// SetProfitService 注入分账服务（下单匹配规则 + 支付成功建分账单）。nil 则不启用分账。
+func (s *PayService) SetProfitService(p *ProfitService) { s.profit = p }
+
+// SetRiskServices 注入风控/黑名单/域名服务（下单拦截校验）。任一为 nil 则跳过对应校验。
+func (s *PayService) SetRiskServices(r *RiskService, b *BlacklistService, d *DomainService) {
+	s.risk, s.blacklist, s.domain = r, b, d
+}
+
+// blockKeywords 关键词屏蔽词（对齐 epay blockname，先固化，待 config 域迁移）。
+var blockKeywords = []string{"博彩", "赌博", "违禁", "毒品", "枪支"}
+
+// hitKeyword 返回商品名命中的第一个屏蔽词，未命中返回空串（对齐 epay strpos 子串匹配）。
+func hitKeyword(name string) string {
+	for _, kw := range blockKeywords {
+		if strings.Contains(name, kw) {
+			return kw
+		}
+	}
+	return ""
+}
+
+// verifySubmitSign 校验下单签名（对齐 epay ApiHelper::api_verify）。
+//   - keytype=1（安全模式）：强制 sign_type=RSA，否则拒绝。
+//   - keytype=0（兼容模式）：按请求 sign_type 选 MD5(默认) 或 RSA。
+//   - RSA：用商户公钥验签 + 校验 timestamp ±300s（防重放）。MD5：md5(str+key)。
+func (s *PayService) verifySubmitSign(m *model.Merchant, params map[string]string) error {
+	signType := params["sign_type"]
+	if signType == "" {
+		signType = "MD5"
+	}
+	if m.KeyType == 1 && signType != "RSA" {
+		return &PayError{Code: 1103, Msg: "该商户仅支持 RSA 签名类型"}
+	}
+	if signType == "RSA" {
+		if m.PublicKey == "" {
+			return &PayError{Code: 1103, Msg: "该商户未配置 RSA 公钥，无法用 RSA 验签"}
+		}
+		// V2 时间戳窗口校验（±300s），防重放。
+		if err := checkTimestamp(params["timestamp"]); err != nil {
+			return err
+		}
+		if !sign.VerifyRSA(params, m.PublicKey) {
+			return &PayError{Code: 1103, Msg: "RSA签名校验失败"}
+		}
+		return nil
+	}
+	if !sign.VerifyMD5(params, m.AppKey) {
+		return &PayError{Code: 1103, Msg: "MD5签名校验失败"}
+	}
+	return nil
+}
+
+// checkTimestamp 校验请求时间戳在当前时间 ±300 秒内（对齐 epay V2 5 分钟窗口）。
+func checkTimestamp(ts string) error {
+	if ts == "" {
+		return &PayError{Code: 1103, Msg: "时间戳(timestamp)不能为空"}
+	}
+	n, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		return &PayError{Code: 1103, Msg: "时间戳(timestamp)格式不正确"}
+	}
+	diff := time.Now().Unix() - n
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > 300 {
+		return &PayError{Code: 1103, Msg: "时间戳(timestamp)已过期"}
+	}
+	return nil
 }
 
 // Submit 处理下单请求。params 为原始请求参数（用于验签，含 sign/pid/type/... 全量）。
@@ -58,13 +136,11 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 		return nil, err
 	}
 
-	// 2. 验签（对齐 epay ApiHelper::api_verify → verifySign）
-	//    阶段 A 只支持 MD5；RSA 商户（keytype=1）留待 V2。
-	if m.KeyType == 1 {
-		return nil, payErr("该商户为 RSA 签名类型，V2 协议未实现")
-	}
-	if !sign.VerifyMD5(params, m.AppKey) {
-		return nil, &PayError{Code: 1103, Msg: "MD5签名校验失败"}
+	// 2. 验签（对齐 epay ApiHelper::api_verify → verifySign）。
+	//    keytype=0 兼容模式：按请求 sign_type 选 MD5/RSA；keytype=1 安全模式：强制 RSA。
+	//    RSA(V2) 用商户公钥验商户私钥签名，并校验 timestamp ±300s（对齐 epay）。
+	if err := s.verifySubmitSign(m, params); err != nil {
+		return nil, err
 	}
 
 	// 3. 商户状态（对齐 epay：status/pay）
@@ -107,6 +183,25 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 		name = name[:127]
 	}
 
+	// 4b. 风控 / 黑名单 / 域名拦截（C4，对齐 epay Pay::submit 的下单前置校验）。
+	//     命中黑名单统一返回模糊报错（不明示被拉黑）；关键词命中记风控并拦截；域名未过白拦截。
+	clientIP := params["_ip"]
+	notifyHost := hostOf(notifyURL)
+	if s.blacklist != nil && s.blacklist.IsBlocked(1, clientIP) {
+		return nil, payErr("系统异常无法完成付款")
+	}
+	if s.domain != nil && notifyHost != "" && !s.domain.IsAllowed(pid, notifyHost) {
+		// 域名白名单：仅当该商户配置了域名校验时才拦截。无任何域名记录视为未开启，放行（向后兼容）。
+		if s.domain.HasAnyDomain(pid) {
+			return nil, payErr("该域名不可发起支付，请前往支付平台授权支付域名")
+		}
+	}
+	if s.risk != nil && hitKeyword(name) != "" {
+		kw := hitKeyword(name)
+		s.risk.RecordKeyword(pid, notifyHost, "商品名命中屏蔽词「"+kw+"」")
+		return nil, payErr("温馨提醒该商品禁止出售，如有疑问请联系网站客服！")
+	}
+
 	// 5. 幂等：同 uid+out_trade_no 已存在则复用/拦截（对齐 epay 10 天窗口内校验）
 	old, err := s.orders.FindByOut(pid, outTradeNo)
 	if err != nil {
@@ -141,6 +236,13 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 		getMoney = amount.Mul(ch.Rate).Div(decimal.NewFromInt(100)).Round(2)
 	}
 
+	// 7b. 分账规则匹配（对齐 epay updateOrderProfits）：命中则记规则 id 到 order.profits，
+	//     支付成功回调时据此按比例创建分账订单。realmoney 用订单金额（无独立实收字段时）。
+	var profits uint
+	if s.profit != nil {
+		profits = s.profit.MatchRuleForOrder(channelID, 0, pid, amount)
+	}
+
 	// 8. 创建订单（status=0 未支付）。
 	now := time.Now()
 	order := &model.Order{
@@ -160,6 +262,7 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 		Plugin:     plugin,
 		AddTime:    now,
 		Status:     0,
+		Profits:    profits,
 	}
 	if err := s.orders.Create(order); err != nil {
 		// 并发下唯一键冲突：重查一次走幂等分支
@@ -261,6 +364,42 @@ func (s *PayService) GetCashier(tradeNo string) (*dto.CashierView, error) {
 		AddTime:    o.AddTime.Format(timeLayout),
 		ReturnURL:  o.ReturnURL,
 	}, nil
+}
+
+// CreateInternalOrder 创建内部业务订单（充值余额 tid=2 等）并走渠道下单，返回收银台信息。
+// 对齐 epay：内部订单下到收款商户名下、回调时按 tid 分派。当前 uid 直接记发起商户，
+// settle() 按 tid 决定入账流水类型。plugin 指定渠道（如 mock 可真跑；真实渠道待凭证）。
+func (s *PayService) CreateInternalOrder(ctx context.Context, uid uint, tid int8, name string, amount decimal.Decimal, plugin string) (*dto.SubmitResp, error) {
+	if amount.LessThanOrEqual(decimal.Zero) {
+		return nil, payErr("金额不合法")
+	}
+	ch, err := s.channels.FindEnabledByPlugin(plugin)
+	if err != nil {
+		return nil, err
+	}
+	channelID := 0
+	if ch != nil {
+		channelID = int(ch.ID)
+	}
+	now := time.Now()
+	order := &model.Order{
+		TradeNo:    genTradeNo(now),
+		OutTradeNo: fmt.Sprintf("IN%d%s", tid, genTradeNo(now)),
+		UID:        uid,
+		Name:       name,
+		Money:      amount,
+		Type:       0,
+		TypeName:   plugin,
+		Channel:    channelID,
+		Plugin:     plugin,
+		AddTime:    now,
+		Status:     0,
+		Tid:        tid,
+	}
+	if err := s.orders.Create(order); err != nil {
+		return nil, err
+	}
+	return s.dispatch(ctx, order, plugin)
 }
 
 // dispatch 调用渠道下单，构造对外返回。

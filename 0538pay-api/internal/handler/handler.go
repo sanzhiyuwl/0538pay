@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/0538pay/api/internal/dto"
+	"github.com/0538pay/api/internal/middleware"
 	"github.com/0538pay/api/internal/service"
 	"github.com/0538pay/api/pkg/resp"
 	"github.com/gin-gonic/gin"
@@ -26,7 +27,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
 		return
 	}
-	out, err := h.svc.Login(req)
+	out, err := h.svc.Login(req, c.ClientIP())
 	if err != nil {
 		resp.Fail(c, 1001, err.Error())
 		return
@@ -200,6 +201,586 @@ func (h *ChannelHandler) SaveConfig(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"id": id})
+}
+
+// RecordHandler 后台资金流水接口（列表 + 统计，对齐 epay record.php）。
+type RecordHandler struct {
+	svc *service.RecordService
+}
+
+func NewRecordHandler(svc *service.RecordService) *RecordHandler {
+	return &RecordHandler{svc: svc}
+}
+
+// List GET /api/admin/records 后台资金流水（分页 + 多条件筛选）。
+func (h *RecordHandler) List(c *gin.Context) {
+	var q dto.RecordQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	list, total, err := h.svc.List(q)
+	if err != nil {
+		resp.Fail(c, 1005, "查询失败: "+err.Error())
+		return
+	}
+	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// Stats GET /api/admin/records/stats 当前筛选条件下的资金明细统计。
+func (h *RecordHandler) Stats(c *gin.Context) {
+	var q dto.RecordQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	stats, err := h.svc.Stats(q)
+	if err != nil {
+		resp.Fail(c, 1005, "统计失败: "+err.Error())
+		return
+	}
+	resp.OK(c, stats)
+}
+
+// TransferHandler 代付/转账接口（后台 + 商户端，对齐 epay transfer）。
+type TransferHandler struct {
+	svc *service.TransferService
+}
+
+func NewTransferHandler(svc *service.TransferService) *TransferHandler {
+	return &TransferHandler{svc: svc}
+}
+
+// failFromTransferErr 透传 TransferError 的业务码。
+func failFromTransferErr(c *gin.Context, err error) {
+	var te *service.TransferError
+	if errors.As(err, &te) {
+		resp.Fail(c, te.Code, te.Msg)
+		return
+	}
+	resp.Fail(c, 1106, "操作失败: "+err.Error())
+}
+
+// List GET /api/admin/transfers 后台代付列表（分页 + 筛选）。
+func (h *TransferHandler) List(c *gin.Context) {
+	var q dto.TransferQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	list, total, err := h.svc.List(q)
+	if err != nil {
+		resp.Fail(c, 1006, "查询失败: "+err.Error())
+		return
+	}
+	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// Stats GET /api/admin/transfers/stats 后台代付概况统计。
+func (h *TransferHandler) Stats(c *gin.Context) {
+	var q dto.TransferQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	stats, err := h.svc.Stats(q)
+	if err != nil {
+		resp.Fail(c, 1006, "统计失败: "+err.Error())
+		return
+	}
+	resp.OK(c, stats)
+}
+
+// Create POST /api/admin/transfers 后台管理员发起代付（uid=0，免费不扣款）。
+func (h *TransferHandler) Create(c *gin.Context) {
+	adminID, _ := c.Get(middleware.CtxUID)
+	id, ok := adminID.(uint)
+	if !ok || id == 0 {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var req dto.TransferCreateReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	bizNo, err := h.svc.CreateByAdmin(id, req)
+	if err != nil {
+		failFromTransferErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"biz_no": bizNo})
+}
+
+// SetStatus PUT /api/admin/transfers/:biz/status 手动改状态（不动资金）。
+func (h *TransferHandler) SetStatus(c *gin.Context) {
+	var req dto.TransferStatusReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SetStatus(c.Param("biz"), req); err != nil {
+		failFromTransferErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"biz_no": c.Param("biz"), "status": req.Status})
+}
+
+// Refund POST /api/admin/transfers/:biz/refund 退回（仅处理中，退回商户扣款）。
+func (h *TransferHandler) Refund(c *gin.Context) {
+	if err := h.svc.Refund(c.Param("biz")); err != nil {
+		failFromTransferErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"biz_no": c.Param("biz")})
+}
+
+// Delete DELETE /api/admin/transfers/:biz 删除记录（不退款）。
+func (h *TransferHandler) Delete(c *gin.Context) {
+	if err := h.svc.Delete(c.Param("biz")); err != nil {
+		failFromTransferErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"biz_no": c.Param("biz")})
+}
+
+// ProfitHandler 分账接口（列表 + 统计 + 状态操作，对齐 epay profitsharing）。
+type ProfitHandler struct {
+	svc *service.ProfitService
+}
+
+func NewProfitHandler(svc *service.ProfitService) *ProfitHandler {
+	return &ProfitHandler{svc: svc}
+}
+
+func failFromProfitErr(c *gin.Context, err error) {
+	var pe *service.ProfitError
+	if errors.As(err, &pe) {
+		resp.Fail(c, pe.Code, pe.Msg)
+		return
+	}
+	resp.Fail(c, 1107, "操作失败: "+err.Error())
+}
+
+// List GET /api/admin/ps/orders 分账订单列表（分页 + 筛选）。
+func (h *ProfitHandler) List(c *gin.Context) {
+	var q dto.PsOrderQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	list, total, err := h.svc.List(q)
+	if err != nil {
+		resp.Fail(c, 1007, "查询失败: "+err.Error())
+		return
+	}
+	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// Stats GET /api/admin/ps/orders/stats 分账统计概况。
+func (h *ProfitHandler) Stats(c *gin.Context) {
+	var q dto.PsOrderQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	stats, err := h.svc.Stats(q)
+	if err != nil {
+		resp.Fail(c, 1007, "统计失败: "+err.Error())
+		return
+	}
+	resp.OK(c, stats)
+}
+
+// Operate POST /api/admin/ps/orders/:id/op 分账状态操作（submit/query/return/cancel/editmoney/delete）。
+func (h *ProfitHandler) Operate(c *gin.Context) {
+	id := channelIDParam(c) // 复用路径 :id 解析
+	if id == 0 {
+		resp.Fail(c, 400, "分账记录 ID 不合法")
+		return
+	}
+	var req dto.PsStatusReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Operate(id, req); err != nil {
+		failFromProfitErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id, "action": req.Action})
+}
+
+// ===== 风控 / 黑名单 / 域名（C4）=====
+
+func failFromRiskErr(c *gin.Context, err error) {
+	var re *service.RiskError
+	if errors.As(err, &re) {
+		resp.Fail(c, re.Code, re.Msg)
+		return
+	}
+	resp.Fail(c, 1108, "操作失败: "+err.Error())
+}
+
+// idParam 解析路径 :id，失败返回 0。
+func idParam(c *gin.Context) uint {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return uint(id)
+}
+
+// RiskHandler 风控记录（只读）。
+type RiskHandler struct{ svc *service.RiskService }
+
+func NewRiskHandler(svc *service.RiskService) *RiskHandler { return &RiskHandler{svc: svc} }
+
+// List GET /api/admin/risks 风控记录列表（只读）。
+func (h *RiskHandler) List(c *gin.Context) {
+	var q dto.RiskQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	list, total, err := h.svc.List(q)
+	if err != nil {
+		resp.Fail(c, 1008, "查询失败: "+err.Error())
+		return
+	}
+	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// BlacklistHandler 黑名单 CRUD。
+type BlacklistHandler struct{ svc *service.BlacklistService }
+
+func NewBlacklistHandler(svc *service.BlacklistService) *BlacklistHandler {
+	return &BlacklistHandler{svc: svc}
+}
+
+// List GET /api/admin/blacklist
+func (h *BlacklistHandler) List(c *gin.Context) {
+	var q dto.BlacklistQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	list, total, err := h.svc.List(q)
+	if err != nil {
+		resp.Fail(c, 1008, "查询失败: "+err.Error())
+		return
+	}
+	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// Stats GET /api/admin/blacklist/stats
+func (h *BlacklistHandler) Stats(c *gin.Context) {
+	total, account, ip, permanent, err := h.svc.Stats()
+	if err != nil {
+		resp.Fail(c, 1008, "统计失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"total": total, "account": account, "ip": ip, "permanent": permanent})
+}
+
+// Add POST /api/admin/blacklist
+func (h *BlacklistHandler) Add(c *gin.Context) {
+	var req dto.BlacklistAddReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Add(req); err != nil {
+		failFromRiskErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}
+
+// Delete DELETE /api/admin/blacklist/:id
+func (h *BlacklistHandler) Delete(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "ID 不合法")
+		return
+	}
+	if err := h.svc.Delete(id); err != nil {
+		failFromRiskErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+// BatchDelete POST /api/admin/blacklist/batch-delete
+func (h *BlacklistHandler) BatchDelete(c *gin.Context) {
+	var req struct {
+		IDs []uint `json:"ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	n, err := h.svc.BatchDelete(req.IDs)
+	if err != nil {
+		failFromRiskErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"deleted": n})
+}
+
+// DomainHandler 授权域名 CRUD + 审核。
+type DomainHandler struct{ svc *service.DomainService }
+
+func NewDomainHandler(svc *service.DomainService) *DomainHandler {
+	return &DomainHandler{svc: svc}
+}
+
+// List GET /api/admin/domains
+func (h *DomainHandler) List(c *gin.Context) {
+	var q dto.DomainQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	list, total, err := h.svc.List(q)
+	if err != nil {
+		resp.Fail(c, 1008, "查询失败: "+err.Error())
+		return
+	}
+	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// Stats GET /api/admin/domains/stats
+func (h *DomainHandler) Stats(c *gin.Context) {
+	total, pending, normal, rejected, err := h.svc.Stats()
+	if err != nil {
+		resp.Fail(c, 1008, "统计失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"total": total, "pending": pending, "normal": normal, "rejected": rejected})
+}
+
+// Add POST /api/admin/domains
+func (h *DomainHandler) Add(c *gin.Context) {
+	var req dto.DomainAddReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Add(req); err != nil {
+		failFromRiskErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}
+
+// SetStatus PUT /api/admin/domains/:id/status
+func (h *DomainHandler) SetStatus(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "ID 不合法")
+		return
+	}
+	var req dto.DomainStatusReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SetStatus(id, req.Status); err != nil {
+		failFromRiskErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id, "status": req.Status})
+}
+
+// Delete DELETE /api/admin/domains/:id
+func (h *DomainHandler) Delete(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "ID 不合法")
+		return
+	}
+	if err := h.svc.Delete(id); err != nil {
+		failFromRiskErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+// BatchOp POST /api/admin/domains/batch  批量通过(1)/拒绝(2)/删除(3)
+func (h *DomainHandler) BatchOp(c *gin.Context) {
+	var req struct {
+		IDs    []uint `json:"ids"`
+		Status int8   `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	n, err := h.svc.BatchOp(req.IDs, req.Status)
+	if err != nil {
+		failFromRiskErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"affected": n})
+}
+
+// ===== 统计 / 日志 / 邀请码（C5）=====
+
+// StatHandler 商户支付统计（只读聚合）。
+type StatHandler struct{ svc *service.StatService }
+
+func NewStatHandler(svc *service.StatService) *StatHandler { return &StatHandler{svc: svc} }
+
+// PayStat GET /api/admin/stat/pay 商户支付统计交叉透视表。
+func (h *StatHandler) PayStat(c *gin.Context) {
+	var q dto.StatQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	res, err := h.svc.PayStat(q)
+	if err != nil {
+		resp.Fail(c, 1009, "统计失败: "+err.Error())
+		return
+	}
+	resp.OK(c, res)
+}
+
+// LogHandler 登录日志（只读）。
+type LogHandler struct{ svc *service.LogService }
+
+func NewLogHandler(svc *service.LogService) *LogHandler { return &LogHandler{svc: svc} }
+
+// List GET /api/admin/logs 登录日志列表。
+func (h *LogHandler) List(c *gin.Context) {
+	var q dto.LogQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	list, total, err := h.svc.List(q)
+	if err != nil {
+		resp.Fail(c, 1009, "查询失败: "+err.Error())
+		return
+	}
+	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// InviteHandler 邀请码 CRUD。
+type InviteHandler struct{ svc *service.InviteService }
+
+func NewInviteHandler(svc *service.InviteService) *InviteHandler { return &InviteHandler{svc: svc} }
+
+// List GET /api/admin/invitecodes
+func (h *InviteHandler) List(c *gin.Context) {
+	var q dto.InviteQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	list, total, err := h.svc.List(q)
+	if err != nil {
+		resp.Fail(c, 1009, "查询失败: "+err.Error())
+		return
+	}
+	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// Generate POST /api/admin/invitecodes/generate
+func (h *InviteHandler) Generate(c *gin.Context) {
+	var req dto.InviteGenReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	n, err := h.svc.Generate(req.Num)
+	if err != nil {
+		failFromRiskErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"generated": n})
+}
+
+// Delete DELETE /api/admin/invitecodes/:id
+func (h *InviteHandler) Delete(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "ID 不合法")
+		return
+	}
+	if err := h.svc.Delete(id); err != nil {
+		failFromRiskErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+// Clear POST /api/admin/invitecodes/clear  body {mode: "all"|"used"}
+func (h *InviteHandler) Clear(c *gin.Context) {
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	var n int64
+	var err error
+	if req.Mode == "used" {
+		n, err = h.svc.ClearUsed()
+	} else {
+		n, err = h.svc.ClearAll()
+	}
+	if err != nil {
+		failFromRiskErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"deleted": n})
+}
+
+// ===== 官网 CMS（自研）=====
+
+// SiteConfigHandler 官网 CMS 内容读写。
+type SiteConfigHandler struct{ svc *service.SiteConfigService }
+
+func NewSiteConfigHandler(svc *service.SiteConfigService) *SiteConfigHandler {
+	return &SiteConfigHandler{svc: svc}
+}
+
+// Get GET /api/site/config/:key 读取 CMS 文档（公开，官网读）。
+// 返回 {value: <原始JSON字符串>}；无记录时 value 为空串，前端回退默认。
+func (h *SiteConfigHandler) Get(c *gin.Context) {
+	val, err := h.svc.Get(c.Param("key"))
+	if err != nil {
+		var se *service.SiteConfigError
+		if errors.As(err, &se) {
+			resp.Fail(c, 400, se.Msg)
+			return
+		}
+		resp.Fail(c, 1010, "读取失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"value": val})
+}
+
+// Save PUT /api/admin/site/config/:key 保存 CMS 文档（后台鉴权写）。
+func (h *SiteConfigHandler) Save(c *gin.Context) {
+	var req dto.SiteConfigReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Set(c.Param("key"), req.Value); err != nil {
+		var se *service.SiteConfigError
+		if errors.As(err, &se) {
+			resp.Fail(c, 400, se.Msg)
+			return
+		}
+		resp.Fail(c, 1010, "保存失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"key": c.Param("key")})
 }
 
 // OrderHandler 订单相关接口。

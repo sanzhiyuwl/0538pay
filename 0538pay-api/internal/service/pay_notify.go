@@ -76,6 +76,15 @@ func (s *PayService) settle(ctx context.Context, tradeNo string) error {
 		return payErr("入账时订单丢失")
 	}
 
+	// 内部业务订单（tid≠0）按类型分派入账（对齐 epay processOrder 的 tid 分支）。
+	if order.Tid == 2 {
+		// 充值余额：全额入商户余额（对齐 epay tid=2，加费模式下 getmoney=充值全额）。
+		if err := s.accounts.ChangeUserMoney(order.UID, order.Money, true, "余额充值", order.TradeNo); err != nil {
+			return err
+		}
+		return nil // 内部充值无需商户异步通知
+	}
+
 	// 入账金额：epay 非直清模式入 getmoney（商户实得）。阶段A无费率，getmoney=0 时退回按订单金额入账。
 	addMoney := order.GetMoney
 	if addMoney.LessThanOrEqual(decimal.Zero) {
@@ -83,6 +92,16 @@ func (s *PayService) settle(ctx context.Context, tradeNo string) error {
 	}
 	if err := s.accounts.ChangeUserMoney(order.UID, addMoney, true, "订单收入", order.TradeNo); err != nil {
 		return err
+	}
+
+	// 分账：命中规则的订单支付成功后按比例创建分账订单（待分账），对齐 epay。
+	// 失败不回滚入账（分账可后台补建/重试），仅记日志级别忽略。
+	if s.profit != nil && order.Profits > 0 {
+		realMoney := order.Money
+		if order.RealMoney != nil && order.RealMoney.GreaterThan(decimal.Zero) {
+			realMoney = *order.RealMoney
+		}
+		_ = s.profit.CreateOrderOnPaid(order.Profits, order.TradeNo, order.APITradeNo, realMoney)
 	}
 
 	// 触发商户异步通知（A5）。失败不回滚入账，仅置重试标志，交由 cron 重试(阶段E)。
