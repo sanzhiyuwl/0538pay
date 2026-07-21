@@ -62,5 +62,18 @@
           一次性改全域，避免只改 settle 造成域间不一致。
     发现：2026-07-21 结算域真跑验证时。
 
+[ ] 7. 交易投诉 complain（前端 mock，无后端；epay 无独立页面靠配置+定时）
+    现象：前端建了投诉管理 mock 页，但 epay 源码里**没有 admin/complain.php 或 user/complain.php 独立页面文件**，
+          install.sql 也无 pre_complain 建表。epay 的投诉处理是「配置驱动 + 定时任务」模式：
+          set.php 里有整套 complain_* 配置项（complain_open 开关/complain_range 范围/complain_freeze_order 冻结订单/
+          complain_auto_reply 自动回复/complain_auto_black 自动拉黑/complain_auto_refund 自动退款+金额上限），
+          由 cron 拉取支付宝/微信平台的交易投诉并按配置自动处理；另有 auto_check_complain/check_complain_rate 投诉率风控。
+    结论：不是一个 CRUD 页面能精仿的。要做需：建 pay_complain 表(存拉取的平台投诉) + 接支付宝/微信投诉查询API(**需渠道凭证**)
+          + complain_* 配置项(归 config 域) + cron 自动处理逻辑 + 投诉率接进风控 type=3。
+    建议：暂缓。依赖真实渠道投诉 API 凭证，且属低频运营功能。待渠道凭证到位 + config 域建成后再做，
+          届时把前端 mock 页对齐为「投诉列表(只读拉取) + 配置项」两块，不做凭空的手工 CRUD。
+    影响面：大（跨渠道API/config域/cron/风控），且卡外部凭证。
+    发现：2026-07-21 对比清单核对时（用户要求记录）。
+
 ----------------------------------------
 （后续发现的优化项继续往下追加）

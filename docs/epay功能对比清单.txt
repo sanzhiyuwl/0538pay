@@ -79,8 +79,14 @@
   ✅  MD5 签名验签（V1：pid+key，ksort 去空去 sign）
       —— pkg/sign 逐字节对齐 epay getSignContent+makeSign+verifySign，
          基准由 epay php8.2 现场计算，Go 单测 3 个全绿(2026-07-21)。
-  ⬜  RSA SHA256 签名验签（V2：平台私钥签、商户公钥验）—— Merchant 已留 keytype/publickey 字段
-  ⬜  timestamp 防重放（V2，±300s）
+  ✅  RSA SHA256 签名验签（V2）—— pkg/sign/rsa.go [真接口,2026-07-21]
+        —— MakeRSA/VerifyRSA 复用 V1 的 Content() 待签名串 + SHA256WithRSA + base64,密钥单行base64/PKCS#8(对齐 epay pemToBase64)。
+           GenerateRSAKeyPair 生成2048位。单测4绿(round-trip/篡改/错误密钥/待签名串与V1一致)。
+           双向密钥流向对齐epay:下单商户私钥签→平台用商户公钥(pre_user.publickey)验;回调平台私钥签→商户用平台公钥验。
+  ✅  keytype 分派 + timestamp 防重放（V2）—— Submit.verifySubmitSign [真接口]
+        —— keytype=1 强制RSA(否则拒),keytype=0 兼容模式按 sign_type 选。RSA 校验 timestamp ±300s 防重放。
+           真跑:keytype=1+MD5拒绝、RSA正确签名通过、无timestamp拒、过期timestamp拒、错误私钥拒、权限开通后RSA下单出收银台。
+           商户端 RSA 密钥管理:POST /apikey/rsa 生成(私钥一次性返回不落库)+ PUT /apikey/keytype 切模式。MerchantApi.vue 切真接口。
   ✅  下单幂等（uid+out_trade_no）—— submit 幂等 + 参数变化拦截；回调侧条件 UPDATE 幂等改单
   ✅  回调金额/状态二次校验防篡改 —— 回调金额 decimal 精确比对订单金额，不一致拒绝
   —— MD5验签 + 下单/回调双向幂等 + 回调金额校验已落地(阶段A1+A4)；RSA/timestamp 待 V2。
@@ -158,9 +164,12 @@
            → epay渠道真实HTTP POST上游submit(pid=1,uptype=mock) → 上游生成订单选mock渠道返回收银台 →
            透传二维码 → 触发上游mock支付 → 上游回调本站商户订单notify_url → epay渠道MD5验签通过 → 入账status=1。
            两层订单均翻转成功;伪造签名回调被验签拦截(FAIL)。补上"真实渠道下单从未真跑"缺口。
-        —— 缺:金额随机微调防并发(epay平台级pay_payaddstart,留注释)、vmq个人码监控、epayn(V2/RSA)。
+        —— 缺:金额随机微调防并发(epay平台级pay_payaddstart,留注释)、vmq个人码监控。
   P1 二次聚合 / 国际：
-    ⬜  epay/epayn（二次对接其它易支付）
+    ✅  epay(V1/MD5) + epayn(V2/RSA)（二次对接其它易支付）[真接口]
+        —— epay(V1/MD5)见上方 B3。epayn(V2/RSA)：internal/channel/epayn，Create 用商户私钥 RSA 签名下单(带timestamp)、
+           Notify 用上游平台公钥 RSA 验签,config: appid/appurl/platform_public_key/merchant_private_key。单测3绿(成功回调/篡改/缺配置)。
+           密钥流向对齐 epay EpayCore。真实上游下单待对接目标站,验签逻辑已单测闭环。
     ⬜  paypal / stripe / alipayg / wxpayng（国际）
   P2 持牌机构（资质门槛高，最后做）：
     ⬜  allinpay / lakala / yeepay / chinaums / swiftpass 等
@@ -238,11 +247,30 @@
   🎨  查看/重置商户密钥、生成 RSA
   🎨  用户组列表/新增/删除  epay glist/gedit.php → Groups.vue
   🎨  用户组购买价配置       epay group.php
-  🎨  资金明细流水            epay record.php → Records.vue
-  🎨  支付统计（按方式/通道，可导出）  epay ustat.php → MerchantStats.vue
-  🎨  支付用户统计            epay buyerstat(菜单有文件缺) → BuyerStats.vue
-  🎨  授权域名审核/管理        epay domain.php → Domains.vue
-  🎨  邀请码增删/清空          epay invitecode.php → InviteCodes.vue
+  ✅  资金明细流水            epay record.php → Records.vue [真接口]
+        —— 复用 RecordRepo(共用 recordFilters) + GET /api/admin/records(uid/类型/column+value模糊/时间范围+分页)
+           + GET /api/admin/records/stats(当前筛选条件下增/减金额+笔数,对齐 record_stats)。
+           Records.vue 切服务端分页+统计。真跑:全量13条/订单收入9/出账3/trade_no模糊2/未来时间0/uid=999为0,统计口径核对无误。
+           删除单条(epay delRecord)默认隐藏,与 epay visible:false 一致,不做。
+  ✅  支付统计（按方式/通道）  epay ustat.php → MerchantStats.vue [真接口]
+        —— 无独立表,实时聚合 pay_order/pay_transfer。StatRepo(AggregateOrders/AggregateTransfers 按uid×方式/通道分组) +
+           StatService(交叉透视:method type/channel × 口径 0订单/1支付/2分成/3利润/4代付,取不同金额字段,行合计+列合计+总计) +
+           GET /admin/stat/pay。MerchantStats.vue 切真接口。
+           真跑:按方式(alipayf2f/epay/mock列,grand665)、按通道(真实通道名列,grand510)、分成口径(grand10.2) 全对。
+        —— 缺:导出CSV(download.php);时间范围默认当天(可选)。
+  ➖  支付用户统计            epay buyerstat.php(菜单有文件缺,epay本身无此页) → BuyerStats.vue [保留mock]
+        —— epay 只有 ajax buyerStat 接口无页面文件。前端 BuyerStats.vue 是我们独有,暂留 mock,后续可接 buyerStat 聚合。
+  ✅  授权域名审核/管理        epay domain.php → Domains.vue [真接口]
+        —— pay_domain 表(status 0待审/1正常/2拒绝,endtime=审核时间) + 6接口(列表/统计/添加/审核/删除/批量) +
+           下单白名单校验接进收单链(域名或*.主域名通配命中status=1才放行;商户无任何域名记录则视为未开启,放行)。
+           后台添加免审status=1;真跑:添加精确+通配域名、非法域名拒绝、改状态刷新审核时间、批量、
+           **白名单强制**:uid1配域名后未授权127.0.0.1被拦、已授权pay.shop1.com放行。
+        —— 缺:商户自助端添加(待审status=0,归商户中心);checkDomain更严格校验。
+  ✅  邀请码生成/列表/删除/清空  epay invitecode.php → InviteCodes.vue [真接口]
+        —— pay_invitecode 表(code唯一/status/addtime/usetime/uid) + 5接口(列表/生成/删除/清空全部/清空已使用) +
+           InviteService(生成8位crypto随机码,Verify注册校验,MarkUsed核销)。InviteCodes.vue 切真接口。
+           真跑:生成5个随机码、删除、清空已使用。regcode(注册码)辨析:epay 的 pre_regcode 是短信/邮箱验证码OTP表,
+           不是注册授权码,epay 无 regcode 管理页,故不做(精仿铁律)。注册核销 hook 待注册接口(reg_open=邀请模式)。
       —— 列表已真，其余全 mock。
 
 【支付接口】
@@ -257,22 +285,45 @@
   🎨  支付相关配置                epay set.php?mod=pay → PaySettings.vue
 
 【财务管理 / 代付】
-  🎨  手动转账付款(单笔)  epay transfer_add.php → Transfer.vue [mock]
-  🎨  付款记录/撤销/改状态/退款/凭证  epay transfer.php → TransferRecords.vue
-  🎨  批量转账付款        epay transfer_batch.php
+  ✅  手动转账付款(单笔)  epay transfer_add.php → Transfer.vue [真接口]
+        —— 后台管理员发起(uid=0):校验管理员密码(登录密码二次确认)→免手续费不扣款→落库处理中。
+           真跑:发起 money=200→money=cost=200/uid=0/status=0;管理员密码错误拒绝;自动生成19位交易号。
+  ✅  付款记录/改状态/退款  epay transfer.php → TransferRecords.vue [真接口]
+        —— pay_transfer 表(主键 biz_no 幂等键) + TransferRepo(发起即时扣款/退回退款,事务+行锁+条件UPDATE防重复) +
+           GET /admin/transfers(列表) + /transfers/stats(概况) + POST(发起) + PUT :biz/status(改状态不动资金) +
+           POST :biz/refund(退回退款,仅处理中) + DELETE :biz(删除不退款)。行操作带资金二次确认 Modal。
+        —— 真跑资金安全:商户发起 money=100→扣 cost=100.5(389.8→289.3);重复交易号拒绝(幂等);
+           退回→退 100.5(289.3→389.8)status→2;重复退回拒绝(余额不变,防双退);
+           资金流水"代付"-100.5 与"代付退回"+100.5 对称。边界:19位交易号/单笔上下限/余额不足/两位小数/商户scope隔离 全绿。
+        —— 缺:真实渠道打款(调支付宝/微信转账接口,待渠道凭证,同收单下单)、微信确认收款二维码、获取凭证、批量操作。
+  🎨  批量转账付款        epay transfer_batch.php（结算批量打款,待渠道凭证）
   🎨  计费/账单            → Billing.vue（我们细化项）
 
 【风控管理】
-  🎨  风控拦截记录        epay risk.php → Risk.vue [mock]
-  🎨  黑名单增删查         epay blacklist.php → Blacklist.vue
-  🎨  风控检测配置(频率/人机验证)  epay set.php?mod=risk → RiskSettings.vue
+  ✅  风控拦截记录        epay risk.php → Risk.vue [真接口]
+        —— pay_risk 表(只读,系统自动写入) + GET /admin/risks(精确等值搜索,对齐epay非模糊)。
+           关键词屏蔽 type=0 已接进收单链:下单商品名命中屏蔽词→记 pay_risk + 拦截("温馨提醒该商品禁止出售")。
+           真跑:下单"测试博彩商品"→拦截+落风控记录1条;正常商品放行。
+        —— 缺:type1成功率/type2通知失败/type3投诉率(依赖统计+定时任务,归后续);风控配置项归系统设置。
+  ✅  黑名单增删查         epay blacklist.php → Blacklist.vue [真接口]
+        —— pay_blacklist 表(UNIQUE content+type,endtime过期NULL=永久) + 5接口(列表/统计/添加/删除/批量删除) +
+           IsBlocked 接进收单链。真跑:添加IP/账号黑名单(查重拒绝)、统计准确、拉黑IP后下单被拦"系统异常无法完成付款"、删除恢复。
+        —— 命中拦截对齐epay模糊报错(不明示被拉黑);维度仅IP+支付账号(epay同,不造设备指纹)。
+  🎨  风控检测配置(频率/人机验证)  epay set.php?mod=risk → RiskSettings.vue（归系统设置域）
 
 【分账】
-  🎨  分账接收方规则 CRUD/启停  epay ps_receiver.php → ProfitSharing.vue [mock]
-  🎨  分账记录/发起/解冻/回退/改额  epay ps_order.php
+  ✅  分账记录/发起/查询/回退/取消/改额  epay ps_order.php → ProfitSharing.vue [真接口]
+        —— pay_ps_receiver(规则/接收方,3级优先匹配) + pay_ps_order(分账明细) + pay_order.profits(命中规则id) +
+           ProfitRepo(规则匹配/建单/成功扣款MarkSuccessWithDebit/取消回退退回CancelOrRefund,事务+行锁+条件UPDATE) +
+           ProfitService(下单匹配规则→写order.profits→支付成功回调按比例floor(realmoney*rate)/100建分账单) +
+           3接口(列表/统计/状态操作 submit/query/return/cancel/editmoney/delete)。ProfitSharing.vue 全切真接口+资金二次确认Modal。
+        —— 真跑全链路:下单(mock 100元命中规则1)→支付→自动建分账单10.00(待分账)→提交扣商户余额(391.8→381.8)→
+           回退退回(381.8→391.8)status4→重复回退拒绝;流水"订单分账-10"/"分账回退+10"对称;
+           editmoney 20→15.5;未扣款单cancel余额不变(Debited标志正确门控退款)。真实渠道分账API待凭证(同下单)。
+        —— 缺:分账接收方规则管理 UI(前端无此页,epay 商户端本身也未实装分账,如实标注不造);批量操作;第二接收人profits2(epay也未启用)。
 
 【系统设置（epay set.php 16 个 mod）】
-  🎨  网站信息配置 site        → Settings.vue [mock]
+  ✅  网站信息配置 site        → Settings.vue [真接口,存 pay_site_config key=settings]
   🎨  注册相关(开放/审核/付费)  set?mod=site → RegSettings.vue
   🎨  支付相关配置 pay          → PaySettings.vue（见支付接口）
   🎨  风控检测 risk            → RiskSettings.vue（见风控）
@@ -295,7 +346,11 @@
         —— 前端已实现按 时间范围/商户/方式/通道/状态 过滤 → 生成 CSV(18列,带BOM,Excel不乱码)下载。
            2026-07-21 验证：选 0721 命中并导出 3 条。局限：只导当前已加载(≤100条)，
            真·全量后端流式导出留待阶段C(见 优化待办.txt)。
-  🎨  登录日志        epay log.php → Logs.vue / OpLogs.vue
+  ✅  登录日志        epay log.php → Logs.vue [真接口]
+        —— pay_log 表(uid/type/ip/city/date,epay pre_log 本质是登录日志非操作审计) + GET /admin/logs(精确等值搜索) +
+           登录写入 hook:后台登录成功记"登录后台"(uid=0)/失败记"登录失败",商户登录记"普通登录"。
+           真跑:错误密码→登录失败、正确→登录后台、商户→普通登录,按uid精确筛选正确。
+        —— OpLogs.vue(操作审计)epay 无对应表(pre_log 只记登录),保留 mock,我们独有想做需另建 oplog 表+全局写入 hook。
   🎨  数据清理        epay clean.php → Clean.vue
   🎨  文章管理        epay article.php → Articles.vue
   🎨  单点登录(后台免密进商户中心)  epay sso.php [未做]
@@ -350,8 +405,16 @@
   ✅  修改登录密码       epay userinfo.php?mod=account → PUT /api/merchant/password [真接口]
         —— bcrypt,已设密码校验旧密码,新密码≥6位。真跑:改密后旧密码失效/新密码可登录/错误旧密码拒绝。
   🎨  消息通知/语音播报设置  —— Merchant 模型无 msgconfig 字段,待通知域(前端保留UI)
-  🎨  实名认证(个人/企业,支付宝人脸/微信)  epay certificate.php → MerchantCertificate.vue
-  🎨  保证金(查看/充值/退还)  epay deposit.php → MerchantDeposit.vue
+  🔨  实名认证(个人/企业)  epay certificate.php → MerchantCertificate.vue [骨架真接口,第三方核验待凭证]
+        —— pay_merchant 加 cert_type/cert_name/cert_no/cert_corp/cert_time 字段 + GET/POST /merchant/cert。
+           提交:身份证18位校验+姓名校验+企业名校验+工本费余额预检→信息暂存(cert=0审核中)。姓名/证件脱敏输出。
+           真跑:未认证商户提交非法身份证拒绝、合法暂存脱敏、已认证拦截。
+           **第三方认证(支付宝人脸/微信/阿里云三要素)依赖外部凭证无法真核验**:提交后如实返回"待凭证"提示,
+           工本费认证成功才扣(对齐epay),cert=0→1 待第三方回调接入。
+  ✅  保证金(查看/充值/退还)  epay deposit.php → MerchantDeposit.vue [真接口]
+        —— AccountRepo.DepositFromBalance(余额→保证金,事务+行锁+流水'充值保证金') / DepositWithdraw(保证金→余额,'提取保证金') +
+           GET /merchant/deposit + POST recharge/withdraw。余额支付路径即时划转可真跑;渠道充值待凭证。
+           真跑:充值100(余额-100/保证金+100)、提取40(保证金-40/余额+40)、超额提取拒绝。
 
 【查询】(D2 2026-07-21 切真接口)
   ✅  订单记录查询/退款/重新通知  epay order.php → MerchantOrders.vue [真接口]
@@ -365,14 +428,24 @@
   ✅  申请提现                    epay apply.php → MerchantApply.vue [真接口]
         —— GET /apply/info(可提余额D+1扣当日已收/手续费/次数) + POST /apply(校验金额/门槛/可提/权限/次数
            → 复用结算域 CreateWithDebit 生成待结算单+扣款)。真跑:提现50余额精确-50、超额/低门槛正确拒绝。
-  🎨  余额充值                    epay recharge.php → MerchantRecharge.vue
-  🎨  购买会员(升级费率组)         epay groupbuy.php → MerchantGroupbuy.vue
+  ✅  余额充值                    epay recharge.php → MerchantRecharge.vue [真接口,mock渠道可真跑]
+        —— pay_order 加 tid 字段(0普通/2充值/4购组/5保证金,对齐epay) + PayService.CreateInternalOrder 下内部订单 +
+           settle() 按 tid=2 分派入账(全额入余额'余额充值') + POST /merchant/recharge。
+           真跑:充值下单100(mock渠道)→收银台→回调→余额精确+100、流水'余额充值'action=1。真实渠道待凭证。
+  ✅  购买会员(升级费率组)         epay groupbuy.php → MerchantGroupbuy.vue [真接口,余额支付可真跑]
+        —— pay_group 表(price/expire/isbuy/info费率JSON) + AccountRepo.BuyGroupWithBalance(扣余额+改gid+到期,事务) +
+           GET /merchant/groups + POST /groups/buy。时长:续期从原到期累加/新购从当前累加/expire=0永久。
+           真跑:余额购白银¥30(余额-30/gid=2)、续期2月¥60(到期从07-17→08-17累加)、渠道支付待凭证提示、流水'购买会员'。
+           seed见 cmd/seedgroups。
   🎨  授权域名管理                epay domain.php → MerchantDomains.vue
   ⬜  交易投诉(complain_open)      epay complain.php → [我们未做,epay源码也缺此文件]
 
 【其他 / 增值】
-  🎨  代付管理/记录             epay transfer.php → MerchantTransfer.vue
-  🎨  新增代付(支付宝/微信/银行卡)  epay transfer_add.php
+  ✅  代付管理/记录             epay transfer.php → MerchantTransfer.vue [真接口]
+        —— GET /merchant/transfers(强制注入uid防越权,分页+筛选)。真跑:商户只见自己记录 total=1。
+  ✅  新增代付(支付宝/微信/银行卡)  epay transfer_add.php → MerchantTransfer 发起抽屉 [真接口]
+        —— POST /merchant/transfer:校验登录密码/结算权限/单笔限额/同账号日次数上限→计费(rate 0.5%)→即时扣 cost。
+           发起成功后刷新余额。真跑资金链路见上方后台代付条目(同一 TransferRepo)。
   🎨  聚合收款码                 epay onecode.php → MerchantOnecode.vue
   🎨  邀请返现(链接/比例/统计)     epay invite.php → MerchantInvite.vue
   🎨  使用说明                    epay help.php → MerchantHelp.vue
@@ -385,11 +458,17 @@
 ================================================================
 说明：epay 有 11 套首页模板 + 独立收银台视觉。我们做了 1 套现代 SaaS 官网 + CMS。
 
-  🎨  官网首页(营销落地页)   epay template/default+index1~10 → SiteHome.vue [CMS可编辑]
-  🎨  开发者文档            epay doc → ClassicDocs.vue [CMS结构化]
+  ✅  官网首页(营销落地页)   epay template/default+index1~10 → SiteHome.vue [CMS可编辑+真持久化]
+  ✅  开发者文档            epay doc → ClassicDocs.vue [CMS结构化+真持久化]
   🎨  服务协议 / 关于我们    → ClassicAgreement/About.vue
   🎨  支付成功 / 支付失败页   epay includes/pages → ClassicPayok/Payerr.vue
-  ➖  官网内容 CMS(首页文案/文档后台可编辑)  —— 我们扩展,epay 无独立 CMS
+  ✅  官网内容 CMS(首页文案/文档/网站设置后台可编辑)  —— 我们扩展,epay 无独立 CMS [真接口 2026-07-21]
+        —— pay_site_config KV 表(key→JSON,longtext) + SiteConfigService(key白名单content/docs/settings + JSON合法性校验) +
+           公开读 GET /api/site/config/:key + 后台鉴权写 PUT /api/admin/site/config/:key。
+           三个 store(siteContent/siteDocs/site) 加 hydrate()从后端拉取+update()存后端,localStorage 保留为即时缓存/离线兜底。
+           官网(SiteLayout/ClassicHome/ClassicDocs)加载时 hydrate;后台(SiteContent/DocsContent/Settings)保存推后端。
+           真跑:后台存content/docs/settings→公开读回一致、非法JSON拒、非白名单key拒、未鉴权401、UTF8 round-trip完整(Go验证)。
+           docs store 防抖800ms推后端且仅admin token时推(官网只读不误写)。
   🎨  收银台聚合页视觉(cashier PC/H5)  epay cashier.php+main12.css → CashierMock.vue [真实二维码已接]
         —— A3 现代风收银台中间页(订单信息+扫码区+模拟支付)。
         —— 2026-07-21 接真实二维码：下单 dispatch 回填 pay_type/qr_code 到订单，CashierView 输出，
