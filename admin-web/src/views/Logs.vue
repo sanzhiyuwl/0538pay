@@ -1,48 +1,63 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { Search, RotateCcw, ExternalLink } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, Pagination } from '@/components/ui'
-import { loginLogs, searchColumns } from '@/lib/mock/settings'
+import { fetchLogs, type LoginLog } from '@/lib/api/stats'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
-const columnOptions = searchColumns.map((c) => ({ value: c.value, label: c.label }))
+const toast = useToast()
 
-// ===== 筛选 =====
-const filters = ref({ column: 'uid', value: '' })
+const columnOptions = [
+  { value: 'uid', label: '商户号' },
+  { value: 'ip', label: '操作IP' },
+]
 
-const filtered = computed(() => {
-  return loginLogs.filter((l) => {
-    if (filters.value.value.trim()) {
-      const v = filters.value.value.trim()
-      const field = (l as any)[filters.value.column]
-      if (field == null || !String(field).includes(v)) return false
-    }
-    return true
-  })
-})
-
-function resetFilters() {
-  filters.value = { column: 'uid', value: '' }
-  page.value = 1
-}
-
-// ===== 分页 =====
+// ===== 筛选（column 精确等值，对齐 epay）=====
+const filters = reactive({ column: 'uid', value: '' })
 const page = ref(1)
 const pageSize = 15
-const total = computed(() => filtered.value.length)
-const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
-const safePage = computed(() => Math.min(page.value, pageCount.value))
-const pageRows = computed(() =>
-  filtered.value.slice((safePage.value - 1) * pageSize, safePage.value * pageSize),
-)
-function go(p: number) {
-  page.value = Math.min(Math.max(1, p), pageCount.value)
-}
+const total = ref(0)
+const rows = ref<LoginLog[]>([])
+const loading = ref(false)
 
-// 操作类型 → Badge 变体
+async function load() {
+  loading.value = true
+  try {
+    const res = await fetchLogs({
+      page: page.value, pageSize,
+      column: filters.value.trim() ? filters.column : undefined,
+      value: filters.value.trim() || undefined,
+    })
+    rows.value = res.list
+    total.value = res.total
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载登录日志失败')
+    rows.value = []
+    total.value = 0
+  } finally {
+    loading.value = false
+  }
+}
+function applySearch() {
+  page.value = 1
+  load()
+}
+function resetFilters() {
+  filters.column = 'uid'
+  filters.value = ''
+  applySearch()
+}
+function go(p: number) {
+  page.value = p
+  load()
+}
+onMounted(load)
+const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
+
 function typeVariant(type: string): 'default' | 'success' | 'destructive' | 'muted' {
   if (type === '登录失败') return 'destructive'
-  if (type === '管理员登录') return 'default'
-  if (type === '退出登录') return 'muted'
+  if (type === '登录后台') return 'default'
   return 'success'
 }
 </script>
@@ -55,10 +70,10 @@ function typeVariant(type: string): 'default' | 'success' | 'destructive' | 'mut
         <div class="filter-item">
           <label class="filter-label">日志搜索</label>
           <Select v-model="filters.column" :options="columnOptions" class="w-28" />
-          <input v-model="filters.value" placeholder="搜索内容（0 为管理员）" class="field-input w-52" />
+          <input v-model="filters.value" placeholder="精确匹配（0 为管理员）" class="field-input w-52" @keyup.enter="applySearch" />
         </div>
         <div class="ml-auto flex items-center gap-2">
-          <Button size="sm" @click="page = 1"><Search />搜索</Button>
+          <Button size="sm" @click="applySearch"><Search />搜索</Button>
           <Button variant="outline" size="sm" @click="resetFilters"><RotateCcw />重置</Button>
         </div>
       </div>
@@ -78,7 +93,7 @@ function typeVariant(type: string): 'default' | 'success' | 'destructive' | 'mut
             </tr>
           </thead>
           <tbody>
-            <tr v-for="l in pageRows" :key="l.id">
+            <tr v-for="l in rows" :key="l.id">
               <td class="tabular-nums dim">{{ l.id }}</td>
               <td>
                 <span v-if="l.uid > 0" class="font-medium tabular-nums text-primary">{{ l.uid }}</span>
@@ -97,7 +112,10 @@ function typeVariant(type: string): 'default' | 'success' | 'destructive' | 'mut
               </td>
               <td class="text-xs">{{ l.date }}</td>
             </tr>
-            <tr v-if="!pageRows.length">
+            <tr v-if="loading">
+              <td colspan="5" class="py-10 text-center dim">加载中…</td>
+            </tr>
+            <tr v-else-if="!rows.length">
               <td colspan="5" class="py-10 text-center dim">没有符合条件的登录日志</td>
             </tr>
           </tbody>
@@ -105,7 +123,7 @@ function typeVariant(type: string): 'default' | 'success' | 'destructive' | 'mut
       </div>
 
       <div class="mt-4 border-t border-border/60 pt-4">
-        <Pagination :page="safePage" :page-count="pageCount" :total="total" :page-size="pageSize" @change="go" />
+        <Pagination :page="page" :page-count="pageCount" :total="total" :page-size="pageSize" @change="go" />
       </div>
     </Panel>
   </div>
