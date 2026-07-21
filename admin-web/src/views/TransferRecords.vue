@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
   Search,
@@ -8,22 +8,34 @@ import {
   MoreHorizontal,
   CheckCircle2,
   XCircle,
-  RefreshCw,
   Undo2,
   Copy,
-  FileText,
   Trash2,
 } from 'lucide-vue-next'
-import { Panel, Button, Badge, Select, Pagination } from '@/components/ui'
+import { Panel, Button, Badge, Select, Pagination, Modal } from '@/components/ui'
 import {
-  transferRecords,
-  transferTypeText,
-  transferStatus,
-  transferActions,
-  calcTransferStats,
-} from '@/lib/mock/transfer'
+  fetchTransfers,
+  fetchTransferStats,
+  setTransferStatus,
+  refundTransfer,
+  deleteTransfer,
+  type TransferRecord,
+  type TransferStats,
+} from '@/lib/api/transfer'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 import { formatMoney } from '@/lib/utils'
 
+const toast = useToast()
+
+const transferTypeText: Record<string, string> = {
+  alipay: '支付宝', wxpay: '微信', qqpay: 'QQ钱包', bank: '银行卡',
+}
+const transferStatus: Record<number, { text: string; variant: 'warning' | 'success' | 'destructive' }> = {
+  0: { text: '正在处理', variant: 'warning' },
+  1: { text: '转账成功', variant: 'success' },
+  2: { text: '转账失败', variant: 'destructive' },
+}
 const typeOptions = [
   { value: '', label: '所有付款方式' },
   { value: 'alipay', label: '支付宝' },
@@ -39,63 +51,77 @@ const statusOptions = [
 ]
 
 // ===== 筛选 =====
-const filters = ref({ value: '', uid: '', type: '', dstatus: -1 })
+const filters = reactive({ value: '', uid: '', type: '', dstatus: -1 })
 
-const filtered = computed(() => {
-  return transferRecords.filter((r) => {
-    if (filters.value.uid && String(r.uid) !== filters.value.uid.trim()) return false
-    if (filters.value.type && r.type !== filters.value.type) return false
-    if (filters.value.dstatus > -1 && r.status !== filters.value.dstatus) return false
-    if (filters.value.value.trim()) {
-      const v = filters.value.value.trim()
-      if (!`${r.biz_no}${r.account}${r.username}`.includes(v)) return false
-    }
-    return true
-  })
-})
-
-function resetFilters() {
-  filters.value = { value: '', uid: '', type: '', dstatus: -1 }
-  applySearch()
-}
-
-// ===== 分页 =====
+// ===== 分页 + 数据 =====
 const page = ref(1)
 const pageSize = 15
-const total = computed(() => filtered.value.length)
-const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
-const safePage = computed(() => Math.min(page.value, pageCount.value))
-const pageRows = computed(() =>
-  filtered.value.slice((safePage.value - 1) * pageSize, safePage.value * pageSize),
-)
-function go(p: number) {
-  page.value = Math.min(Math.max(1, p), pageCount.value)
+const total = ref(0)
+const rows = ref<TransferRecord[]>([])
+const loading = ref(false)
+
+function buildParams() {
+  const uidNum = Number(filters.uid.trim())
+  return {
+    page: page.value,
+    pageSize,
+    keyword: filters.value.trim() || undefined,
+    uid: filters.uid.trim() && !Number.isNaN(uidNum) ? uidNum : undefined,
+    type: filters.type || undefined,
+    status: filters.dstatus > -1 ? filters.dstatus : undefined,
+  }
+}
+
+async function load() {
+  loading.value = true
+  try {
+    const res = await fetchTransfers(buildParams())
+    rows.value = res.list
+    total.value = res.total
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载付款记录失败')
+    rows.value = []
+    total.value = 0
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadStats() {
+  try {
+    const { page: _p, pageSize: _ps, ...rest } = buildParams()
+    void _p
+    void _ps
+    stats.value = await fetchTransferStats(rest)
+  } catch {
+    stats.value = null
+  }
+}
+
+async function reload() {
+  await Promise.all([load(), loadStats()])
 }
 
 function applySearch() {
   page.value = 1
-  selected.value.clear()
+  reload()
 }
+function resetFilters() {
+  filters.value = ''
+  filters.uid = ''
+  filters.type = ''
+  filters.dstatus = -1
+  applySearch()
+}
+function go(p: number) {
+  page.value = p
+  load()
+}
+onMounted(reload)
 
 // ===== 统计 =====
-const stats = computed(() => calcTransferStats(filtered.value))
-
-// ===== 多选 =====
-const selected = ref<Set<string>>(new Set())
-const pageAllChecked = computed(
-  () => pageRows.value.length > 0 && pageRows.value.every((r) => selected.value.has(r.biz_no)),
-)
-function toggleAll() {
-  if (pageAllChecked.value) pageRows.value.forEach((r) => selected.value.delete(r.biz_no))
-  else pageRows.value.forEach((r) => selected.value.add(r.biz_no))
-}
-function toggleOne(biz: string) {
-  if (selected.value.has(biz)) selected.value.delete(biz)
-  else selected.value.add(biz)
-}
-
-// 筛选即时变化时回到第1页并清空选中，避免批量操作命中不可见行
-watch(filters, applySearch, { deep: true })
+const stats = ref<TransferStats | null>(null)
+const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 
 // ===== 行操作菜单 =====
 const openMenu = ref<string | null>(null)
@@ -108,14 +134,88 @@ function closeMenu() {
 onMounted(() => window.addEventListener('click', closeMenu))
 onUnmounted(() => window.removeEventListener('click', closeMenu))
 
+/** 状态可执行操作（对齐 epay transfer.php 操作列 + 后端能力） */
+function rowActions(r: TransferRecord): string[] {
+  if (r.status === 1) return ['改为失败', '复制', '删除']
+  if (r.status === 2) return ['改为成功', '复制', '删除']
+  // 处理中：商户发起可退回（退款），管理员发起可删除
+  return r.uid > 0 ? ['退回', '复制', '删除'] : ['查询状态', '复制', '删除']
+}
 const actionIcons: Record<string, any> = {
   改为成功: CheckCircle2,
   改为失败: XCircle,
-  查询状态: RefreshCw,
   退回: Undo2,
+  查询状态: Search,
   复制: Copy,
-  获取凭证: FileText,
   删除: Trash2,
+}
+
+// ===== 写操作（调真接口）=====
+const busy = ref(false)
+// 二次确认弹窗（资金相关操作：退回 / 改状态 / 删除）
+const confirmOpen = ref(false)
+const confirmRow = ref<TransferRecord | null>(null)
+const confirmAction = ref('')
+const confirmText = computed(() => {
+  const r = confirmRow.value
+  if (!r) return ''
+  const money = `¥${formatMoney(r.costmoney)}`
+  switch (confirmAction.value) {
+    case '退回':
+      return `确认退回该笔代付？将把 ${money} 退回商户 ${r.uid} 余额，且状态置为失败。此操作不可撤销。`
+    case '改为成功':
+      return '确认将该笔代付标记为成功？（仅改状态，不产生资金变动）'
+    case '改为失败':
+      return '确认将该笔代付标记为失败？（仅改状态，不退款）'
+    case '删除':
+      return '确认删除该付款记录？删除不退款，请谨慎操作。'
+    default:
+      return ''
+  }
+})
+
+function onAction(r: TransferRecord, action: string) {
+  openMenu.value = null
+  if (action === '复制') {
+    navigator.clipboard?.writeText(r.biz_no)
+    toast.success('已复制交易号')
+    return
+  }
+  if (action === '查询状态') {
+    toast.info('渠道查询待真实渠道凭证接入')
+    return
+  }
+  // 需二次确认的资金/状态操作
+  confirmRow.value = r
+  confirmAction.value = action
+  confirmOpen.value = true
+}
+
+async function doConfirm() {
+  const r = confirmRow.value
+  if (!r || busy.value) return
+  busy.value = true
+  try {
+    if (confirmAction.value === '退回') {
+      await refundTransfer(r.biz_no)
+      toast.success('已退回，款项已退回商户余额')
+    } else if (confirmAction.value === '改为成功') {
+      await setTransferStatus(r.biz_no, 1)
+      toast.success('已标记为成功')
+    } else if (confirmAction.value === '改为失败') {
+      await setTransferStatus(r.biz_no, 2, '后台手动置为失败')
+      toast.success('已标记为失败')
+    } else if (confirmAction.value === '删除') {
+      await deleteTransfer(r.biz_no)
+      toast.success('已删除记录')
+    }
+    confirmOpen.value = false
+    await reload()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '操作失败')
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -131,11 +231,11 @@ const actionIcons: Record<string, any> = {
       <div class="filter-bar">
         <div class="filter-item">
           <label class="filter-label">付款搜索</label>
-          <input v-model="filters.value" placeholder="交易号 / 收款账号 / 姓名" class="field-input w-52" />
+          <input v-model="filters.value" placeholder="交易号 / 收款账号 / 姓名" class="field-input w-52" @keyup.enter="applySearch" />
         </div>
         <div class="filter-item">
           <label class="text-sm text-muted-foreground">商户号</label>
-          <input v-model="filters.uid" placeholder="请输入商户号" class="field-input w-32" />
+          <input v-model="filters.uid" placeholder="请输入商户号" class="field-input w-32" @keyup.enter="applySearch" />
         </div>
         <div class="filter-item">
           <label class="text-sm text-muted-foreground">付款方式</label>
@@ -153,7 +253,7 @@ const actionIcons: Record<string, any> = {
     </Panel>
 
     <!-- 概况 -->
-    <Panel title="付款概况" subtitle="按当前筛选条件">
+    <Panel v-if="stats" title="付款概况" subtitle="按当前筛选条件">
       <div class="flex flex-wrap gap-x-10 gap-y-4">
         <div>
           <div class="text-[13px] text-muted-foreground">付款总额</div>
@@ -179,35 +279,23 @@ const actionIcons: Record<string, any> = {
     </Panel>
 
     <!-- 列表 -->
-    <Panel title="付款记录列表" :subtitle="selected.size ? `已选 ${selected.size} 笔` : `${total} 条`">
-      <template v-if="selected.size" #actions>
-        <span class="text-sm text-muted-foreground">批量：</span>
-        <Button variant="outline" size="sm" @click="selected.clear()"><CheckCircle2 />改为成功</Button>
-        <Button variant="outline" size="sm" @click="selected.clear()"><XCircle />改为失败</Button>
-        <Button variant="outline" size="sm" @click="selected.clear()"><Trash2 />删除</Button>
-      </template>
+    <Panel title="付款记录列表" :subtitle="`${total} 条`">
       <div class="overflow-x-auto">
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
-              <th class="col-center w-[4%]">
-                <input type="checkbox" :checked="pageAllChecked" @change="toggleAll" />
-              </th>
-              <th class="w-[16%]">交易号 / 第三方号</th>
+              <th class="w-[17%]">交易号 / 第三方号</th>
               <th class="w-[9%]">商户号</th>
-              <th class="w-[14%]">付款方式 / 备注</th>
-              <th class="w-[15%]">收款账号 / 姓名</th>
-              <th class="w-[12%]">付款 / 花费</th>
+              <th class="w-[15%]">付款方式 / 备注</th>
+              <th class="w-[16%]">收款账号 / 姓名</th>
+              <th class="w-[13%]">付款 / 花费</th>
               <th class="w-[14%]">提交 / 付款时间</th>
               <th class="col-center w-[8%]">状态</th>
               <th class="col-center w-[8%]">操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(r, si) in pageRows" :key="r.biz_no">
-              <td class="col-center">
-                <input type="checkbox" :checked="selected.has(r.biz_no)" @change="toggleOne(r.biz_no)" />
-              </td>
+            <tr v-for="(r, si) in rows" :key="r.biz_no">
               <td>
                 <div class="truncate font-medium tabular-nums">{{ r.biz_no }}</div>
                 <div class="truncate text-xs dim">{{ r.pay_order_no || '—' }}</div>
@@ -222,11 +310,11 @@ const actionIcons: Record<string, any> = {
               </td>
               <td>
                 <div class="truncate tabular-nums">{{ r.account }}</div>
-                <div class="text-xs dim">{{ r.username }}</div>
+                <div class="text-xs dim">{{ r.username || '—' }}</div>
               </td>
               <td>
-                <div class="tabular-nums"><span class="dim text-xs">¥</span><b>{{ r.money }}</b></div>
-                <div class="text-xs dim tabular-nums">花费 ¥{{ r.costmoney }}</div>
+                <div class="tabular-nums"><span class="dim text-xs">¥</span><b>{{ formatMoney(r.money) }}</b></div>
+                <div class="text-xs dim tabular-nums">花费 ¥{{ formatMoney(r.costmoney) }}</div>
               </td>
               <td>
                 <div class="text-xs">{{ r.addtime }}</div>
@@ -234,7 +322,7 @@ const actionIcons: Record<string, any> = {
               </td>
               <td class="col-center">
                 <Badge :variant="transferStatus[r.status].variant">{{ transferStatus[r.status].text }}</Badge>
-                <div v-if="r.status === 2" class="mt-1 truncate text-xs text-destructive" :title="r.result">
+                <div v-if="r.status === 2 && r.result" class="mt-1 truncate text-xs text-destructive" :title="r.result">
                   {{ r.result }}
                 </div>
               </td>
@@ -246,35 +334,45 @@ const actionIcons: Record<string, any> = {
                   <div
                     v-if="openMenu === r.biz_no"
                     class="menu-panel absolute right-0 z-20 w-32"
-                    :class="si >= pageRows.length - 3 && pageRows.length > 3
-                      ? 'bottom-full mb-1.5'
-                      : 'top-full mt-1.5'"
+                    :class="si >= rows.length - 3 && rows.length > 3 ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
                     @click.stop
                   >
-                    <template v-for="(a, ai) in transferActions(r.status, r.uid)" :key="ai">
-                      <button
-                        class="menu-item"
-                        :class="a === '删除' && 'menu-item-danger'"
-                        @click="openMenu = null"
-                      >
-                        <component :is="actionIcons[a]" class="size-4 shrink-0 opacity-70" />
-                        <span class="flex-1">{{ a }}</span>
-                      </button>
-                    </template>
+                    <button
+                      v-for="(a, ai) in rowActions(r)"
+                      :key="ai"
+                      class="menu-item"
+                      :class="a === '删除' && 'menu-item-danger'"
+                      @click="onAction(r, a)"
+                    >
+                      <component :is="actionIcons[a]" class="size-4 shrink-0 opacity-70" />
+                      <span class="flex-1">{{ a }}</span>
+                    </button>
                   </div>
                 </div>
               </td>
             </tr>
-            <tr v-if="!pageRows.length">
-              <td colspan="9" class="py-10 text-center dim">没有符合条件的付款记录</td>
+            <tr v-if="loading">
+              <td colspan="8" class="py-10 text-center dim">加载中…</td>
+            </tr>
+            <tr v-else-if="!rows.length">
+              <td colspan="8" class="py-10 text-center dim">没有符合条件的付款记录</td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <div class="mt-4 border-t border-border/60 pt-4">
-        <Pagination :page="safePage" :page-count="pageCount" :total="total" :page-size="pageSize" @change="go" />
+        <Pagination :page="page" :page-count="pageCount" :total="total" :page-size="pageSize" @change="go" />
       </div>
     </Panel>
+
+    <!-- 二次确认弹窗 -->
+    <Modal v-model="confirmOpen" :title="`${confirmAction}确认`" width="max-w-md">
+      <p class="text-sm text-muted-foreground">{{ confirmText }}</p>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="confirmOpen = false">取消</Button>
+        <Button size="sm" :disabled="busy" @click="doConfirm">确认{{ confirmAction }}</Button>
+      </template>
+    </Modal>
   </div>
 </template>

@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Send, Wallet, RefreshCw, Info } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import { Send, RefreshCw, Info } from 'lucide-vue-next'
 import { Panel, Button, Select } from '@/components/ui'
 import { transferApps, transferChannels } from '@/lib/mock/transfer'
+import { createTransfer, type TransferCreateReq } from '@/lib/api/transfer'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
+const router = useRouter()
 
 // 当前付款方式 Tab
 const activeApp = ref<'alipay' | 'wxpay' | 'qqpay' | 'bank'>('alipay')
@@ -11,7 +18,7 @@ const channelOptions = computed(() =>
   transferChannels[activeApp.value].map((c) => ({ value: c.id, label: c.name })),
 )
 
-// 生成 19 位交易号（YmdHis + 5位随机 → 截断/补齐到 19）
+// 生成 19 位交易号（YmdHis + 5位随机）
 function genBizNo() {
   const now = new Date()
   const p = (n: number, l = 2) => String(n).padStart(l, '0')
@@ -35,6 +42,7 @@ const form = ref({
   desc: '',
   paypwd: '',
 })
+const busy = ref(false)
 
 // 切 Tab：重置通道 + 重新生成交易号
 function switchApp(key: typeof activeApp.value) {
@@ -45,6 +53,35 @@ function switchApp(key: typeof activeApp.value) {
 
 function regenBizNo() {
   form.value.bizNo = genBizNo()
+}
+
+async function submit() {
+  if (busy.value) return
+  const money = Number(form.value.money)
+  if (!form.value.account.trim()) return toast.error('请填写收款账号')
+  if (!(money > 0)) return toast.error('请输入有效的转账金额')
+  if (!form.value.paypwd) return toast.error('请输入管理员密码')
+
+  busy.value = true
+  try {
+    const body: TransferCreateReq = {
+      biz_no: form.value.bizNo,
+      type: activeApp.value,
+      channel: form.value.channel,
+      account: form.value.account.trim(),
+      username: form.value.realName.trim(),
+      money: String(form.value.money),
+      desc: form.value.desc.trim(),
+      password: form.value.paypwd,
+    }
+    const res = await createTransfer(body)
+    toast.success(`已提交代付，交易号 ${res.biz_no}`)
+    router.push('/admin/transfer-records')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '提交失败')
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -101,20 +138,19 @@ function regenBizNo() {
           <input v-model="form.desc" placeholder="可留空，最多 32 字" maxlength="32" class="field-input flex-1" />
         </div>
         <div class="flex items-center gap-3">
-          <label class="w-24 shrink-0 text-right text-sm text-muted-foreground">支付密码</label>
-          <input v-model="form.paypwd" type="password" placeholder="管理员支付密码" class="field-input flex-1" />
+          <label class="w-24 shrink-0 text-right text-sm text-muted-foreground">管理员密码</label>
+          <input v-model="form.paypwd" type="password" placeholder="登录密码二次确认" class="field-input flex-1" />
         </div>
 
         <div class="flex items-center gap-2 pl-[7.5rem] pt-1">
-          <Button><Send />立即转账</Button>
-          <Button variant="outline"><Wallet />查询账户余额</Button>
+          <Button :disabled="busy" @click="submit"><Send />立即转账</Button>
         </div>
       </div>
 
       <!-- 说明 -->
       <div class="mt-5 flex items-start gap-2 border-t border-border/60 pt-4 text-xs text-muted-foreground">
         <Info class="mt-0.5 size-3.5 shrink-0" />
-        <p>交易号用于防止重复转账，同一交易号只能提交一次。转账结果可在「付款记录」页面查看；微信付款到零钱需收款方扫码确认，1 天内未确认将退回。</p>
+        <p>交易号用于防止重复转账，同一交易号只能提交一次。后台发起不收手续费、不扣款。转账结果可在「付款记录」页面查看；真实渠道打款待渠道凭证接入，当前提交后进入处理中状态。</p>
       </div>
     </Panel>
   </div>
