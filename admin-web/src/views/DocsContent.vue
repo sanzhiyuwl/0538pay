@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, type Component } from 'vue'
+import { computed, onMounted, reactive, ref, type Component } from 'vue'
 import {
   ArrowLeftRight,
   BookOpen,
@@ -31,6 +31,8 @@ import type {
 import { useSiteDocsStore } from '@/stores/siteDocs'
 
 const store = useSiteDocsStore()
+// 从后端拉取最新文档（本地缓存先渲染，后端到达后覆盖）
+onMounted(() => { store.hydrate() })
 const toast = useToast()
 
 function clone<T>(value: T): T {

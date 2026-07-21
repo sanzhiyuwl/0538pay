@@ -7,6 +7,7 @@
 import { defineStore } from 'pinia'
 import { reactive, watch } from 'vue'
 import { siteConfig } from '@/lib/mock/settings'
+import { fetchSiteConfig, saveSiteConfig } from '@/lib/api/siteConfig'
 
 export type SiteConfig = typeof siteConfig
 
@@ -35,6 +36,7 @@ function setMeta(name: string, content: string) {
 
 export const useSiteStore = defineStore('site', () => {
   const config = reactive<SiteConfig>(load())
+  let hydrated = false
 
   /** 同步 SEO 相关标签到 document */
   function applySeo() {
@@ -43,9 +45,25 @@ export const useSiteStore = defineStore('site', () => {
     setMeta('description', config.description || '')
   }
 
-  /** 批量更新并持久化（后台保存调用） */
-  function update(patch: Partial<SiteConfig>) {
+  /** 从后端拉取网站设置并覆盖（初始化调用）。失败静默回退本地缓存。 */
+  async function hydrate() {
+    if (hydrated) return
+    hydrated = true
+    try {
+      const remote = await fetchSiteConfig<Partial<SiteConfig>>('settings')
+      if (remote) {
+        Object.assign(config, remote)
+        applySeo()
+      }
+    } catch {
+      // 后端不可用时用本地缓存
+    }
+  }
+
+  /** 批量更新并持久化到后端（后台保存调用）。 */
+  async function update(patch: Partial<SiteConfig>) {
     Object.assign(config, patch)
+    await saveSiteConfig('settings', config)
   }
 
   // config 任何变化都落库 + 刷新 SEO
@@ -58,5 +76,5 @@ export const useSiteStore = defineStore('site', () => {
     { immediate: true, deep: true },
   )
 
-  return { config, update }
+  return { config, hydrate, update }
 })

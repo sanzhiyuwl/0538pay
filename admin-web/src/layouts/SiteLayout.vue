@@ -1,11 +1,15 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { Zap } from 'lucide-vue-next'
 import { useSiteStore } from '@/stores/site'
 import SiteHeader from '@/components/site/SiteHeader.vue'
 
 // 站点配置来自后台「网站设置」，实时联动（config 为 reactive，模板直接读即响应）
-const site = useSiteStore().config
+const store = useSiteStore()
+const site = store.config
+// 官网加载时从后端拉取最新网站设置（本地缓存先渲染，后端到达后覆盖 + 刷新 SEO）
+onMounted(() => { store.hydrate() })
 
 // 页脚链接列
 const footerCols = [

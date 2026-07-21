@@ -10,6 +10,8 @@ import {
   type DocSettings,
 } from '@/lib/mock/site-docs'
 import { normalizeDocPages } from '@/lib/site-docs'
+import { fetchSiteConfig, saveSiteConfig } from '@/lib/api/siteConfig'
+import { getToken } from '@/lib/api/client'
 
 const STORAGE_KEY = 'site-docs'
 
@@ -129,15 +131,50 @@ export const useSiteDocsStore = defineStore('site-docs', () => {
     pages.value = next.pages
   }
 
+  function snapshot(): PersistedDocs {
+    return {
+      version: SITE_DOCS_VERSION,
+      settings: settings.value,
+      groups: groups.value,
+      pages: pages.value,
+    }
+  }
+
+  // hydrate 期间抑制回写，避免拉取赋值又触发一次 save 覆盖后端。
+  let hydrated = false
+  let suppress = false
+
+  /** 从后端拉取文档并覆盖（后台/官网文档页初始化调用）。失败静默回退本地缓存。 */
+  async function hydrate() {
+    if (hydrated) return
+    hydrated = true
+    try {
+      const remote = await fetchSiteConfig<PersistedDocs>('docs')
+      if (remote && remote.settings && Array.isArray(remote.groups) && Array.isArray(remote.pages)) {
+        suppress = true
+        settings.value = clone(remote.settings)
+        groups.value = clone(remote.groups)
+        pages.value = normalizeDocPages(clone(remote.pages))
+        suppress = false
+      }
+    } catch {
+      // 后端不可用时用本地缓存
+    }
+  }
+
+  // 变更即时落 localStorage（即时/离线）+ 防抖推送后端（真持久化）。
+  let saveTimer: ReturnType<typeof setTimeout> | null = null
   watch(
     [settings, groups, pages],
     () => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        version: SITE_DOCS_VERSION,
-        settings: settings.value,
-        groups: groups.value,
-        pages: pages.value,
-      }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot()))
+      if (suppress) return
+      // 仅后台已登录(有 admin token)时推送后端；官网公开文档页只读，不触发写。
+      if (!getToken()) return
+      if (saveTimer) clearTimeout(saveTimer)
+      saveTimer = setTimeout(() => {
+        saveSiteConfig('docs', snapshot()).catch(() => {})
+      }, 800)
     },
     { deep: true },
   )
@@ -150,6 +187,7 @@ export const useSiteDocsStore = defineStore('site-docs', () => {
     publishedGroups,
     publishedPages,
     getPageBySlug,
+    hydrate,
     updateSettings,
     addGroup,
     updateGroup,

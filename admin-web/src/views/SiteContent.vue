@@ -40,6 +40,13 @@ function fitPreview() {
   if (w > 0) previewScale.value = w / CANVAS_W
 }
 onMounted(() => {
+  // 从后端拉取最新内容，覆盖草稿（本地缓存先渲染，后端到达后同步）
+  store.hydrate().then(() => {
+    Object.assign(draft, JSON.parse(JSON.stringify(store.content)))
+    if (!draft.sections.some((s) => s.key === activeSection.value)) {
+      activeSection.value = draft.sections[0]?.key ?? 'hero'
+    }
+  })
   // 首帧布局未定时 clientWidth 可能为 0，等一帧再量；ResizeObserver 兜后续变化
   requestAnimationFrame(fitPreview)
   ro = new ResizeObserver(fitPreview)
@@ -102,9 +109,13 @@ function splitList(v: string): string[] {
   return v.split(/[、,，]/).map((s) => s.trim()).filter(Boolean)
 }
 
-function save() {
-  store.update(draft)
-  toast.success('保存成功')
+async function save() {
+  try {
+    await store.update(draft)
+    toast.success('保存成功')
+  } catch {
+    toast.error('保存失败，请重试')
+  }
 }
 
 function resetAll() {

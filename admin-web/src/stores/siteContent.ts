@@ -6,6 +6,7 @@
 import { defineStore } from 'pinia'
 import { reactive, watch } from 'vue'
 import { defaultSiteContent, defaultSections, type SiteContent, type SectionItem, type SectionKey } from '@/lib/mock/site-content'
+import { fetchSiteConfig, saveSiteConfig } from '@/lib/api/siteConfig'
 
 const STORAGE_KEY = 'site-content'
 
@@ -71,23 +72,43 @@ function load(): SiteContent {
 }
 
 export const useSiteContentStore = defineStore('site-content', () => {
+  // 先用 localStorage/默认值即时渲染，随后 hydrate 从后端拉取真实数据覆盖。
   const content = reactive<SiteContent>(load())
+  let hydrated = false
 
-  /** 用整份新内容覆盖并持久化（后台保存调用） */
-  function update(next: SiteContent) {
-    Object.assign(content, clone(next))
+  /** 从后端拉取并覆盖（官网/后台初始化时调用，一次即可）。失败静默回退本地缓存。 */
+  async function hydrate() {
+    if (hydrated) return
+    hydrated = true
+    try {
+      const remote = await fetchSiteConfig<SiteContent>('content')
+      if (remote) {
+        const merged = { ...clone(defaultSiteContent), ...remote }
+        merged.sections = normalizeSections(merged.sections)
+        Object.assign(content, merged)
+      }
+    } catch {
+      // 后端不可用时用本地缓存，不阻塞渲染
+    }
   }
 
-  /** 恢复默认内容 */
+  /** 用整份新内容覆盖并持久化到后端（后台保存调用）。 */
+  async function update(next: SiteContent) {
+    Object.assign(content, clone(next))
+    await saveSiteConfig('content', content)
+  }
+
+  /** 恢复默认内容（本地，不落后端；需保存才生效）。 */
   function reset() {
     Object.assign(content, clone(defaultSiteContent))
   }
 
+  // 本地缓存：任何变化即时落 localStorage（即时渲染 + 离线兜底）。
   watch(
     content,
     () => localStorage.setItem(STORAGE_KEY, JSON.stringify(content)),
     { deep: true },
   )
 
-  return { content, update, reset }
+  return { content, hydrate, update, reset }
 })

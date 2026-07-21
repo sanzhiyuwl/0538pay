@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { Save, Upload, UploadCloud, X } from 'lucide-vue-next'
 import { Panel, Button } from '@/components/ui'
 import { logoItems } from '@/lib/mock/settings'
@@ -42,10 +42,19 @@ function removeLogo(key: string) {
   if (el) el.value = ''
 }
 
-function save() {
-  // 提交草稿到 store：持久化到 localStorage，官网(页脚/告示条/SEO)实时联动
-  siteStore.update({ ...site })
-  toast.success('保存成功')
+// 进入页面时从后端拉取最新设置，覆盖草稿
+onMounted(() => {
+  siteStore.hydrate().then(() => Object.assign(site, siteStore.config))
+})
+
+async function save() {
+  // 提交草稿到 store：持久化到后端 + localStorage，官网(页脚/告示条/SEO)实时联动
+  try {
+    await siteStore.update({ ...site })
+    toast.success('保存成功')
+  } catch {
+    toast.error('保存失败，请重试')
+  }
 }
 </script>
 

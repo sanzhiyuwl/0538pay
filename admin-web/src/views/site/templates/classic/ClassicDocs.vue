@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { Component } from 'vue'
 import {
@@ -13,6 +13,8 @@ import { useSiteDocsStore } from '@/stores/siteDocs'
 const route = useRoute()
 const router = useRouter()
 const store = useSiteDocsStore()
+// 官网文档页加载时从后端拉取最新文档
+onMounted(() => { store.hydrate() })
 
 const iconMap: Record<string, Component> = {
   FileText,
