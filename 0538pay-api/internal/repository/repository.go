@@ -282,6 +282,13 @@ func (r *ChannelRepo) SaveConfig(id uint, config string) error {
 	return r.db.Model(&model.Channel{}).Where("id = ?", id).Update("config", config).Error
 }
 
+// CountByType 统计使用某支付方式(type)的通道数（删支付方式前的引用校验，对齐 epay delPayType）。
+func (r *ChannelRepo) CountByType(typeID int) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.Channel{}).Where("type = ?", typeID).Count(&n).Error
+	return n, err
+}
+
 // FindEnabledByType 取某支付方式下第一个已开启通道（下单选通道用，最简策略；
 // 轮询/加权等留待 pay_roll 阶段）。未找到返回 (nil, nil)。
 func (r *ChannelRepo) FindEnabledByType(typeID int) (*model.Channel, error) {

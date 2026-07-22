@@ -1081,3 +1081,70 @@ type GroupAssignItem struct {
 type GroupAssignSaveReq struct {
 	Assigns []GroupAssignItem `json:"assigns"`
 }
+
+// ===== 支付方式 pay_type（后台，对齐 epay pay_type.php）=====
+
+// PayTypeView 支付方式对外响应（对齐前端 mock/paytypes.ts）。
+type PayTypeView struct {
+	ID       uint   `json:"id"`
+	Name     string `json:"name"`
+	ShowName string `json:"showname"`
+	Device   int8   `json:"device"`
+	Today    string `json:"today"`  // 今日收款（派生，暂给 0.00）
+	Status   int8   `json:"status"`
+}
+
+// PayTypeSaveReq 新增/编辑支付方式入参。
+type PayTypeSaveReq struct {
+	Name     string `json:"name" binding:"required"`
+	ShowName string `json:"showname" binding:"required"`
+	Device   int8   `json:"device"`
+}
+
+// PayTypeStatusReq 状态切换入参。
+type PayTypeStatusReq struct {
+	Status int8 `json:"status"`
+}
+
+// ===== 微信公众号/小程序 pay_weixin（后台，对齐 epay pay_weixin.php）=====
+
+// WeixinView 公众号/小程序对外响应（appsecret 脱敏）。
+type WeixinView struct {
+	ID        uint   `json:"id"`
+	Type      int8   `json:"type"`
+	Name      string `json:"name"`
+	AppID     string `json:"appid"`
+	AppSecret string `json:"appsecret"` // 脱敏展示
+}
+
+// WeixinSaveReq 新增/编辑入参。
+type WeixinSaveReq struct {
+	Type      int8   `json:"type"`
+	Name      string `json:"name" binding:"required"`
+	AppID     string `json:"appid" binding:"required"`
+	AppSecret string `json:"appsecret"`
+}
+
+// ===== 企业微信 pay_wework（后台，对齐 epay pay_wework.php）=====
+
+// WeworkView 企业微信对外响应（appsecret 脱敏，含客服数）。
+type WeworkView struct {
+	ID        uint   `json:"id"`
+	Name      string `json:"name"`
+	AppID     string `json:"appid"`
+	AppSecret string `json:"appsecret"` // 脱敏展示
+	KfNum     int64  `json:"kfnum"`     // 客服账号数（派生）
+	Status    int8   `json:"status"`
+}
+
+// WeworkSaveReq 新增/编辑入参。
+type WeworkSaveReq struct {
+	Name      string `json:"name" binding:"required"`
+	AppID     string `json:"appid" binding:"required"`
+	AppSecret string `json:"appsecret"`
+}
+
+// WeworkStatusReq 状态切换入参。
+type WeworkStatusReq struct {
+	Status int8 `json:"status"`
+}

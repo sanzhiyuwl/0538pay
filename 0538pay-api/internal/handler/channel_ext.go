@@ -220,3 +220,246 @@ func (h *SubChannelHandler) Delete(c *gin.Context) {
 	}
 	resp.OK(c, gin.H{"id": id})
 }
+
+// ===== 支付方式 PayType =====
+
+type PayTypeHandler struct{ svc *service.PayTypeService }
+
+func NewPayTypeHandler(svc *service.PayTypeService) *PayTypeHandler { return &PayTypeHandler{svc: svc} }
+
+func failFromPayTypeErr(c *gin.Context, err error) {
+	var e *service.PayTypeError
+	if errors.As(err, &e) {
+		resp.Fail(c, e.Code, e.Msg)
+		return
+	}
+	resp.Fail(c, 1107, "操作失败: "+err.Error())
+}
+
+func (h *PayTypeHandler) List(c *gin.Context) {
+	list, err := h.svc.List()
+	if err != nil {
+		resp.Fail(c, 1107, "查询失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"list": list})
+}
+
+func (h *PayTypeHandler) Create(c *gin.Context) {
+	var req dto.PayTypeSaveReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	id, err := h.svc.Create(req)
+	if err != nil {
+		failFromPayTypeErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+func (h *PayTypeHandler) Update(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "支付方式 ID 不合法")
+		return
+	}
+	var req dto.PayTypeSaveReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Update(id, req); err != nil {
+		failFromPayTypeErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+func (h *PayTypeHandler) SetStatus(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "支付方式 ID 不合法")
+		return
+	}
+	var req dto.PayTypeStatusReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SetStatus(id, req.Status); err != nil {
+		failFromPayTypeErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id, "status": req.Status})
+}
+
+func (h *PayTypeHandler) Delete(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "支付方式 ID 不合法")
+		return
+	}
+	if err := h.svc.Delete(id); err != nil {
+		failFromPayTypeErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+// ===== 微信公众号/小程序 Weixin =====
+
+type WeixinHandler struct{ svc *service.WeixinService }
+
+func NewWeixinHandler(svc *service.WeixinService) *WeixinHandler { return &WeixinHandler{svc: svc} }
+
+func failFromWeixinErr(c *gin.Context, err error) {
+	var e *service.WeixinError
+	if errors.As(err, &e) {
+		resp.Fail(c, e.Code, e.Msg)
+		return
+	}
+	resp.Fail(c, 1108, "操作失败: "+err.Error())
+}
+
+func (h *WeixinHandler) List(c *gin.Context) {
+	list, err := h.svc.List()
+	if err != nil {
+		resp.Fail(c, 1108, "查询失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"list": list})
+}
+
+func (h *WeixinHandler) Create(c *gin.Context) {
+	var req dto.WeixinSaveReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	id, err := h.svc.Create(req)
+	if err != nil {
+		failFromWeixinErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+func (h *WeixinHandler) Update(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "账号 ID 不合法")
+		return
+	}
+	var req dto.WeixinSaveReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Update(id, req); err != nil {
+		failFromWeixinErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+func (h *WeixinHandler) Delete(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "账号 ID 不合法")
+		return
+	}
+	if err := h.svc.Delete(id); err != nil {
+		failFromWeixinErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+// ===== 企业微信 Wework =====
+
+type WeworkHandler struct{ svc *service.WeworkService }
+
+func NewWeworkHandler(svc *service.WeworkService) *WeworkHandler { return &WeworkHandler{svc: svc} }
+
+func failFromWeworkErr(c *gin.Context, err error) {
+	var e *service.WeworkError
+	if errors.As(err, &e) {
+		resp.Fail(c, e.Code, e.Msg)
+		return
+	}
+	resp.Fail(c, 1109, "操作失败: "+err.Error())
+}
+
+func (h *WeworkHandler) List(c *gin.Context) {
+	list, err := h.svc.List()
+	if err != nil {
+		resp.Fail(c, 1109, "查询失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"list": list})
+}
+
+func (h *WeworkHandler) Create(c *gin.Context) {
+	var req dto.WeworkSaveReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	id, err := h.svc.Create(req)
+	if err != nil {
+		failFromWeworkErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+func (h *WeworkHandler) Update(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "账号 ID 不合法")
+		return
+	}
+	var req dto.WeworkSaveReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Update(id, req); err != nil {
+		failFromWeworkErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+func (h *WeworkHandler) SetStatus(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "账号 ID 不合法")
+		return
+	}
+	var req dto.WeworkStatusReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SetStatus(id, req.Status); err != nil {
+		failFromWeworkErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id, "status": req.Status})
+}
+
+func (h *WeworkHandler) Delete(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "账号 ID 不合法")
+		return
+	}
+	if err := h.svc.Delete(id); err != nil {
+		failFromWeworkErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}

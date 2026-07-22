@@ -19,6 +19,9 @@ type Deps struct {
 	Channel        *handler.ChannelHandler
 	Roll           *handler.RollHandler
 	SubChannel     *handler.SubChannelHandler
+	PayType        *handler.PayTypeHandler
+	Weixin         *handler.WeixinHandler
+	Wework         *handler.WeworkHandler
 	Pay            *handler.PayHandler
 	Settle         *handler.SettleHandler
 	Record         *handler.RecordHandler
@@ -110,6 +113,26 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.PUT("/subchannels/:id", d.SubChannel.Update)
 			authed.PUT("/subchannels/:id/status", d.SubChannel.SetStatus)
 			authed.DELETE("/subchannels/:id", d.SubChannel.Delete)
+
+			// 支付方式 pay_type
+			authed.GET("/paytypes", d.PayType.List)
+			authed.POST("/paytypes", d.PayType.Create)
+			authed.PUT("/paytypes/:id", d.PayType.Update)
+			authed.PUT("/paytypes/:id/status", d.PayType.SetStatus)
+			authed.DELETE("/paytypes/:id", d.PayType.Delete)
+
+			// 微信公众号/小程序 pay_weixin（无状态开关）
+			authed.GET("/weixins", d.Weixin.List)
+			authed.POST("/weixins", d.Weixin.Create)
+			authed.PUT("/weixins/:id", d.Weixin.Update)
+			authed.DELETE("/weixins/:id", d.Weixin.Delete)
+
+			// 企业微信 pay_wework
+			authed.GET("/weworks", d.Wework.List)
+			authed.POST("/weworks", d.Wework.Create)
+			authed.PUT("/weworks/:id", d.Wework.Update)
+			authed.PUT("/weworks/:id/status", d.Wework.SetStatus)
+			authed.DELETE("/weworks/:id", d.Wework.Delete)
 
 			// 结算管理（C2 结算域）
 			authed.GET("/settles", d.Settle.List)

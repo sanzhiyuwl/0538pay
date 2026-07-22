@@ -80,6 +80,9 @@ func main() {
 	paySvc.SetSelector(service.NewChannelSelector(channelRepo, rollRepo, subChannelRepo, groupRepo))
 	rollSvc := service.NewRollService(rollRepo, channelRepo)
 	subChannelSvc := service.NewSubChannelService(subChannelRepo, channelRepo, merchantRepo)
+	payTypeSvc := service.NewPayTypeService(repository.NewPayTypeRepo(db), channelRepo)
+	weixinSvc := service.NewWeixinService(repository.NewWeixinRepo(db))
+	weworkSvc := service.NewWeworkService(repository.NewWeworkRepo(db))
 	merchantSvc.SetSubChannelRepo(subChannelRepo) // 删商户级联删子通道
 	channelSvc.SetSubChannelRepo(subChannelRepo)  // 删主通道级联删子通道
 	orderSvc.SetWriteDeps(accountRepo, channelRepo, adminRepo, paySvc) // 订单写操作依赖
@@ -123,6 +126,9 @@ func main() {
 		Channel:        handler.NewChannelHandler(channelSvc),
 		Roll:           handler.NewRollHandler(rollSvc),
 		SubChannel:     handler.NewSubChannelHandler(subChannelSvc),
+		PayType:        handler.NewPayTypeHandler(payTypeSvc),
+		Weixin:         handler.NewWeixinHandler(weixinSvc),
+		Wework:         handler.NewWeworkHandler(weworkSvc),
 		Pay:            handler.NewPayHandler(paySvc),
 		Settle:         handler.NewSettleHandler(settleSvc),
 		Record:         handler.NewRecordHandler(recordSvc),
