@@ -37,7 +37,7 @@
 
 七大板块与 epay 的对齐状态（此处只做文字概述，不打勾；逐项打勾见对比清单）：
   1. 对外收单 API + 支付全链路 …… 【阶段A完成】下单→收银台→模拟支付→回调→幂等改单→入账→
-                                    流水→商户通知 全链路 mock 真跑通过(A1~A6)；V2/RSA/查退款/真实渠道待 B
+                                    流水→商户通知 全链路 mock 真跑通过(A1~A6)；V2 REST 接口族(pay/create/query/refund/refundquery+merchant+transfer)已通(C10)；真实渠道下单待凭证
   2. 支付渠道插件（epay 51 个）…… 【框架通·3渠道落地】mock + 支付宝当面付 + 微信Native(下单待凭证) + 免签epay(V1/MD5,已端到端真跑)；免签渠道首次实现真实下单全链路
   3. 定时任务 cron ………………… 【打通】ticker 调度器已跑：notify 重试队列 + 未支付对账 + 超时关单 + 自动结算 均真跑通过(分账/风控自动化待后续)
   4. 管理后台（epay admin 49 文件）… 【前端好·后端列表渐切真】订单/商户/通道列表真接口，余全 mock
@@ -304,6 +304,15 @@
        —— 真跑全绿(选通道四分支/轮询三算法/子通道调度)：顺序轮询 1→10→1→10 精确轮转+idx持久化、固定通道 channel=10+rate1.5覆盖、
           -1随机命中、-2子通道 subA→subB→subA usetime调度、0关闭正确拒绝、组级费率 2.00% 经 roll 路径生效。
           缺：子通道 [占位]参数替换注入渠道 Config(SubInfo 已随选通道返回,待真实渠道消费)、daystatus 单日超限暂停(我方无该字段)。
+
+    ✅ C10 V2 mapi REST 接口族（2026-07-22）：对齐 epay api.php?s= → ApiHelper 反射分发的 V2 REST 接口，成功 code=0 + 回包 RSA 签名 + timestamp 防重放。
+       —— MapiService 统一验签(pid查商户/状态守卫/keytype=1强制RSA/MD5或RSA验签/timestamp±300s防重放) + 回包平台私钥RSA签名(ConfigService.EnsurePlatformKeys 启动生成密钥对)。
+       —— 11 个接口全部实现并真跑：pay/create(JSON下单,pay_type+pay_info)、pay/query、pay/refund(pay_refundorder 表+out_refund_no幂等)、
+          pay/refundquery、merchant/info、merchant/orders、transfer/submit(签名鉴权免密 CreateByMerchantSigned)/query/proof/balance。
+          复用既有 Submit/OrderRepo/TransferService 核心，仅在此层做 JSON 契约包装+签名，不重复实现业务。
+       —— 路由 /api/mapi/:class/:action(反射式分发)，老 /api/pay/submit 表单入口保留。真跑闭环：create下单→mock回调付款→query(status=1)→
+          refund(reducemoney按比例)→refundquery→merchant/info统计→orders列表→transfer/submit(cost含手续费)/balance；错签-3、未知接口-5、退款幂等(重退返回同refund_no)全通过。
+       —— 缺：transfer proof 真实回单 + 真实渠道打款待凭证(对齐 C3)；epay V1 api.php?act= GET 明文接口不造(已被 V2 取代)。
 
   ----------------------------------------------------------------
   阶段 D — 商户中心 /m 接后端

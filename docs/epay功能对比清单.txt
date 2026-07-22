@@ -42,8 +42,11 @@
         —— 后端 POST /api/pay/submit 已打通(MD5验签/幂等/decimal金额/mock渠道下单)，
            2026-07-21 真跑验证：正确签名下单→返回二维码链接；错签/改额/重复单/非法金额均正确拦截；
            同 out_trade_no 三次提交只落一条订单(幂等成立)。缺：收银台页渲染(A3)、真实跳转。
-  ▪/⬜  V1 API下单   mapi.php（返回 JSON，商户自渲染）
-  ▪/⬜  V2 下单      pay/submit、pay/create（RSA 签名，REST 风格）
+  ▪/⬜  V1 API下单   mapi.php（返回 JSON code=1，商户自渲染）—— epay 旧入口，已被 V2 REST(code=0)取代，不单独造
+  ▪/✅  V2 下单      pay/create（JSON code=0 + pay_type + pay_info + 回包RSA签名，REST 风格）[真接口 2026-07-22]
+        —— /api/mapi/pay/create：复用 PayService.Submit 核心(验签/风控/选通道/建单/dispatch)，映射为 V2 契约
+           (pay_type: qrcode/jump/html，pay_info: 码串/跳转URL/HTML)。老 /api/pay/submit 表单入口保留不动(向后兼容)。
+           真跑：MD5签名下单→code=0+trade_no+pay_type+pay_info+回包RSA签(sign/sign_type/timestamp) 通过。
   🎨/✅  收银台聚合页 cashier.php（无 type 时展示可选支付方式）
         —— A3 完成：GET /api/pay/order/{trade_no} 公开查单 + 前端 CashierMock.vue
            (/pay/mock/cashier/:trade_no) 展示订单+二维码占位+「模拟支付成功」触发回调→跳 /payok。
@@ -52,10 +55,15 @@
         —— 我们后端 internal/channel 有 interface 抽象，但零渲染、零下单入口。
 
 【查单 / 退款】
-  ▪/⬜  V1 单笔查询  api.php?act=query
-  ▪/⬜  V1 批量查询  api.php?act=orders
-  ▪/⬜  V1 退款      api.php?act=refund
-  ▪/⬜  V2 查单/退款/退款查询  pay/query、pay/refund、pay/refundquery
+  ▪/➖  V1 单笔查询  api.php?act=query —— epay V1 GET 明文key遗留接口，已被 V2 merchant/info + pay/query 取代，不造
+  ▪/➖  V1 批量查询  api.php?act=orders —— 同上，被 V2 merchant/orders 取代
+  ▪/➖  V1 退款      api.php?act=refund —— 同上，被 V2 pay/refund 取代
+  ▪/✅  V2 查单/退款/退款查询  pay/query、pay/refund、pay/refundquery [真接口 2026-07-22]
+        —— pay/query：pid+(trade_no|out_trade_no)查本商户单，返回完整订单字段+回包签名。
+        —— pay/refund：pid+money+(trade_no|out_trade_no)+可选 out_refund_no。复用退款金额校验(status∈1,2,3/≤实付/剩余可退)+
+           reducemoney(平台承担折算getmoney比例/商户承担全额退)，MarkRefundedPartial 幂等改单+ChangeUserMoney扣款+写 pay_refundorder。
+           out_refund_no 长度>5 启用幂等(已成功返回原单)。真跑：付单→退20→reducemoney按比例→重退同out_refund_no返回同refund_no(不重复扣)。
+        —— pay/refundquery：pid+(refund_no|out_refund_no)查退款单。真跑通过。均需 user_refund 开关。
 
 【回调 / 通知（最关键的异步链路）】
   ▪/✅  第三方回调路由  /api/pay/notify/{trade_no} → 渠道 Notify() 解析(验签在渠道层)
@@ -71,9 +79,14 @@
            商户notify收到success；重复回调幂等(余额不再变、流水仍1条)。
 
 【商户信息 / 代付 API】
-  ▪/⬜  V2 商户信息     merchant/info
-  ▪/⬜  V2 商户订单     merchant/orders
-  ▪/⬜  V2 代付提交/查询/凭证/余额  transfer/submit|query|proof|balance
+  ▪/✅  V2 商户信息     merchant/info [真接口 2026-07-22]
+        —— 返回余额/结算账户/支付结算权限 + 今昨订单数与金额统计(复用 CountPaidByMerchant/SumPaidMoneyByMerchant) + 回包签名。
+  ▪/✅  V2 商户订单     merchant/orders [真接口 2026-07-22]
+        —— limit(≤50)/offset/status，返回 {code,data:[...]}。含 data 数组故不做顶层签名(对齐 epay array 不入签)。
+  ▪/🔨  V2 代付提交/查询/凭证/余额  transfer/submit|query|proof|balance [DB层真接口 2026-07-22]
+        —— submit：复用 TransferService.CreateByMerchantSigned(签名鉴权免登录密码，走结算开关/限额/费率/余额扣减/幂等事务)。
+           query：out_biz_no 查本商户代付单。balance：可用余额+代付费率(空复用结算费率)。真跑：submit code=0 cost含手续费、balance/query 通过。
+        —— proof 回单凭证 + 真实渠道打款依赖外部凭证，DB 层如实标注待凭证(对齐 C3 代付)。
 
 【签名 / 安全】
   ✅  MD5 签名验签（V1：pid+key，ksort 去空去 sign）
