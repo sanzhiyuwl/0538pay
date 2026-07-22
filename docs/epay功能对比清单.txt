@@ -609,8 +609,10 @@
 
   ✅  官网首页(营销落地页)   epay template/default+index1~10 → SiteHome.vue [CMS可编辑+真持久化]
   ✅  开发者文档            epay doc → ClassicDocs.vue [CMS结构化+真持久化]
-  🎨  服务协议 / 关于我们    → ClassicAgreement/About.vue
-  🎨  支付成功 / 支付失败页   epay includes/pages → ClassicPayok/Payerr.vue
+  ✅  服务协议 / 关于我们    → ClassicAgreement/About.vue [2026-07-22 接 CMS 文案]
+        —— 协议页站点名、关于页公司邮箱/QQ 从网站设置 CMS(useSiteStore hydrate)读取,后台改网站设置官网实时联动;正文定稿静态(epay 亦模板硬编码)。
+  ✅  支付成功 / 支付失败页   epay includes/pages → ClassicPayok/Payerr.vue [功能完整]
+        —— 收银台支付成功跳 /payok(带 trade_no/money/name/return_url query),展示订单信息 + 返回商户/首页;失败页同构。收单链已联动。
   ✅  官网内容 CMS(首页文案/文档/网站设置后台可编辑)  —— 我们扩展,epay 无独立 CMS [真接口 2026-07-21]
         —— pay_site_config KV 表(key→JSON,longtext) + SiteConfigService(key白名单content/docs/settings + JSON合法性校验) +
            公开读 GET /api/site/config/:key + 后台鉴权写 PUT /api/admin/site/config/:key。
@@ -624,7 +626,7 @@
            收银台前端用 qrcode 库把真实渠道 code_url/qr_code 渲染成二维码图 + 3秒轮询查单(status=1 跳成功页)；
            mock 渠道仍走"模拟支付"按钮(plugin=mock 判别)。真跑：mock 下单 qr_code 落库+CashierView 返回正常。
            缺：H5/移动端唤起 App、微信内 JSSDK 调起。
-  ⬜  扫码中间页(微信绿/其他蓝)  epay includes/pages → [未做]
+  ⏸  扫码中间页(微信绿/其他蓝)  epay includes/pages → [纯视觉皮肤,数据链路已由 CashierMock/Paypage 覆盖,列为可选美化不重复功能]
   ⬜  个人收款码收银台(数字键盘仿微信)  epay paypage/ → [未做]
   ⏸  epay 11 套首页模板多选  —— 我们做 1 套精品,不追求 11 套
 
