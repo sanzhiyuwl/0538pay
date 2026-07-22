@@ -416,8 +416,8 @@
   ✅  支付相关配置 pay          → PaySettings.vue [真接口 config group=pay：金额上下限/屏蔽词/退款手续费策略]
   🎨  风控检测 risk            → RiskSettings.vue（风控自动关停阈值键待接定时任务，见第三部分）
   ✅  结算规则 settle          → SettleSettings.vue [真接口 config group=settle：开关/周期/费率/门槛/封顶封底/次数]
-  🔨  转账付款配置 transfer     → 后端 config group=transfer 已就绪(rate/minmoney/maxmoney/maxlimit 已被代付逻辑消费)，
-                               独立设置页前端未做(epay 有 mod=transfer，我们代付发起走 Transfer.vue，配置页待补)
+  ✅  转账付款配置 transfer     → TransferSettings.vue [真接口 config group=transfer 2026-07-22]
+                               rate/minmoney/maxmoney/maxlimit,后端已被代付逻辑消费,补独立设置页(财务管理组)。保存即生效。
   ✅  快捷登录 oauth(QQ/微信/支付宝)  → OAuthSettings.vue [真接口 config group=oauth，第三方凭证纯存取]
   ✅  消息提醒 notice(公众号/邮件)    → NoticeSettings.vue [真接口 config group=notice，模板ID+邮件开关]
   ✅  实名认证 certificate(支付宝/腾讯云/阿里云OCR)  → CertSettings.vue [真接口 config group=cert，含 cert_money]
@@ -436,16 +436,19 @@
      为纯 KV 存取(无可真跑业务闭环,配置被真实功能消费待各自渠道凭证)。
 
 【其他功能】
-  🎨  导出订单        epay export.php+download.php → Orders.vue 导出抽屉[前端真导出]
-        —— 前端已实现按 时间范围/商户/方式/通道/状态 过滤 → 生成 CSV(18列,带BOM,Excel不乱码)下载。
-           2026-07-21 验证：选 0721 命中并导出 3 条。局限：只导当前已加载(≤100条)，
-           真·全量后端流式导出留待阶段C(见 优化待办.txt)。
+  ✅  导出订单        epay export.php+download.php → Orders.vue [真接口 2026-07-22,后端全量流式]
+        —— 后端 GET /api/admin/orders/export：OrderRepo.ExportAll(复用列表过滤 column/keyword/status,上限10万条对齐epay download.php) +
+           OrderHandler.Export 流式写 CSV(17列,UTF-8 BOM,Excel不乱码)。前端 Orders.vue 导出抽屉加「服务端全量导出」按钮(带鉴权头 fetch→Blob下载),
+           不受已加载 ≤100 限制;原「导出当前页」前端过滤保留。真跑:export 返回全量 CSV(BOM+全部订单)。解优化待办全量导出。
   ✅  登录日志        epay log.php → Logs.vue [真接口]
         —— pay_log 表(uid/type/ip/city/date,epay pre_log 本质是登录日志非操作审计) + GET /admin/logs(精确等值搜索) +
            登录写入 hook:后台登录成功记"登录后台"(uid=0)/失败记"登录失败",商户登录记"普通登录"。
            真跑:错误密码→登录失败、正确→登录后台、商户→普通登录,按uid精确筛选正确。
         —— OpLogs.vue(操作审计)epay 无对应表(pre_log 只记登录),保留 mock,我们独有想做需另建 oplog 表+全局写入 hook。
-  🎨  数据清理        epay clean.php → Clean.vue
+  ✅  数据清理        epay clean.php → Clean.vue [真接口 2026-07-22]
+        —— POST /api/admin/clean：CleanService 按 target(白名单 order/settle/record/transfer/psorder→表+时间列)删 N 天前记录,
+           days<7 拒绝(保护近期数据),破坏性操作前端二次确认 Modal。Clean.vue 切真接口(去掉无后端的缓存清理块)。
+           真跑:days=3 拒、坏 target 拒、order 3650天前删(deleted=0)。
   ✅  文章管理        epay article.php → Articles.vue [真接口 2026-07-22,接官网 CMS 持久化]
         —— 复用官网 CMS 模式(pay_site_config key=articles,分类+文章整份 JSON)。articles store 加 hydrate()拉取 + 变更防抖推后端(仅admin token)。
            Articles.vue + 官网 ClassicNews/NewsSection onMounted hydrate。真跑:后台存 articles→公开读回一致。置顶/显隐/浏览量为前端字段。
