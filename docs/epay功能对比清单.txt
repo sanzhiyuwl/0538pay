@@ -224,7 +224,9 @@
            (notify>0 且到期 且近一天完成)。真跑：回调时商户 fail→入队→flip success→cron 重发→notify 归0。
   🔨  未支付订单主动对账（我们扩展，epay 靠 notify2 手动兜底）
         —— scheduler 每 5min 跑 ReconcileUnpaid，扫最近窗口未付真实渠道单，复用 QueryStatus 查渠道→幂等改单入账。
-  🎨/⬜  分账 profitsharing 自动执行
+  🎨/✅  分账 profitsharing 自动执行 [真接口 2026-07-22]
+        —— ProfitService.AutoExecute(扫 status=0 待分账单逐条提交扣款,复用 MarkSuccessWithDebit,余额不足跳过下轮再试) +
+           scheduler profitTicker(每 5min)。对齐 epay cron do=profitsharing。真实渠道分账 API 待凭证(余额层已闭环)。
   🎨/⬜  风控 check（触发规则自动关停商户/通道）—— epay 连续N单通知失败自动关支付权限，待补
   🎨/⬜  投诉 complain 自动处理（冻结/回复/拉黑/退款）
   🎨/⬜  cron 访问密钥保护
@@ -239,8 +241,11 @@
       标注格式：epay菜单/文件 → 我们视图 [状态]。
 
 【平台首页】
-  🎨  仪表盘统计（订单数/商户数/余额/结算/成功率/收入统计表）
-      epay index.php → 我们 Dashboard.vue [mock]
+  ✅  仪表盘统计（订单数/商户数/余额/结算/成功率/收入趋势/实时订单）
+      epay index.php + ajax getcount → Dashboard.vue [真接口 2026-07-22]
+      —— GET /api/admin/dashboard：DashboardService 全平台聚合——概况卡(订单/成功订单/交易额/利润 今日+昨日+累计)、
+         平台指标(商户总数/订单总数/今日成功率/余额总额/已结算总额)、待办(待结算/待审域名/待分账/今日未付)、近7日订单量+交易额趋势、最近8笔订单。
+         Dashboard.vue 切真接口。真跑:返回真实聚合(今日24单/成功2/交易额200)。
 
 【订单管理】(订单写操作 2026-07-22 后端切真接口)
   ✅  订单列表查询（筛选/分页）  epay order.php → Orders.vue [真接口 GET /api/admin/orders]
@@ -417,7 +422,9 @@
   ✅  消息提醒 notice(公众号/邮件)    → NoticeSettings.vue [真接口 config group=notice，模板ID+邮件开关]
   ✅  实名认证 certificate(支付宝/腾讯云/阿里云OCR)  → CertSettings.vue [真接口 config group=cert，含 cert_money]
   ✅  邮箱与短信 mail(SMTP/短信模板)  → MailSettings.vue [真接口 config group=mail，mail_*+sms_* 合并存取]
-  🎨  网站公告 gonggao          → Announcements.vue（已移入官网管理组导航）
+  ✅  网站公告 gonggao          → Announcements.vue [真接口 2026-07-22]
+        —— pay_announce 表(content/color/sort/status/addtime,对齐 epay pre_anounce) + 5接口(列表/新增/编辑/显隐/删除) +
+           公开读 GET /api/site/announces(status=1 展示中,供官网/商户端)。Announcements.vue 切真接口(发布抽屉+颜色预设+显隐开关)。真跑:CRUD+显隐+公开读。
   🎨  首页模板 template          → TemplateSettings.vue（官网管理组）
   🎨  网站LOGO upimg            → (Settings内)
   ✅  IP获取方式 iptype          → OtherSettings.vue [真接口 config group=other(iptype+proxy 合并)]
@@ -439,7 +446,9 @@
            真跑:错误密码→登录失败、正确→登录后台、商户→普通登录,按uid精确筛选正确。
         —— OpLogs.vue(操作审计)epay 无对应表(pre_log 只记登录),保留 mock,我们独有想做需另建 oplog 表+全局写入 hook。
   🎨  数据清理        epay clean.php → Clean.vue
-  🎨  文章管理        epay article.php → Articles.vue
+  ✅  文章管理        epay article.php → Articles.vue [真接口 2026-07-22,接官网 CMS 持久化]
+        —— 复用官网 CMS 模式(pay_site_config key=articles,分类+文章整份 JSON)。articles store 加 hydrate()拉取 + 变更防抖推后端(仅admin token)。
+           Articles.vue + 官网 ClassicNews/NewsSection onMounted hydrate。真跑:后台存 articles→公开读回一致。置顶/显隐/浏览量为前端字段。
   🎨  单点登录(后台免密进商户中心)  epay sso.php [未做]
 
 【权限（我们扩展，epay 是单管理员）】
