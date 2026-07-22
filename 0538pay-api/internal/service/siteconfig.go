@@ -25,6 +25,7 @@ var allowedKeys = map[string]bool{
 	"content":  true, // 首页营销板块 DIY
 	"docs":     true, // 开发者文档
 	"settings": true, // 网站设置外壳 + SEO
+	"articles": true, // 文章资讯（分类 + 文章，对齐 epay article.php）
 }
 
 // Get 读取某份 CMS 文档（官网公开读）。key 非法或无记录返回空串（前端回退默认）。

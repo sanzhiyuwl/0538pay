@@ -39,6 +39,8 @@ type Deps struct {
 	Mapi           *handler.MapiHandler
 	Paypage        *handler.PaypageHandler
 	Message        *handler.MessageHandler
+	Dashboard      *handler.DashboardHandler
+	Announce       *handler.AnnounceHandler
 }
 
 // Setup 注册所有路由。
@@ -58,6 +60,9 @@ func Setup(r *gin.Engine, d Deps) {
 		authed := admin.Group("")
 		authed.Use(middleware.Auth(d.JWT, "admin"))
 		{
+			// 仪表盘（全平台聚合）
+			authed.GET("/dashboard", d.Dashboard.Overview)
+
 			// 订单管理（列表 + 写操作）
 			authed.GET("/orders", d.Order.List)
 			authed.POST("/orders/refund", d.Order.Refund)
@@ -191,6 +196,13 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.POST("/messages", d.Message.Send)
 			authed.DELETE("/messages/:id", d.Message.Delete)
 
+			// 网站公告（对齐 epay gonggao.php）
+			authed.GET("/announces", d.Announce.List)
+			authed.POST("/announces", d.Announce.Create)
+			authed.PUT("/announces/:id", d.Announce.Update)
+			authed.PUT("/announces/:id/status", d.Announce.SetStatus)
+			authed.DELETE("/announces/:id", d.Announce.Delete)
+
 			// 官网 CMS 内容保存（后台鉴权写）
 			authed.PUT("/site/config/:key", d.SiteConfig.Save)
 		}
@@ -221,6 +233,7 @@ func Setup(r *gin.Engine, d Deps) {
 	site := api.Group("/site")
 	{
 		site.GET("/config/:key", d.SiteConfig.Get)
+		site.GET("/announces", d.Announce.Public) // 展示中的公告（官网/商户端读）
 	}
 
 	// 商户中心（阶段D）

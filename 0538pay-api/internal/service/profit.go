@@ -214,6 +214,32 @@ func (s *ProfitService) Operate(id uint, req dto.PsStatusReq) error {
 	}
 }
 
+// AutoExecute 自动执行待分账(status=0)订单：逐条提交分账（扣款置成功）。
+// 对齐 epay cron do=profitsharing。余额不足/状态已变的单跳过（下轮再试），返回成功执行数。
+// 由 scheduler 定时调用；真实渠道分账 API 待凭证，本地按 Operate submit 同一逻辑判成功。
+func (s *ProfitService) AutoExecute(limit int) (int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	ids, err := s.repo.ListPendingIDs(limit)
+	if err != nil {
+		return 0, err
+	}
+	done := 0
+	for _, id := range ids {
+		settleNo := "PS" + time.Now().Format("20060102150405")
+		flipped, err := s.repo.MarkSuccessWithDebit(id, settleNo)
+		if err != nil {
+			// 余额不足等：跳过该单，下轮再试，不中断整批。
+			continue
+		}
+		if flipped {
+			done++
+		}
+	}
+	return done, nil
+}
+
 func (s *ProfitService) toPsOrderView(o *model.ProfitOrder) dto.PsOrderView {
 	v := dto.PsOrderView{
 		ID:         o.ID,

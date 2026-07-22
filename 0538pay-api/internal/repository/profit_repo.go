@@ -89,6 +89,14 @@ func (r *ProfitRepo) ExistOrderByTradeNo(tradeNo string) (bool, error) {
 	return n > 0, err
 }
 
+// ListPendingIDs 取待分账(status=0)订单 id 列表（自动执行用），按 id 升序，限 limit 条。
+func (r *ProfitRepo) ListPendingIDs(limit int) ([]uint, error) {
+	var ids []uint
+	err := r.db.Model(&model.ProfitOrder{}).
+		Where("status = 0").Order("id ASC").Limit(limit).Pluck("id", &ids).Error
+	return ids, err
+}
+
 // FindOrder 按 id 查分账订单。未找到返回 (nil,nil)。
 func (r *ProfitRepo) FindOrder(id uint) (*model.ProfitOrder, error) {
 	var o model.ProfitOrder

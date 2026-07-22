@@ -1290,3 +1290,72 @@ type MessageSendReq struct {
 	Title   string `json:"title" binding:"required"`
 	Content string `json:"content" binding:"required"`
 }
+
+// ---- 后台仪表盘（对齐 epay admin/index.php + ajax getcount）----
+
+// AdminDashboard 后台仪表盘聚合。
+type AdminDashboard struct {
+	Overview    []DashOverviewCard `json:"overview"`     // 概况卡（订单/成功/金额/利润）
+	Todo        DashTodo           `json:"todo"`         // 待办计数
+	TotalMoney  string             `json:"total_money"`  // 商户余额总额
+	SettledSum  string             `json:"settled_sum"`  // 已结算总额
+	Merchants   int64              `json:"merchants"`    // 商户总数
+	OrdersTotal int64              `json:"orders_total"` // 订单总数
+	SuccessRate string             `json:"success_rate"` // 今日成功率(%)
+	Trend       DashTrend          `json:"trend"`        // 近7日趋势
+	Recent      []DashRecentOrder  `json:"recent"`       // 最近订单
+}
+
+// DashOverviewCard 概况卡：今日/昨日/累计。
+type DashOverviewCard struct {
+	Label      string `json:"label"`
+	Today      string `json:"today"`
+	Yesterday  string `json:"yesterday"`
+	TotalLabel string `json:"total_label"`
+	Total      string `json:"total"`
+}
+
+// DashTodo 待办计数。
+type DashTodo struct {
+	PendingSettle int64 `json:"pending_settle"` // 待结算
+	PendingDomain int64 `json:"pending_domain"` // 待审域名
+	PendingProfit int64 `json:"pending_profit"` // 待分账
+	UnpaidOrders  int64 `json:"unpaid_orders"`  // 今日未付单
+}
+
+// DashTrend 近 7 日趋势（订单量 + 交易额）。
+type DashTrend struct {
+	Labels  []string `json:"labels"`
+	Orders  []int64  `json:"orders"`  // 每日已支付订单数
+	Amounts []string `json:"amounts"` // 每日已支付交易额
+}
+
+// DashRecentOrder 仪表盘实时订单行。
+type DashRecentOrder struct {
+	TradeNo  string `json:"trade_no"`
+	UID      uint   `json:"uid"`
+	TypeShow string `json:"typeshowname"`
+	Money    string `json:"money"`
+	Status   int8   `json:"status"`
+	Time     string `json:"time"`
+}
+
+// ---- 网站公告（对齐 epay pre_anounce）----
+
+// AdminAnnounceView 公告对外响应（后台管理，含 sort/status/addtime）。
+type AdminAnnounceView struct {
+	ID      uint   `json:"id"`
+	Content string `json:"content"`
+	Color   string `json:"color"`
+	Sort    int    `json:"sort"`
+	Status  int8   `json:"status"`
+	AddTime string `json:"addtime"`
+}
+
+// AnnounceSaveReq 新增/编辑公告入参。
+type AnnounceSaveReq struct {
+	Content string `json:"content" binding:"required"`
+	Color   string `json:"color"`
+	Sort    int    `json:"sort"`
+	Status  *int8  `json:"status"`
+}

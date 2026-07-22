@@ -18,6 +18,7 @@ import (
 type Scheduler struct {
 	pay    *service.PayService
 	settle *service.SettleService
+	profit *service.ProfitService // 分账自动执行（可空）
 	cancel context.CancelFunc
 	done   chan struct{}
 
@@ -26,8 +27,10 @@ type Scheduler struct {
 	reconcileInterval time.Duration
 	cleanupInterval   time.Duration
 	settleInterval    time.Duration
+	profitInterval    time.Duration
 	batchLimit        int
 	settleLimit       int
+	profitLimit       int
 	reconcileWindow   time.Duration
 	orderExpiry       time.Duration // 未支付订单超时时长，超过则清理
 }
@@ -41,12 +44,17 @@ func New(pay *service.PayService, settle *service.SettleService) *Scheduler {
 		reconcileInterval: 5 * time.Minute,  // 每 5 分钟对账一次未支付单
 		cleanupInterval:   1 * time.Hour,    // 每小时清理一次超时未付单
 		settleInterval:    1 * time.Hour,    // 每小时检查一次自动结算（服务层每日只跑一次）
+		profitInterval:    5 * time.Minute,  // 每 5 分钟自动执行一次待分账单
 		batchLimit:        20,               // 每批处理条数，对齐 epay limit=20
 		settleLimit:       100,              // 单次自动结算处理商户数上限
+		profitLimit:       50,               // 单次自动分账处理条数上限
 		reconcileWindow:   30 * time.Minute, // 只对账最近 30 分钟创建的未支付单
 		orderExpiry:       24 * time.Hour,   // 未付超 24 小时清理，对齐 epay
 	}
 }
+
+// SetProfit 注入分账服务（自动执行待分账单）。nil 则不跑分账自动执行。
+func (s *Scheduler) SetProfit(p *service.ProfitService) { s.profit = p }
 
 // Start 启动后台任务协程。非阻塞。
 func (s *Scheduler) Start() {
@@ -54,7 +62,7 @@ func (s *Scheduler) Start() {
 	s.cancel = cancel
 	s.done = make(chan struct{})
 	go s.run(ctx)
-	log.Printf("[scheduler] 已启动：通知重试每 %s、对账每 %s、超时关单每 %s、自动结算每 %s", s.notifyInterval, s.reconcileInterval, s.cleanupInterval, s.settleInterval)
+	log.Printf("[scheduler] 已启动：通知重试每 %s、对账每 %s、超时关单每 %s、自动结算每 %s、自动分账每 %s", s.notifyInterval, s.reconcileInterval, s.cleanupInterval, s.settleInterval, s.profitInterval)
 }
 
 // Stop 优雅停止，等待当前循环退出。
@@ -73,10 +81,12 @@ func (s *Scheduler) run(ctx context.Context) {
 	reconcileTicker := time.NewTicker(s.reconcileInterval)
 	cleanupTicker := time.NewTicker(s.cleanupInterval)
 	settleTicker := time.NewTicker(s.settleInterval)
+	profitTicker := time.NewTicker(s.profitInterval)
 	defer notifyTicker.Stop()
 	defer reconcileTicker.Stop()
 	defer cleanupTicker.Stop()
 	defer settleTicker.Stop()
+	defer profitTicker.Stop()
 
 	for {
 		select {
@@ -90,7 +100,23 @@ func (s *Scheduler) run(ctx context.Context) {
 			s.runCleanup()
 		case <-settleTicker.C:
 			s.runSettle(ctx)
+		case <-profitTicker.C:
+			s.runProfit()
 		}
+	}
+}
+
+func (s *Scheduler) runProfit() {
+	if s.profit == nil {
+		return
+	}
+	n, err := s.profit.AutoExecute(s.profitLimit)
+	if err != nil {
+		log.Printf("[scheduler] 自动分账出错: %v", err)
+		return
+	}
+	if n > 0 {
+		log.Printf("[scheduler] 自动分账执行 %d 单", n)
 	}
 }
 
