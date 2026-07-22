@@ -56,11 +56,32 @@ func main() {
 	accountRepo := repository.NewAccountRepo(db)
 	channelRepo := repository.NewChannelRepo(db)
 
+	groupRepo := repository.NewGroupRepo(db)
+
+	// 系统配置域：全量加载进内存缓存，业务服务的常量由它刷新（对齐 epay pre_config）。
+	configSvc := service.NewConfigService(repository.NewConfigRepo(db))
+	if err := configSvc.Load(); err != nil {
+		log.Fatalf("加载系统配置失败: %v", err)
+	}
+	service.ApplyConfig(configSvc)                          // 初始刷新业务常量
+	configSvc.OnChange(func() { service.ApplyConfig(configSvc) }) // 设置保存后自动刷新
+
 	authSvc := service.NewAuthService(adminRepo, jm)
 	orderSvc := service.NewOrderService(orderRepo)
-	merchantSvc := service.NewMerchantService(merchantRepo)
+	merchantSvc := service.NewMerchantService(merchantRepo, accountRepo, groupRepo)
+	groupSvc := service.NewGroupService(groupRepo, merchantRepo)
 	channelSvc := service.NewChannelService(channelRepo)
+	// 通道轮询组 / 子通道服务（repo 已在选通道分发器处创建，复用）。
 	paySvc := service.NewPayService(merchantRepo, orderRepo, accountRepo, channelRepo)
+	// 选通道分发：用户组通道分配 / 轮询组 / 子通道 / 组级费率覆盖（对齐 epay getSubmitInfo）。
+	rollRepo := repository.NewRollRepo(db)
+	subChannelRepo := repository.NewSubChannelRepo(db)
+	paySvc.SetSelector(service.NewChannelSelector(channelRepo, rollRepo, subChannelRepo, groupRepo))
+	rollSvc := service.NewRollService(rollRepo, channelRepo)
+	subChannelSvc := service.NewSubChannelService(subChannelRepo, channelRepo, merchantRepo)
+	merchantSvc.SetSubChannelRepo(subChannelRepo) // 删商户级联删子通道
+	channelSvc.SetSubChannelRepo(subChannelRepo)  // 删主通道级联删子通道
+	orderSvc.SetWriteDeps(accountRepo, channelRepo, adminRepo, paySvc) // 订单写操作依赖
 	settleRepo := repository.NewSettleRepo(db)
 	settleSvc := service.NewSettleService(settleRepo, merchantRepo)
 	recordRepo := repository.NewRecordRepo(db)
@@ -81,7 +102,6 @@ func main() {
 	merchantAuthSvc := service.NewMerchantAuthService(merchantRepo, jm)
 	authSvc.SetLogService(logSvc)         // 后台登录写日志
 	merchantAuthSvc.SetLogService(logSvc) // 商户登录写日志
-	groupRepo := repository.NewGroupRepo(db)
 	merchantCenterSvc := service.NewMerchantCenterService(
 		merchantRepo, orderRepo, recordRepo, settleRepo, accountRepo, channelRepo, groupRepo, paySvc,
 	)
@@ -91,7 +111,11 @@ func main() {
 		Auth:           handler.NewAuthHandler(authSvc),
 		Order:          handler.NewOrderHandler(orderSvc),
 		Merchant:       handler.NewMerchantHandler(merchantSvc),
+		Group:          handler.NewGroupHandler(groupSvc),
+		Config:         handler.NewConfigHandler(configSvc),
 		Channel:        handler.NewChannelHandler(channelSvc),
+		Roll:           handler.NewRollHandler(rollSvc),
+		SubChannel:     handler.NewSubChannelHandler(subChannelSvc),
 		Pay:            handler.NewPayHandler(paySvc),
 		Settle:         handler.NewSettleHandler(settleSvc),
 		Record:         handler.NewRecordHandler(recordSvc),

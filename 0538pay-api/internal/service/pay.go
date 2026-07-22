@@ -44,11 +44,16 @@ type PayService struct {
 	risk      *RiskService      // 风控关键词拦截（可空）
 	blacklist *BlacklistService // 黑名单拦截（可空）
 	domain    *DomainService    // 域名白名单校验（可空）
+	selector  *ChannelSelector  // 选通道分发（可空；SetSelector 注入。nil 则退回 plugin 名直配）
 }
 
 func NewPayService(m *repository.MerchantRepo, o *repository.OrderRepo, a *repository.AccountRepo, ch *repository.ChannelRepo) *PayService {
 	return &PayService{merchants: m, orders: o, accounts: a, channels: ch}
 }
+
+// SetSelector 注入选通道分发器（用户组通道分配 / 轮询组 / 子通道 / 组级费率覆盖）。
+// nil 则 Submit 退回旧版按 plugin 名定位单一通道（向后兼容阶段A/B）。
+func (s *PayService) SetSelector(sel *ChannelSelector) { s.selector = sel }
 
 // SetProfitService 注入分账服务（下单匹配规则 + 支付成功建分账单）。nil 则不启用分账。
 func (s *PayService) SetProfitService(p *ProfitService) { s.profit = p }
@@ -58,8 +63,31 @@ func (s *PayService) SetRiskServices(r *RiskService, b *BlacklistService, d *Dom
 	s.risk, s.blacklist, s.domain = r, b, d
 }
 
-// blockKeywords 关键词屏蔽词（对齐 epay blockname，先固化，待 config 域迁移）。
+// blockKeywords 关键词屏蔽词（对齐 epay blockname，| 分隔）。config 域加载后刷新。
 var blockKeywords = []string{"博彩", "赌博", "违禁", "毒品", "枪支"}
+
+// blockAlert 命中屏蔽词时的提示文案（对齐 epay blockalert）。
+var blockAlert = "温馨提醒该商品禁止出售"
+
+// reloadPayConfig 从 config 域刷新屏蔽词与提示。blockname 为空则不屏蔽。
+func reloadPayConfig(cfg *ConfigService) {
+	raw := strings.TrimSpace(cfg.Str("blockname"))
+	if raw == "" {
+		blockKeywords = nil
+	} else {
+		parts := strings.Split(raw, "|")
+		kws := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if p = strings.TrimSpace(p); p != "" {
+				kws = append(kws, p)
+			}
+		}
+		blockKeywords = kws
+	}
+	if a := strings.TrimSpace(cfg.Str("blockalert")); a != "" {
+		blockAlert = a
+	}
+}
 
 // hitKeyword 返回商品名命中的第一个屏蔽词，未命中返回空串（对齐 epay strpos 子串匹配）。
 func hitKeyword(name string) string {
@@ -199,7 +227,7 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 	if s.risk != nil && hitKeyword(name) != "" {
 		kw := hitKeyword(name)
 		s.risk.RecordKeyword(pid, notifyHost, "商品名命中屏蔽词「"+kw+"」")
-		return nil, payErr("温馨提醒该商品禁止出售，如有疑问请联系网站客服！")
+		return nil, payErr(blockAlert)
 	}
 
 	// 5. 幂等：同 uid+out_trade_no 已存在则复用/拦截（对齐 epay 10 天窗口内校验）
@@ -218,23 +246,17 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 		return s.dispatch(ctx, old, payType)
 	}
 
-	// 6. 选通道：按 type 定位一个已开启通道，拿到 plugin/费率（对齐 epay Channel::submit 的简化版，
-	//    轮询/加权留待 pay_roll 阶段）。阶段A的 type 传 "mock"，通道表里 plugin=mock 的记录承接。
-	ch, err := s.pickChannel(payType)
+	// 6. 选通道：按 商户用户组(gid) 对该支付方式的分配选出主通道 + 可选子通道 + 组级费率覆盖
+	//    （对齐 epay Channel::getSubmitInfo：0关/-1随机/-2子通道/正整数固定或轮询组）。
+	//    selector 未注入时退回旧版按 plugin 名定位单一通道（向后兼容阶段A/B）。
+	plugin, channelID, subchannelID, rate, err := s.resolveChannel(m, payType, amount)
 	if err != nil {
 		return nil, err
 	}
 
 	// 7. 费率计算（平台代收 mode=0）：getmoney = money * rate / 100，四舍五入两位。
-	//    商户直清 mode=1 的加费逻辑留待后续，阶段C1先支持代收。
-	getMoney := decimal.Zero
-	plugin := "mock"
-	channelID := 0
-	if ch != nil {
-		plugin = ch.Plugin
-		channelID = int(ch.ID)
-		getMoney = amount.Mul(ch.Rate).Div(decimal.NewFromInt(100)).Round(2)
-	}
+	//    商户直清 mode=1 的加费逻辑留待后续。rate 已含组级覆盖。
+	getMoney := amount.Mul(rate).Div(decimal.NewFromInt(100)).Round(2)
 
 	// 7b. 分账规则匹配（对齐 epay updateOrderProfits）：命中则记规则 id 到 order.profits，
 	//     支付成功回调时据此按比例创建分账订单。realmoney 用订单金额（无独立实收字段时）。
@@ -259,6 +281,7 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 		Type:       0,
 		TypeName:   payType,
 		Channel:    channelID,
+		Subchannel: subchannelID,
 		Plugin:     plugin,
 		AddTime:    now,
 		Status:     0,
@@ -274,14 +297,57 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 	return s.dispatch(ctx, order, payType)
 }
 
-// pickChannel 按下单传入的 type 选一个可用通道。
-// 阶段A/C1 简化策略：type 先当 plugin 名匹配已开启通道（mock/alipay/wxpay 等插件名）。
-// 找不到通道记录时返回 (nil, nil)——保持 mock 渠道在通道表为空时仍可下单（向后兼容阶段A）。
-func (s *PayService) pickChannel(payType string) (*model.Channel, error) {
-	if payType == "" {
-		return nil, nil
+// resolveChannel 选出下单主通道 + 可选子通道 + 最终费率。
+// 优先走 selector（用户组通道分配/轮询/子通道/组级费率覆盖，对齐 epay getSubmitInfo）；
+// selector 未注入或该 type 无法解析为支付方式ID时，退回旧版按 plugin 名定位单一通道
+// （向后兼容阶段A mock 与阶段B epay/真实渠道：type 传插件名、通道表 plugin 匹配）。
+// 返回 (plugin, channelID, subchannelID, rate)。
+func (s *PayService) resolveChannel(m *model.Merchant, payType string, amount decimal.Decimal) (string, int, int, decimal.Decimal, error) {
+	if s.selector != nil {
+		if typeID, ok := s.resolveTypeID(payType); ok {
+			res, err := s.selector.Select(m.UID, m.GID, typeID, amount)
+			if err != nil {
+				return "", 0, 0, decimal.Zero, err
+			}
+			return res.Plugin, res.ChannelID, res.Subchannel, res.Rate, nil
+		}
 	}
-	return s.channels.FindEnabledByPlugin(payType)
+	// 退回旧版：type 当 plugin 名定位单一已开启通道。找不到则记 mock/零费率（阶段A向后兼容）。
+	plugin := "mock"
+	channelID := 0
+	rate := decimal.Zero
+	if payType != "" {
+		ch, err := s.channels.FindEnabledByPlugin(payType)
+		if err != nil {
+			return "", 0, 0, decimal.Zero, err
+		}
+		if ch != nil {
+			plugin = ch.Plugin
+			channelID = int(ch.ID)
+			rate = ch.Rate
+		}
+	}
+	return plugin, channelID, 0, rate, nil
+}
+
+// resolveTypeID 把下单 type 参数解析为支付方式ID（pay_channel.type）。
+//   - 纯数字：直接当 typeID。
+//   - 插件名（如 alipay/wxpay/mock）：取该 plugin 下第一个已开启通道的 type。
+//
+// 无法解析（无匹配通道）返回 ok=false，调用方退回旧版 plugin 名直配。
+func (s *PayService) resolveTypeID(payType string) (int, bool) {
+	payType = strings.TrimSpace(payType)
+	if payType == "" {
+		return 0, false
+	}
+	if n, err := strconv.Atoi(payType); err == nil {
+		return n, true
+	}
+	ch, err := s.channels.FindEnabledByPlugin(payType)
+	if err != nil || ch == nil {
+		return 0, false
+	}
+	return ch.Type, true
 }
 
 // QueryStatus 收银台轮询查单：先看本地订单状态，未付则主动问渠道 Query。

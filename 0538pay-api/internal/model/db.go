@@ -34,6 +34,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&Merchant{},
 		&PayRecord{},
 		&Channel{},
+		&Roll{},
+		&SubChannel{},
 		&SettleRecord{},
 		&SettleBatch{},
 		&Transfer{},
@@ -46,5 +48,6 @@ func AutoMigrate(db *gorm.DB) error {
 		&InviteCode{},
 		&Group{},
 		&SiteConfig{},
+		&Config{},
 	)
 }

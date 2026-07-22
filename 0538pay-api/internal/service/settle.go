@@ -14,21 +14,42 @@ import (
 	"gorm.io/gorm"
 )
 
-// 结算计费配置（对齐 epay pre_config 的默认值）。
-// 目前作为服务层常量固化；待建 config 域后迁移为可配置（见 docs/优化待办.txt）。
+// 结算计费配置（对齐 epay pre_config）。初始为默认值，config 域加载后由 reloadSettleConfig 覆盖，
+// 且系统设置保存时经 ConfigService.OnChange 回调实时刷新。键名对齐 epay set.php。
 var (
-	settleRate   = decimal.RequireFromString("0.5")  // 结算手续费率（百分比 %）
-	settleMoney  = decimal.RequireFromString("30")   // 最低结算金额（也是自动结算门槛）
-	settleFeeMin = decimal.RequireFromString("0.1")  // 手续费封底
-	settleFeeMax = decimal.RequireFromString("20")   // 手续费封顶
+	settleRate   = decimal.RequireFromString("0.5")  // settle_rate 结算手续费率（%）
+	settleMoney  = decimal.RequireFromString("30")   // settle_money 最低结算金额（也是自动结算门槛）
+	settleFeeMin = decimal.RequireFromString("0.1")  // settle_fee_min 手续费封底
+	settleFeeMax = decimal.RequireFromString("20")   // settle_fee_max 手续费封顶
 	hundred      = decimal.RequireFromString("100")
 )
 
-// 结算周期与提现次数配置（对齐 epay settle_type / settle_maxlimit，待 config 域迁移）。
-const (
-	settleTypeDPlus1 = true // 结算周期 D+1（可提现余额扣当日已收）；false=D+0 全部余额
-	settleMaxLimit   = 5    // 每日手动提现次数上限（0=不限）
+// 结算周期与提现次数配置（对齐 epay settle_type / settle_maxlimit）。
+var (
+	settleTypeDPlus1 = true // settle_type=1 时 D+1（可提现余额扣当日已收）；0=D+0 全部余额
+	settleMaxLimit   = 5    // settle_maxlimit 每日手动提现次数上限（0=不限）
 )
+
+// ApplyConfig 用 config 域当前值刷新所有业务服务的缓存常量（结算/代付/退款/保证金实名/支付屏蔽词）。
+// 启动时调一次，并注册到 ConfigService.OnChange，设置保存后自动刷新。
+func ApplyConfig(cfg *ConfigService) {
+	reloadSettleConfig(cfg)
+	reloadOrderConfig(cfg)
+	reloadMerchantCenterConfig(cfg)
+	reloadPayConfig(cfg)
+}
+
+// reloadSettleConfig 从 config 域刷新结算/代付相关常量（启动 + 设置保存后调用）。
+// 放这里因结算常量在本文件；代付 transfer_* 也一并刷新（transfer.go 用到）。
+func reloadSettleConfig(cfg *ConfigService) {
+	settleRate = cfg.Dec("settle_rate", settleRate)
+	settleMoney = cfg.Dec("settle_money", settleMoney)
+	settleFeeMin = cfg.Dec("settle_fee_min", settleFeeMin)
+	settleFeeMax = cfg.Dec("settle_fee_max", settleFeeMax)
+	settleTypeDPlus1 = cfg.Str("settle_type") != "0" // 非 "0" 即 D+1
+	settleMaxLimit = cfg.Int("settle_maxlimit", settleMaxLimit)
+	reloadTransferConfig(cfg)
+}
 
 // settleTypeName 结算方式 ID → 名称（对齐前端 mock settleTypeMeta）。
 func settleTypeName(t int8) string {

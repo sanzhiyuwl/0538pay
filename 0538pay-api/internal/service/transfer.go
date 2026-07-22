@@ -15,12 +15,23 @@ import (
 // 代付计费与限额配置（对齐 epay pre_config 的 transfer_* 键，先固化为常量，待 config 域迁移）。
 // transfer_rate 为空时 epay 回退到 settle_rate；此处直接复用结算费率常量保持一致。
 var (
-	transferRate     = settleRate                        // 代付手续费率（%），对齐 epay 空则用 settle_rate
-	transferMinMoney = decimal.RequireFromString("1")    // 单笔最小
-	transferMaxMoney = decimal.RequireFromString("20000") // 单笔最大
+	transferRate     = settleRate                         // transfer_rate 代付手续费率（%），空则复用 settle_rate
+	transferMinMoney = decimal.RequireFromString("1")     // transfer_minmoney 单笔最小
+	transferMaxMoney = decimal.RequireFromString("20000") // transfer_maxmoney 单笔最大
+	transferMaxLimit = 10                                 // transfer_maxlimit 同账号每日代付次数上限（0=不限）
 )
 
-const transferMaxLimit = 10 // 同一收款账号+方式每日代付次数上限（0=不限）
+// reloadTransferConfig 从 config 域刷新代付常量。transfer_rate 留空时复用 settle_rate（对齐 epay）。
+func reloadTransferConfig(cfg *ConfigService) {
+	if r := strings.TrimSpace(cfg.Str("transfer_rate")); r != "" {
+		transferRate = cfg.Dec("transfer_rate", settleRate)
+	} else {
+		transferRate = settleRate
+	}
+	transferMinMoney = cfg.Dec("transfer_minmoney", transferMinMoney)
+	transferMaxMoney = cfg.Dec("transfer_maxmoney", transferMaxMoney)
+	transferMaxLimit = cfg.Int("transfer_maxlimit", transferMaxLimit)
+}
 
 // 付款方式 → 默认通道 id（对齐 epay transfer_alipay/wxpay/qqpay/bank，0=未开启该方式）。
 // 待 config/通道域联动后改为读配置；当前给出占位默认，真实打款待渠道凭证。

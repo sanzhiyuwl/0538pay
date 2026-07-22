@@ -14,7 +14,11 @@ type Deps struct {
 	Auth           *handler.AuthHandler
 	Order          *handler.OrderHandler
 	Merchant       *handler.MerchantHandler
+	Group          *handler.GroupHandler
+	Config         *handler.ConfigHandler
 	Channel        *handler.ChannelHandler
+	Roll           *handler.RollHandler
+	SubChannel     *handler.SubChannelHandler
 	Pay            *handler.PayHandler
 	Settle         *handler.SettleHandler
 	Record         *handler.RecordHandler
@@ -48,8 +52,42 @@ func Setup(r *gin.Engine, d Deps) {
 		authed := admin.Group("")
 		authed.Use(middleware.Auth(d.JWT, "admin"))
 		{
+			// 订单管理（列表 + 写操作）
 			authed.GET("/orders", d.Order.List)
+			authed.POST("/orders/refund", d.Order.Refund)
+			authed.POST("/orders/batch", d.Order.Batch)
+			authed.PUT("/orders/:trade_no/status", d.Order.SetStatus)
+			authed.POST("/orders/:trade_no/freeze", d.Order.Freeze)
+			authed.POST("/orders/:trade_no/unfreeze", d.Order.Unfreeze)
+			authed.GET("/orders/:trade_no/refund-info", d.Order.RefundInfo)
+			authed.POST("/orders/:trade_no/fill", d.Order.FillOrder)
+			authed.POST("/orders/:trade_no/notify", d.Order.Renotify)
+			authed.DELETE("/orders/:trade_no", d.Order.Delete)
+
+			// 商户管理（写操作）
 			authed.GET("/merchants", d.Merchant.List)
+			authed.POST("/merchants", d.Merchant.Create)
+			authed.PUT("/merchants/:uid", d.Merchant.Update)
+			authed.POST("/merchants/:uid/recharge", d.Merchant.Recharge)
+			authed.PUT("/merchants/:uid/group", d.Merchant.SetGroup)
+			authed.PUT("/merchants/:uid/status", d.Merchant.SetStatus)
+			authed.POST("/merchants/:uid/resetkey", d.Merchant.ResetKey)
+			authed.DELETE("/merchants/:uid", d.Merchant.Delete)
+
+			// 系统设置（config 域）
+			authed.GET("/config/:group", d.Config.GetGroup)
+			authed.PUT("/config/:group", d.Config.SaveGroup)
+
+			// 用户组管理
+			authed.GET("/groups", d.Group.List)
+			authed.POST("/groups", d.Group.Create)
+			authed.PUT("/groups/:gid", d.Group.Update)
+			authed.PUT("/groups/:gid/buy", d.Group.SetBuy)
+			authed.DELETE("/groups/:gid", d.Group.Delete)
+			// 用户组通道分配（{typeid:{type,channel,rate}}）
+			authed.GET("/groups/:gid/assigns", d.Group.GetAssigns)
+			authed.PUT("/groups/:gid/assigns", d.Group.SaveAssigns)
+
 			authed.GET("/channels", d.Channel.List)
 			authed.POST("/channels", d.Channel.Create)
 			authed.PUT("/channels/:id", d.Channel.Update)
@@ -57,6 +95,20 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.PUT("/channels/:id/status", d.Channel.SetStatus)
 			authed.GET("/channels/:id/config", d.Channel.GetConfig)
 			authed.PUT("/channels/:id/config", d.Channel.SaveConfig)
+
+			// 通道轮询组（roll）
+			authed.GET("/rolls", d.Roll.List)
+			authed.POST("/rolls", d.Roll.Create)
+			authed.PUT("/rolls/:id", d.Roll.Update)
+			authed.PUT("/rolls/:id/status", d.Roll.SetStatus)
+			authed.DELETE("/rolls/:id", d.Roll.Delete)
+
+			// 子通道（商户维度，?uid= 指定商户）
+			authed.GET("/subchannels", d.SubChannel.List)
+			authed.POST("/subchannels", d.SubChannel.Create)
+			authed.PUT("/subchannels/:id", d.SubChannel.Update)
+			authed.PUT("/subchannels/:id/status", d.SubChannel.SetStatus)
+			authed.DELETE("/subchannels/:id", d.SubChannel.Delete)
 
 			// 结算管理（C2 结算域）
 			authed.GET("/settles", d.Settle.List)

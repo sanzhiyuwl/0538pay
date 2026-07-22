@@ -114,6 +114,12 @@ func (s *PayService) ResendNotify(tradeNo string) {
 	s.fireMerchantNotify(context.Background(), tradeNo)
 }
 
+// SettleOnFill 后台手动补单入账：订单已被置为已付后，执行入账 + 分账 + 商户通知。
+// 复用支付成功链路 settle（对齐 epay fillorder → processOrder）。
+func (s *PayService) SettleOnFill(tradeNo string) error {
+	return s.settle(context.Background(), tradeNo)
+}
+
 // fireMerchantNotify 拼带签名的回调 URL，GET 商户 notify_url，据结果置通知状态/重试计数。
 // 首次通知：成功 notify=0；失败 notify=1 + 下次重试时间（首档 1 分钟），后续由 cron RetryNotify 接管。
 func (s *PayService) fireMerchantNotify(ctx context.Context, tradeNo string) {

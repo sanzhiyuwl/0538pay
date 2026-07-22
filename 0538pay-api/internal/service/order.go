@@ -9,13 +9,26 @@ import (
 
 const timeLayout = "2006-01-02 15:04:05" // 对齐前端 mock 的时间格式
 
-// OrderService 订单业务逻辑。
+// OrderService 订单业务逻辑（含后台订单写操作）。
 type OrderService struct {
-	repo *repository.OrderRepo
+	repo     *repository.OrderRepo
+	accounts *repository.AccountRepo
+	channels *repository.ChannelRepo
+	admins   *repository.AdminRepo
+	pay      *PayService // 复用补单入账 + 重新通知
 }
 
 func NewOrderService(repo *repository.OrderRepo) *OrderService {
 	return &OrderService{repo: repo}
+}
+
+// SetWriteDeps 注入订单写操作所需依赖（充值/通道/管理员/支付服务）。
+// 用 setter 而非构造参数，避免打断既有 NewOrderService 调用点。
+func (s *OrderService) SetWriteDeps(a *repository.AccountRepo, ch *repository.ChannelRepo, ad *repository.AdminRepo, pay *PayService) {
+	s.accounts = a
+	s.channels = ch
+	s.admins = ad
+	s.pay = pay
 }
 
 // List 返回分页订单（已转为对外 View，金额补两位小数、时间格式化）。

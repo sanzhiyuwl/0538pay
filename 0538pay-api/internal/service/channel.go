@@ -12,12 +12,16 @@ import (
 
 // ChannelService 支付通道业务逻辑。
 type ChannelService struct {
-	repo *repository.ChannelRepo
+	repo        *repository.ChannelRepo
+	subchannels *repository.SubChannelRepo // 删通道级联删其子通道（可空，SetSubChannelRepo 注入）
 }
 
 func NewChannelService(repo *repository.ChannelRepo) *ChannelService {
 	return &ChannelService{repo: repo}
 }
+
+// SetSubChannelRepo 注入子通道 repo，删主通道时级联删其子通道（对齐 epay 删通道级联）。
+func (s *ChannelService) SetSubChannelRepo(r *repository.SubChannelRepo) { s.subchannels = r }
 
 // List 返回分页通道（转对外 View：费率格式化为两位小数百分数）。
 func (s *ChannelService) List(q dto.ChannelQuery) ([]dto.ChannelView, int64, error) {
@@ -173,7 +177,14 @@ func (s *ChannelService) Delete(id uint) error {
 	if exist == nil {
 		return chErr("通道不存在")
 	}
-	return s.repo.Delete(id)
+	if err := s.repo.Delete(id); err != nil {
+		return err
+	}
+	// 级联删该主通道下的子通道（对齐 epay 删通道级联）。
+	if s.subchannels != nil {
+		_ = s.subchannels.DeleteByChannel(int(id))
+	}
+	return nil
 }
 
 // SetStatus 切换通道开关状态。

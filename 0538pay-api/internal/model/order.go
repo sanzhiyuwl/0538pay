@@ -30,6 +30,7 @@ type Order struct {
 	TypeName    string          `gorm:"size:32" json:"typename"`                          // 支付方式英文名
 	TypeShow    string          `gorm:"size:32" json:"typeshowname"`                      // 支付方式中文名
 	Channel     int             `gorm:"index" json:"channel"`                             // 通道ID
+	Subchannel  int             `gorm:"not null;default:0" json:"-"`                      // 命中的子通道ID（0=无，对齐 epay pre_order.subchannel）
 	Plugin      string          `gorm:"size:32" json:"plugin"`                            // 插件标识
 	IP          string          `gorm:"size:45" json:"ip"`                                // 支付IP
 	Buyer       string          `gorm:"size:128" json:"buyer"`                            // 支付账号

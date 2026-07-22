@@ -433,6 +433,62 @@ type MerchantView struct {
 	Deposit   string  `json:"deposit"`
 }
 
+// MerchantCreateReq 后台添加商户入参（对齐 epay uset.php addUser 表单）。
+// 手机号/邮箱不能同时为空且各自唯一；密钥后端随机生成；密码可选（bcrypt）。
+type MerchantCreateReq struct {
+	GID      int    `json:"gid"`       // 用户组
+	SettleID int    `json:"settle_id"` // 结算方式 1支付宝2微信3QQ4银行卡5支付机构
+	Account  string `json:"account"`   // 结算账号
+	Username string `json:"username"`  // 结算姓名
+	URL      string `json:"url"`       // 域名
+	Email    string `json:"email"`
+	QQ       string `json:"qq"`
+	Phone    string `json:"phone"`
+	Mode     int8   `json:"mode"`     // 手续费扣除模式 0余额扣费 1订单加费
+	Pay      int8   `json:"pay"`      // 支付权限 0关1开2未审核
+	Settle   int8   `json:"settle"`   // 结算权限 0/1
+	Status   int8   `json:"status"`   // 0封禁1正常2未审核
+	Password string `json:"password"` // 登录密码（可选）
+}
+
+// MerchantEditReq 后台编辑商户入参（对齐 epay editUser）。money 直接覆盖（管理员强改，不走流水）。
+type MerchantEditReq struct {
+	GID      int    `json:"gid"`
+	UpID     int    `json:"upid"`      // 邀请方
+	SettleID int    `json:"settle_id"`
+	Account  string `json:"account"`
+	Username string `json:"username"`
+	Money    string `json:"money"` // 余额（直接覆盖，管理员强改，不产生流水）
+	URL      string `json:"url"`
+	Email    string `json:"email"`
+	QQ       string `json:"qq"`
+	Phone    string `json:"phone"`
+	Mode     int8   `json:"mode"`
+	Pay      int8   `json:"pay"`
+	Settle   int8   `json:"settle"`
+	Status   int8   `json:"status"`
+	Password string `json:"password"` // 非空则改密（bcrypt）
+}
+
+// MerchantRechargeReq 商户余额充值/扣除入参（走 changeUserMoney 流水）。
+type MerchantRechargeReq struct {
+	Action int8   `json:"action"` // 0=充值(加款) 1=扣除(扣款)
+	Amount string `json:"amount" binding:"required"`
+}
+
+// MerchantGroupReq 修改商户用户组 + 有效期入参（对齐 epay setUserGroup）。
+type MerchantGroupReq struct {
+	GID     int    `json:"gid"`
+	EndTime string `json:"endtime"` // 到期时间 yyyy-mm-dd（空=永久）
+}
+
+// MerchantSetStatusReq 商户权限/状态切换入参（对齐 epay setUser：type 分派）。
+// Field: user(整体状态) / pay(支付权限) / settle(结算权限)。
+type MerchantSetStatusReq struct {
+	Field  string `json:"field"`  // user/pay/settle
+	Status int8   `json:"status"` // 目标值
+}
+
 // MerchantQuery 商户列表查询入参（对齐 admin/user.php 的搜索/筛选/分页）。
 type MerchantQuery struct {
 	Page     int    `form:"page"`
@@ -863,6 +919,75 @@ type GroupBuyReq struct {
 	PayType string `json:"pay_type"` // balance=余额支付(即时) / 其它=渠道(待凭证)
 }
 
+// ===== 用户组管理（后台，对齐 epay glist/gedit/group.php）=====
+
+// GroupView 用户组对外响应（后台列表/卡片），对齐前端 mock/groups.ts 的 Group。
+type GroupView struct {
+	GID           int             `json:"gid"`
+	Name          string          `json:"name"`
+	IsBuy         int8            `json:"isbuy"`         // 是否上架可购买 0/1
+	Price         string          `json:"price"`         // 售价（两位小数）
+	Expire        int             `json:"expire"`        // 有效期月数（0=永久）
+	Sort          int             `json:"sort"`          // 排序
+	Visible       string          `json:"visible"`       // 可见范围
+	Rates         []GroupRateItem `json:"rates"`         // 通道费率说明（解析自 info）
+	Info          string          `json:"info"`          // 费率 JSON 原文（编辑回填）
+	Config        string          `json:"config"`        // 功能配置 JSON 原文（编辑回填）
+	Settings      string          `json:"settings"`      // 用户变量定义
+	MerchantCount int64           `json:"merchantCount"` // 该组下商户数
+}
+
+// GroupSaveReq 新增/编辑用户组入参（对齐 epay saveGroup）。
+// info/config 为 JSON 字符串；组名唯一；expire=有效期月数。
+type GroupSaveReq struct {
+	Name     string `json:"name" binding:"required"`
+	IsBuy    int8   `json:"isbuy"`   // 是否上架可购买 0/1
+	Price    string `json:"price"`   // 售价（可空=0）
+	Expire   int    `json:"expire"`  // 有效期月数（0=永久）
+	Sort     int    `json:"sort"`    // 排序
+	Visible  string `json:"visible"` // 可见范围（GID 列表逗号分隔）
+	Info     string `json:"info"`    // 通道费率 JSON（[{label,rate}] 或对象）
+	Config   string `json:"config"`  // 功能配置 JSON
+	Settings string `json:"settings"`
+}
+
+// GroupBuyStatusReq 用户组上/下架入参（对齐 epay changebuy）。
+type GroupBuyStatusReq struct {
+	IsBuy int8 `json:"isbuy"` // 1=上架 0=下架
+}
+
+// ===== 订单写操作（后台，对齐 epay ajax_order.php）=====
+
+// OrderStatusReq 裸改订单状态入参（改未完成 0 / 改已完成 1，对齐 epay setStatus）。
+type OrderStatusReq struct {
+	Status int8 `json:"status"`
+}
+
+// OrderRefundInfo 退款前查询可退金额（对齐 epay getmoney / refund_info）。
+type OrderRefundInfo struct {
+	TradeNo    string  `json:"trade_no"`
+	RealMoney  float64 `json:"realmoney"`   // 订单实付
+	Refunded   float64 `json:"refunded"`    // 已退累计
+	Refundable float64 `json:"refundable"`  // 本次最多可退
+	CanAPI     bool    `json:"can_api"`     // 渠道是否支持 API 原路退款
+}
+
+// OrderRefundReq 退款入参（对齐 epay refund/apirefund）。
+// API=true 走原路退款(需管理员密码+渠道支持)；false 为手动退款(仅扣商户余额)。
+type OrderRefundReq struct {
+	TradeNo  string `json:"trade_no" binding:"required"`
+	Money    string `json:"money" binding:"required"` // 本次退款金额
+	API      bool   `json:"api"`                      // 是否原路退款
+	Password string `json:"password"`                 // 管理员密码（API 退款校验）
+}
+
+// OrderBatchReq 批量操作入参（对齐 epay operation）。
+// Action: 0改未完成 1改已完成 2冻结 3解冻 4删除。
+type OrderBatchReq struct {
+	Action   int8     `json:"action"`
+	TradeNos []string `json:"trade_nos"`
+}
+
 // OrderQuery 订单列表查询入参（对齐 order.php 的搜索/分页）。
 type OrderQuery struct {
 	Page     int    `form:"page"`
@@ -881,4 +1006,78 @@ func (q *OrderQuery) Normalize() {
 	if q.PageSize <= 0 || q.PageSize > 100 {
 		q.PageSize = 20
 	}
+}
+
+// ===== 通道轮询组（后台，对齐 epay pay_roll.php + ajax_pay.php getRoll/saveRoll）=====
+
+// RollChannelItem 轮询组内的一个通道项（通道ID + 权重）。
+type RollChannelItem struct {
+	Channel     int    `json:"channel"`     // 通道ID
+	ChannelName string `json:"channelname"` // 通道名（展示用，保存时忽略）
+	Weight      int    `json:"weight"`      // 权重（1-99，仅 kind=1 权重随机有效）
+}
+
+// RollView 轮询组对外响应，对齐前端 mock/rolls.ts 的 Roll。
+type RollView struct {
+	ID           uint              `json:"id"`
+	Name         string            `json:"name"`
+	Type         int               `json:"type"`
+	TypeShowName string            `json:"typeshowname"`
+	Kind         int8              `json:"kind"`     // 0=顺序 1=权重随机 2=首个启用
+	Channels     []RollChannelItem `json:"channels"` // 组内通道（解析自 info）
+	Status       int8              `json:"status"`
+}
+
+// RollSaveReq 新增/编辑轮询组入参（name/type/kind + 组内通道列表）。
+type RollSaveReq struct {
+	Name     string            `json:"name" binding:"required"`
+	Type     int               `json:"type"`
+	Kind     int8              `json:"kind"`
+	Channels []RollChannelItem `json:"channels"`
+}
+
+// RollStatusReq 轮询组状态切换入参。
+type RollStatusReq struct {
+	Status int8 `json:"status"`
+}
+
+// ===== 子通道（后台商户维度，对齐 epay pre_subchannel + ajax_user saveSubChannel）=====
+
+// SubChannelView 子通道对外响应。
+type SubChannelView struct {
+	ID          uint   `json:"id"`
+	Channel     int    `json:"channel"`     // 归属主通道ID
+	ChannelName string `json:"channelname"` // 主通道名（展示用）
+	UID         uint   `json:"uid"`
+	Name        string `json:"name"`
+	Status      int8   `json:"status"`
+	Info        string `json:"info"`    // 自定义参数 JSON 原文（编辑回填）
+	UseTime     string `json:"usetime"` // 上次使用时间（"—"=从未使用）
+}
+
+// SubChannelSaveReq 新增/编辑子通道入参。
+type SubChannelSaveReq struct {
+	Channel int    `json:"channel" binding:"required"` // 归属主通道ID
+	Name    string `json:"name" binding:"required"`
+	Info    string `json:"info"` // 自定义参数 JSON（占位替换用，可空）
+}
+
+// SubChannelStatusReq 子通道状态切换入参。
+type SubChannelStatusReq struct {
+	Status int8 `json:"status"`
+}
+
+// ===== 用户组通道分配（后台，对齐 epay pre_group.info 的 {typeid:{type,channel,rate}}）=====
+
+// GroupAssignItem 用户组对某支付方式的分配配置（前端提交/回填用）。
+type GroupAssignItem struct {
+	Type    int    `json:"type"`    // 支付方式ID
+	Kind    string `json:"kind"`    // "channel"|"roll"（正整数目标是通道还是轮询组）
+	Channel string `json:"channel"` // "0"关/"-1"随机/"-2"子通道/正整数
+	Rate    string `json:"rate"`    // 组级费率覆盖（百分数字符串，空=用通道默认）
+}
+
+// GroupAssignSaveReq 保存用户组通道分配入参（整组一次性覆盖）。
+type GroupAssignSaveReq struct {
+	Assigns []GroupAssignItem `json:"assigns"`
 }

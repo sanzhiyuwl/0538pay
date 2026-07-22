@@ -59,6 +59,283 @@ func (h *MerchantHandler) List(c *gin.Context) {
 	resp.Page(c, list, total, q.Page, q.PageSize)
 }
 
+// merchantUIDParam 解析路径 :uid，失败返回 0。
+func merchantUIDParam(c *gin.Context) uint {
+	id, err := strconv.ParseUint(c.Param("uid"), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return uint(id)
+}
+
+// failFromMerchantErr 透传 MerchantError 的业务码。
+func failFromMerchantErr(c *gin.Context, err error) {
+	var me *service.MerchantError
+	if errors.As(err, &me) {
+		resp.Fail(c, me.Code, me.Msg)
+		return
+	}
+	resp.Fail(c, 1003, "操作失败: "+err.Error())
+}
+
+// Create POST /api/admin/merchants 添加商户。
+func (h *MerchantHandler) Create(c *gin.Context) {
+	var req dto.MerchantCreateReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	uid, key, err := h.svc.Create(req)
+	if err != nil {
+		failFromMerchantErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"uid": uid, "key": key})
+}
+
+// Update PUT /api/admin/merchants/:uid 编辑商户。
+func (h *MerchantHandler) Update(c *gin.Context) {
+	uid := merchantUIDParam(c)
+	if uid == 0 {
+		resp.Fail(c, 400, "商户号不合法")
+		return
+	}
+	var req dto.MerchantEditReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Update(uid, req); err != nil {
+		failFromMerchantErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"uid": uid})
+}
+
+// Recharge POST /api/admin/merchants/:uid/recharge 余额充值/扣除。
+func (h *MerchantHandler) Recharge(c *gin.Context) {
+	uid := merchantUIDParam(c)
+	if uid == 0 {
+		resp.Fail(c, 400, "商户号不合法")
+		return
+	}
+	var req dto.MerchantRechargeReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Recharge(uid, req); err != nil {
+		failFromMerchantErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"uid": uid})
+}
+
+// SetGroup PUT /api/admin/merchants/:uid/group 修改用户组 + 有效期。
+func (h *MerchantHandler) SetGroup(c *gin.Context) {
+	uid := merchantUIDParam(c)
+	if uid == 0 {
+		resp.Fail(c, 400, "商户号不合法")
+		return
+	}
+	var req dto.MerchantGroupReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SetGroup(uid, req); err != nil {
+		failFromMerchantErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"uid": uid, "gid": req.GID})
+}
+
+// SetStatus PUT /api/admin/merchants/:uid/status 权限/状态切换。
+func (h *MerchantHandler) SetStatus(c *gin.Context) {
+	uid := merchantUIDParam(c)
+	if uid == 0 {
+		resp.Fail(c, 400, "商户号不合法")
+		return
+	}
+	var req dto.MerchantSetStatusReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SetStatus(uid, req); err != nil {
+		failFromMerchantErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"uid": uid})
+}
+
+// ResetKey POST /api/admin/merchants/:uid/resetkey 重置通信密钥。
+func (h *MerchantHandler) ResetKey(c *gin.Context) {
+	uid := merchantUIDParam(c)
+	if uid == 0 {
+		resp.Fail(c, 400, "商户号不合法")
+		return
+	}
+	key, err := h.svc.ResetKey(uid)
+	if err != nil {
+		failFromMerchantErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"uid": uid, "key": key})
+}
+
+// Delete DELETE /api/admin/merchants/:uid 删除商户。
+func (h *MerchantHandler) Delete(c *gin.Context) {
+	uid := merchantUIDParam(c)
+	if uid == 0 {
+		resp.Fail(c, 400, "商户号不合法")
+		return
+	}
+	if err := h.svc.Delete(uid); err != nil {
+		failFromMerchantErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"uid": uid})
+}
+
+// GroupHandler 用户组管理接口。
+type GroupHandler struct {
+	svc *service.GroupService
+}
+
+func NewGroupHandler(svc *service.GroupService) *GroupHandler {
+	return &GroupHandler{svc: svc}
+}
+
+func failFromGroupErr(c *gin.Context, err error) {
+	var ge *service.GroupError
+	if errors.As(err, &ge) {
+		resp.Fail(c, ge.Code, ge.Msg)
+		return
+	}
+	resp.Fail(c, 1011, "操作失败: "+err.Error())
+}
+
+// groupGIDParam 解析路径 :gid，失败返回 -1（区别于合法的 gid=0）。
+func groupGIDParam(c *gin.Context) int {
+	id, err := strconv.Atoi(c.Param("gid"))
+	if err != nil {
+		return -1
+	}
+	return id
+}
+
+// List GET /api/admin/groups 用户组列表。
+func (h *GroupHandler) List(c *gin.Context) {
+	list, err := h.svc.List()
+	if err != nil {
+		resp.Fail(c, 1011, "查询失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"list": list})
+}
+
+// Create POST /api/admin/groups 新增用户组。
+func (h *GroupHandler) Create(c *gin.Context) {
+	var req dto.GroupSaveReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	gid, err := h.svc.Create(req)
+	if err != nil {
+		failFromGroupErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"gid": gid})
+}
+
+// Update PUT /api/admin/groups/:gid 编辑用户组。
+func (h *GroupHandler) Update(c *gin.Context) {
+	gid := groupGIDParam(c)
+	if gid < 0 {
+		resp.Fail(c, 400, "用户组 ID 不合法")
+		return
+	}
+	var req dto.GroupSaveReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Update(gid, req); err != nil {
+		failFromGroupErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"gid": gid})
+}
+
+// SetBuy PUT /api/admin/groups/:gid/buy 上/下架。
+func (h *GroupHandler) SetBuy(c *gin.Context) {
+	gid := groupGIDParam(c)
+	if gid < 0 {
+		resp.Fail(c, 400, "用户组 ID 不合法")
+		return
+	}
+	var req dto.GroupBuyStatusReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SetBuy(gid, req.IsBuy); err != nil {
+		failFromGroupErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"gid": gid, "isbuy": req.IsBuy})
+}
+
+// Delete DELETE /api/admin/groups/:gid 删除用户组。
+func (h *GroupHandler) Delete(c *gin.Context) {
+	gid := groupGIDParam(c)
+	if gid < 0 {
+		resp.Fail(c, 400, "用户组 ID 不合法")
+		return
+	}
+	if err := h.svc.Delete(gid); err != nil {
+		failFromGroupErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"gid": gid})
+}
+
+// GetAssigns GET /api/admin/groups/:gid/assigns 读取该组的通道分配。
+func (h *GroupHandler) GetAssigns(c *gin.Context) {
+	gid := groupGIDParam(c)
+	if gid < 0 {
+		resp.Fail(c, 400, "用户组 ID 不合法")
+		return
+	}
+	list, err := h.svc.GetAssigns(gid)
+	if err != nil {
+		failFromGroupErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"list": list})
+}
+
+// SaveAssigns PUT /api/admin/groups/:gid/assigns 保存该组的通道分配。
+func (h *GroupHandler) SaveAssigns(c *gin.Context) {
+	gid := groupGIDParam(c)
+	if gid < 0 {
+		resp.Fail(c, 400, "用户组 ID 不合法")
+		return
+	}
+	var req dto.GroupAssignSaveReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SaveAssigns(gid, req); err != nil {
+		failFromGroupErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"gid": gid})
+}
+
 // ChannelHandler 支付通道相关接口。
 type ChannelHandler struct {
 	svc *service.ChannelService
@@ -783,6 +1060,49 @@ func (h *SiteConfigHandler) Save(c *gin.Context) {
 	resp.OK(c, gin.H{"key": c.Param("key")})
 }
 
+// ConfigHandler 系统设置读写接口。
+type ConfigHandler struct {
+	svc *service.ConfigService
+}
+
+func NewConfigHandler(svc *service.ConfigService) *ConfigHandler {
+	return &ConfigHandler{svc: svc}
+}
+
+// GetGroup GET /api/admin/config/:group 读取某分组配置（回填设置页）。
+func (h *ConfigHandler) GetGroup(c *gin.Context) {
+	kv, err := h.svc.GetGroup(c.Param("group"))
+	if err != nil {
+		var ce *service.ConfigError
+		if errors.As(err, &ce) {
+			resp.Fail(c, 400, ce.Msg)
+			return
+		}
+		resp.Fail(c, 1012, "读取失败: "+err.Error())
+		return
+	}
+	resp.OK(c, kv)
+}
+
+// SaveGroup PUT /api/admin/config/:group 保存某分组配置（白名单键）。
+func (h *ConfigHandler) SaveGroup(c *gin.Context) {
+	var kv map[string]string
+	if err := c.ShouldBindJSON(&kv); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SaveGroup(c.Param("group"), kv); err != nil {
+		var ce *service.ConfigError
+		if errors.As(err, &ce) {
+			resp.Fail(c, 400, ce.Msg)
+			return
+		}
+		resp.Fail(c, 1012, "保存失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"group": c.Param("group")})
+}
+
 // OrderHandler 订单相关接口。
 type OrderHandler struct {
 	svc *service.OrderService
@@ -805,4 +1125,119 @@ func (h *OrderHandler) List(c *gin.Context) {
 		return
 	}
 	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// failFromOrderErr 透传 OrderError 的业务码。
+func failFromOrderErr(c *gin.Context, err error) {
+	var oe *service.OrderError
+	if errors.As(err, &oe) {
+		resp.Fail(c, oe.Code, oe.Msg)
+		return
+	}
+	resp.Fail(c, 1002, "操作失败: "+err.Error())
+}
+
+// tradeNoParam 取路径 :trade_no。
+func tradeNoParam(c *gin.Context) string { return c.Param("trade_no") }
+
+// SetStatus PUT /api/admin/orders/:trade_no/status 裸改状态（改未完成/已完成）。
+func (h *OrderHandler) SetStatus(c *gin.Context) {
+	var req dto.OrderStatusReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SetStatus(tradeNoParam(c), req.Status); err != nil {
+		failFromOrderErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"trade_no": tradeNoParam(c), "status": req.Status})
+}
+
+// Freeze POST /api/admin/orders/:trade_no/freeze 冻结订单。
+func (h *OrderHandler) Freeze(c *gin.Context) {
+	if err := h.svc.Freeze(tradeNoParam(c)); err != nil {
+		failFromOrderErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"trade_no": tradeNoParam(c)})
+}
+
+// Unfreeze POST /api/admin/orders/:trade_no/unfreeze 解冻订单。
+func (h *OrderHandler) Unfreeze(c *gin.Context) {
+	if err := h.svc.Unfreeze(tradeNoParam(c)); err != nil {
+		failFromOrderErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"trade_no": tradeNoParam(c)})
+}
+
+// RefundInfo GET /api/admin/orders/:trade_no/refund-info 退款前查可退金额。
+func (h *OrderHandler) RefundInfo(c *gin.Context) {
+	info, err := h.svc.RefundInfo(tradeNoParam(c))
+	if err != nil {
+		failFromOrderErr(c, err)
+		return
+	}
+	resp.OK(c, info)
+}
+
+// Refund POST /api/admin/orders/refund 退款（手动 / API 原路）。
+func (h *OrderHandler) Refund(c *gin.Context) {
+	adminID, _ := c.Get(middleware.CtxUID)
+	id, _ := adminID.(uint)
+	var req dto.OrderRefundReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Refund(id, req); err != nil {
+		failFromOrderErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"trade_no": req.TradeNo})
+}
+
+// FillOrder POST /api/admin/orders/:trade_no/fill 手动补单。
+func (h *OrderHandler) FillOrder(c *gin.Context) {
+	if err := h.svc.FillOrder(tradeNoParam(c)); err != nil {
+		failFromOrderErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"trade_no": tradeNoParam(c)})
+}
+
+// Renotify POST /api/admin/orders/:trade_no/notify 重新通知商户。
+func (h *OrderHandler) Renotify(c *gin.Context) {
+	if err := h.svc.Renotify(tradeNoParam(c)); err != nil {
+		failFromOrderErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"trade_no": tradeNoParam(c)})
+}
+
+// Delete DELETE /api/admin/orders/:trade_no 删除订单。
+func (h *OrderHandler) Delete(c *gin.Context) {
+	if err := h.svc.Delete(tradeNoParam(c)); err != nil {
+		failFromOrderErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"trade_no": tradeNoParam(c)})
+}
+
+// Batch POST /api/admin/orders/batch 批量操作。
+func (h *OrderHandler) Batch(c *gin.Context) {
+	adminID, _ := c.Get(middleware.CtxUID)
+	id, _ := adminID.(uint)
+	var req dto.OrderBatchReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	n, err := h.svc.Batch(id, req)
+	if err != nil {
+		failFromOrderErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"affected": n})
 }

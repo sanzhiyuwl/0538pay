@@ -142,6 +142,62 @@ func (r *MerchantRepo) UpdateFields(uid uint, fields map[string]interface{}) err
 	return r.db.Model(&model.Merchant{}).Where("uid = ?", uid).Updates(fields).Error
 }
 
+// Create 新增商户。UID 由 GORM 自增回填（起始由建表 AUTO_INCREMENT 决定）。
+func (r *MerchantRepo) Create(m *model.Merchant) error {
+	return r.db.Create(m).Error
+}
+
+// Delete 删除商户。
+func (r *MerchantRepo) Delete(uid uint) error {
+	return r.db.Where("uid = ?", uid).Delete(&model.Merchant{}).Error
+}
+
+// CountByPhone 统计手机号占用数（新增查重用）。excludeUID>0 时排除自身。
+func (r *MerchantRepo) CountByPhone(phone string, excludeUID uint) (int64, error) {
+	tx := r.db.Model(&model.Merchant{}).Where("phone = ?", phone)
+	if excludeUID > 0 {
+		tx = tx.Where("uid <> ?", excludeUID)
+	}
+	var n int64
+	err := tx.Count(&n).Error
+	return n, err
+}
+
+// CountByEmail 统计邮箱占用数（新增查重用）。excludeUID>0 时排除自身。
+func (r *MerchantRepo) CountByEmail(email string, excludeUID uint) (int64, error) {
+	tx := r.db.Model(&model.Merchant{}).Where("email = ?", email)
+	if excludeUID > 0 {
+		tx = tx.Where("uid <> ?", excludeUID)
+	}
+	var n int64
+	err := tx.Count(&n).Error
+	return n, err
+}
+
+// ResetGroupToDefault 把某用户组下的所有商户回落默认组（删组级联，对齐 epay delGroup）。
+func (r *MerchantRepo) ResetGroupToDefault(gid int) error {
+	return r.db.Model(&model.Merchant{}).Where("gid = ?", gid).
+		Updates(map[string]interface{}{"gid": 0, "group_end": nil}).Error
+}
+
+// CountByGroup 统计各用户组的商户数（用户组列表展示覆盖数用）。返回 gid→count。
+func (r *MerchantRepo) CountByGroup() (map[int]int64, error) {
+	type row struct {
+		GID int
+		Cnt int64
+	}
+	var rows []row
+	if err := r.db.Model(&model.Merchant{}).
+		Select("gid, COUNT(*) AS cnt").Group("gid").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[int]int64, len(rows))
+	for _, x := range rows {
+		out[x.GID] = x.Cnt
+	}
+	return out, nil
+}
+
 // FindSettleable 取满足自动结算条件的商户：余额 >= 门槛、结算权限开(settle=1)、
 // 状态正常(status=1)、已填结算账号+姓名。对齐 epay cron do=settle 的商户筛选。
 func (r *MerchantRepo) FindSettleable(minMoney decimal.Decimal, limit int) ([]model.Merchant, error) {
@@ -238,6 +294,31 @@ func (r *ChannelRepo) FindEnabledByType(typeID int) (*model.Channel, error) {
 		return nil, err
 	}
 	return &c, nil
+}
+
+// ListEnabledByType 取某支付方式下全部已开启通道（用户组 -1 随机分配用）。
+// 对齐 epay getSubmitInfo -1 分支的 `SELECT ... WHERE type AND status=1 AND daystatus=0`。
+// 我方暂无 daystatus 超限暂停字段，仅按 status=1 过滤。
+func (r *ChannelRepo) ListEnabledByType(typeID int) ([]model.Channel, error) {
+	var list []model.Channel
+	err := r.db.Where("type = ? AND status = 1", typeID).Order("id ASC").Find(&list).Error
+	return list, err
+}
+
+// FindManyByIDs 按 ID 列表批量查通道（轮询组内成员金额过滤用）。返回 id→通道。
+func (r *ChannelRepo) FindManyByIDs(ids []int) (map[int]*model.Channel, error) {
+	out := map[int]*model.Channel{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var list []model.Channel
+	if err := r.db.Where("id IN ?", ids).Find(&list).Error; err != nil {
+		return nil, err
+	}
+	for i := range list {
+		out[int(list[i].ID)] = &list[i]
+	}
+	return out, nil
 }
 
 // FindEnabledByPlugin 取某插件下第一个已开启通道（阶段A mock 下单用 plugin 定位）。
@@ -620,6 +701,55 @@ func (r *OrderRepo) MarkRefunded(tradeNo string, refundMoney decimal.Decimal) (b
 	res := r.db.Model(&model.Order{}).
 		Where("trade_no = ? AND status = 1", tradeNo).
 		Updates(map[string]interface{}{"status": 2, "refund_money": refundMoney})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
+// SetStatus 裸改订单状态（对齐 epay setStatus：不触发资金/入账，仅改字段）。
+func (r *OrderRepo) SetStatus(tradeNo string, status int8) error {
+	return r.db.Model(&model.Order{}).Where("trade_no = ?", tradeNo).
+		Update("status", status).Error
+}
+
+// SetStatusFrom 条件改状态：仅当当前 status==from 时改为 to，返回是否命中（冻结/解冻幂等用）。
+func (r *OrderRepo) SetStatusFrom(tradeNo string, from, to int8) (bool, error) {
+	res := r.db.Model(&model.Order{}).
+		Where("trade_no = ? AND status = ?", tradeNo, from).
+		Update("status", to)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
+// Delete 物理删除订单（对齐 epay setStatus=5 / operation=4：DELETE，无级联）。
+func (r *OrderRepo) Delete(tradeNo string) error {
+	return r.db.Where("trade_no = ?", tradeNo).Delete(&model.Order{}).Error
+}
+
+// MarkRefundedPartial 退款改单：status→2 并把 refundmoney 累加 addRefund（对齐 epay API 退款）。
+// 仅当 status∈(1已付,2已退,3冻结) 时执行，返回是否命中。
+func (r *OrderRepo) MarkRefundedPartial(tradeNo string, addRefund decimal.Decimal) (bool, error) {
+	res := r.db.Model(&model.Order{}).
+		Where("trade_no = ? AND status IN (1,2,3)", tradeNo).
+		Updates(map[string]interface{}{
+			"status":       2,
+			"refund_money": gorm.Expr("refund_money + ?", addRefund),
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
+// FillOrder 手动补单改单：仅当 status==0(未付) 时置为已付并写完成时间，返回是否命中。
+// 入账/通知由 service 复用支付成功链路完成（对齐 epay fillorder → processOrder）。
+func (r *OrderRepo) FillOrder(tradeNo string, endTime time.Time) (bool, error) {
+	res := r.db.Model(&model.Order{}).
+		Where("trade_no = ? AND status = 0", tradeNo).
+		Updates(map[string]interface{}{"status": 1, "end_time": endTime})
 	if res.Error != nil {
 		return false, res.Error
 	}

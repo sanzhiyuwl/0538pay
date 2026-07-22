@@ -44,7 +44,7 @@ func NewMerchantCenterService(
 	}
 }
 
-// 保证金门槛（对齐 epay user_deposit_min，先固化，待 config 域迁移）。
+// 保证金门槛（对齐 epay user_deposit_min）。config 域加载后刷新。
 var depositMin = decimal.RequireFromString("1000")
 
 // DepositInfo 返回保证金页信息。
@@ -98,8 +98,14 @@ func (s *MerchantCenterService) DepositWithdraw(uid uint, req dto.DepositReq) er
 
 // ===== 实名认证（第三方认证待凭证）=====
 
-// 实名工本费（对齐 epay cert_money，先固化，待 config 域迁移）。
+// 实名工本费（对齐 epay cert_money）。config 域加载后刷新。
 var certMoney = decimal.RequireFromString("0")
+
+// reloadMerchantCenterConfig 从 config 域刷新保证金门槛/实名工本费。
+func reloadMerchantCenterConfig(cfg *ConfigService) {
+	depositMin = cfg.Dec("user_deposit_min", depositMin)
+	certMoney = cfg.Dec("cert_money", certMoney)
+}
 
 // CertInfo 返回实名认证页信息（脱敏）。
 func (s *MerchantCenterService) CertInfo(uid uint) (*dto.CertInfo, error) {
