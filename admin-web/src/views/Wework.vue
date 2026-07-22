@@ -1,12 +1,43 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Plus, MoreHorizontal, Pencil, Trash2, FlaskConical, RefreshCw } from 'lucide-vue-next'
-import { Panel, Button, Badge, Drawer } from '@/components/ui'
+import { Panel, Button, Badge, Drawer, Modal } from '@/components/ui'
 import { shouldDropUp } from '@/composables/useRowMenu'
-import { weworkAccounts, calcWeworkStats, type WeworkAccount } from '@/lib/mock/wework'
+import {
+  fetchWeworks,
+  createWework,
+  updateWework,
+  setWeworkStatus,
+  deleteWework,
+  type WeworkView,
+  type WeworkSaveReq,
+} from '@/lib/api/paycfg'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
-const list = ref([...weworkAccounts])
-const stats = computed(() => calcWeworkStats(list.value))
+const toast = useToast()
+const list = ref<WeworkView[]>([])
+const loading = ref(false)
+
+async function load() {
+  loading.value = true
+  try {
+    const res = await fetchWeworks()
+    list.value = res.list
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载企业微信失败')
+    list.value = []
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
+
+const stats = computed(() => ({
+  total: list.value.length,
+  active: list.value.filter((w) => w.status === 1).length,
+  kfTotal: list.value.reduce((a, w) => a + w.kfnum, 0),
+}))
 
 // 行操作菜单
 const openMenu = ref<number | null>(null)
@@ -22,28 +53,80 @@ function closeMenu() {
 onMounted(() => window.addEventListener('click', closeMenu))
 onUnmounted(() => window.removeEventListener('click', closeMenu))
 
-function toggleStatus(w: WeworkAccount) {
-  w.status = w.status === 1 ? 0 : 1
-  openMenu.value = null
+async function toggleStatus(w: WeworkView) {
+  const next = w.status === 1 ? 0 : 1
+  try {
+    await setWeworkStatus(w.id, next)
+    w.status = next
+    toast.success(next === 1 ? '已开启' : '已关闭')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '操作失败')
+  }
+}
+
+function refreshKf() {
+  toast.info('刷新客服账号需调用企业微信接口，依赖真实企业ID/Secret 凭证')
+}
+function testWework() {
+  toast.info('测试需调用企业微信接口换取 access_token，依赖真实凭证')
 }
 
 // 新增 / 编辑抽屉
 const drawerOpen = ref(false)
 const editing = ref(false)
+const saving = ref(false)
 const form = ref({ id: 0, name: '', appid: '', appsecret: '' })
 function openAdd() {
   editing.value = false
   form.value = { id: 0, name: '', appid: '', appsecret: '' }
   drawerOpen.value = true
 }
-function openEdit(w: WeworkAccount) {
+function openEdit(w: WeworkView) {
   editing.value = true
   form.value = { id: w.id, name: w.name, appid: w.appid, appsecret: '' }
   drawerOpen.value = true
   openMenu.value = null
 }
-function submit() {
-  drawerOpen.value = false
+async function submit() {
+  if (!form.value.name.trim()) return toast.error('请填写名称')
+  if (!form.value.appid.trim()) return toast.error('请填写企业ID')
+  const payload: WeworkSaveReq = {
+    name: form.value.name.trim(), appid: form.value.appid.trim(), appsecret: form.value.appsecret.trim(),
+  }
+  saving.value = true
+  try {
+    if (editing.value) {
+      await updateWework(form.value.id, payload)
+      toast.success('企业微信已更新')
+    } else {
+      await createWework(payload)
+      toast.success('企业微信已创建')
+    }
+    drawerOpen.value = false
+    await load()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+// 删除
+const delTarget = ref<WeworkView | null>(null)
+const deleting = ref(false)
+async function confirmDelete() {
+  if (!delTarget.value) return
+  deleting.value = true
+  try {
+    await deleteWework(delTarget.value.id)
+    toast.success('企业微信已删除，关联客服账号一并清除')
+    delTarget.value = null
+    await load()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '删除失败')
+  } finally {
+    deleting.value = false
+  }
 }
 </script>
 
@@ -91,7 +174,7 @@ function submit() {
               <td class="font-mono text-[13px] text-primary">{{ w.appid }}</td>
               <td class="num tabular-nums">
                 {{ w.kfnum }}
-                <button class="ml-1 text-xs text-primary hover:underline">
+                <button class="ml-1 text-xs text-primary hover:underline" title="刷新客服账号" @click="refreshKf">
                   <RefreshCw class="inline size-3" />
                 </button>
               </td>
@@ -116,11 +199,11 @@ function submit() {
                     <button class="menu-item" @click="openEdit(w)">
                       <Pencil class="size-4 shrink-0 opacity-70" /><span class="flex-1">编辑</span>
                     </button>
-                    <button class="menu-item" @click="openMenu = null">
+                    <button class="menu-item" @click="testWework(); openMenu = null">
                       <FlaskConical class="size-4 shrink-0 opacity-70" /><span class="flex-1">测试</span>
                     </button>
                     <div class="menu-sep" />
-                    <button class="menu-item menu-item-danger" @click="openMenu = null">
+                    <button class="menu-item menu-item-danger" @click="delTarget = w; openMenu = null">
                       <Trash2 class="size-4 shrink-0 opacity-70" /><span class="flex-1">删除</span>
                     </button>
                   </div>
@@ -156,8 +239,20 @@ function submit() {
       </div>
       <template #footer>
         <Button variant="outline" size="sm" @click="drawerOpen = false">取消</Button>
-        <Button size="sm" @click="submit">保存</Button>
+        <Button size="sm" :disabled="saving" @click="submit">保存</Button>
       </template>
     </Drawer>
+
+    <!-- 删除确认 -->
+    <Modal :model-value="!!delTarget" title="删除企业微信" @update:model-value="(v) => { if (!v) delTarget = null }">
+      <p class="text-sm text-muted-foreground">
+        确定删除 <b class="text-foreground">{{ delTarget?.name }}</b>（{{ delTarget?.appid }}）吗？其下
+        <b class="text-foreground">{{ delTarget?.kfnum }}</b> 个客服账号将一并删除，此操作不可恢复。
+      </p>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="delTarget = null">取消</Button>
+        <Button variant="destructive" size="sm" :disabled="deleting" @click="confirmDelete">删除</Button>
+      </template>
+    </Modal>
   </div>
 </template>
