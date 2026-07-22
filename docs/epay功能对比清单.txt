@@ -122,8 +122,8 @@
         2026-07-21 下单→回调→入账→通知 全链路真跑通过
 
 【支付方式 type（epay 6 种）】
-  🎨/🔨  支付宝 alipay   （当面付扫码后端已打通，见下方插件区 alipayf2f）
-  🎨/🔨  微信 wxpay（Native 扫码后端已打通，见下方插件区 wxnative）
+  🎨/🔨  支付宝 alipay   （当面付/PC网页/H5/退款后端已打通，见下方插件区；APP/预授权/JSAPI 待补）
+  🎨/🔨  微信 wxpay（Native/JSAPI/H5/退款后端已打通，见下方插件区；APP/小程序 待补）
   🎨/⬜  QQ钱包 qqpay
   🎨/⬜  网银 bank
   🎨/⬜  京东 jdpay
@@ -172,7 +172,11 @@
            **下单需真实凭证才能连支付宝网关**(用户暂不提供)，回调链路已用真签名跑通。
            2026-07-21 补主动查单：alipay.trade.query，parseQueryResp 判 TRADE_SUCCESS/FINISHED
            (TRADE_NOT_EXIST 视未付非错误)，单测全绿。
-           缺：网页/APP/JSAPI/预授权、退款。
+        —— 2026-07-22 补齐 PC网页/H5/退款：抽出 alipaybase 共享包(BuildSysParams/SignedParams/PostGateway/BuildRedirectURL/
+           ParseResp/ParseNotify/QueryPaid/Refund，全部同源复用 pkg/alipay RSA2)。新增 alipaypage(alipay.trade.page.pay,
+           product_code=FAST_INSTANT_TRADE_PAY,返回跳转URL) + alipaywap(alipay.trade.wap.pay,QUICK_WAP_WAY,PayTypeWap)。
+           退款 Refund(alipay.trade.refund,out_request_no 幂等)接进 Refunder 接口,alipayf2f/page/wap 均实现。alipaybase 单测5绿。
+           缺：APP(app.pay)/JSAPI(trade.create需OAuth拿buyer_id)/预授权(fund.auth.freeze)。下单连网关仍待真实凭证。
     🔨  微信系（wxpay Native/JSAPI/H5，wxpayn V3）
         —— wxnative(微信 Native V3 扫码) 后端已实现并单测(2026-07-21，阶段B B1)：
            pkg/wxpayv3(RSA-SHA256 Authorization 签名 + 应答/回调验签 + AES-256-GCM 回调解密，
@@ -183,7 +187,11 @@
            public_key/notify_url)。**未接真实商户凭证**(用户暂不提供沙箱)，真凭证到位后走沙箱端到端。
         —— 2026-07-21 补主动查单 Query：GET /v3/pay/transactions/out-trade-no/{no}，RSA 签名+验应答签+
            trade_state=SUCCESS 判定，parseQueryResp 纯函数单测全绿。
-           缺：JSAPI/H5、退款。
+        —— 2026-07-22 补齐 JSAPI/H5/退款：抽出 wxbase 共享包(DoRequest 签名+验应答/Prepay/BasePrepayBody/QueryPaid/
+           ParseNotify 验签+AES-GCM/Refund，全部同源复用 pkg/wxpayv3)。新增 wxjsapi(/v3/pay/transactions/jsapi 拿 prepay_id +
+           pkg/wxpayv3.SignMessage 二次签名组 getJsApiParameters，openid 由 Extra 传入) + wxh5(/v3/pay/transactions/h5 带 scene_info
+           拿 h5_url)。退款 Refund(/v3/refund/domestic/refunds,金额分)接 Refunder,wxnative/jsapi/h5 均实现。金额元→分 YuanToFen。
+           缺：APP(/app)、小程序(同 jsapi 路径,前端 wx.requestPayment)。下单连网关待真实凭证。
     ✅  免签渠道 epay(二次对接易支付 V1/MD5) —— B3 2026-07-21 实现并端到端真跑
         —— internal/channel/epay:Create(MD5签名 POST 上游 /api/pay/submit 拿收银台) + Notify(同key验签+
            trade_status判定) + Query(占位)。复用 pkg/sign(与本站上游同源)。config: appid(上游pid)/appkey/
@@ -260,7 +268,8 @@
       —— 对齐 epay Order::refund：status∈[1,2,3] 可退、money≤realmoney、未超剩余可退(支持部分退款累加 refundmoney)。
          扣商户余额 reducemoney 四分支 1:1 还原：冻结单/直清=0、(手续费不退且全额)=realmoney、
          (手续费退且全额或≥分成)=getmoney、部分=退款额。手动退款只扣余额不调渠道；API退款需管理员密码(替代 epay
-         admin_paypwd)+渠道支持，真实渠道原路退款待凭证(余额层照走)。changeUserMoney type=订单退款+trade_no 幂等防重。
+         admin_paypwd)。**2026-07-22 接入渠道原路退款**：PayService.RefundViaChannel→渠道若实现 channel.Refunder(支付宝/微信各方式已实现)
+         则调真实退款接口(out_refund_no 幂等)，mock 等无 Refunder 跳过仅走余额层；渠道退款失败(如待真实凭证)则中止并提示。changeUserMoney type=订单退款+trade_no 幂等防重。
          退款前 GET /orders/:trade_no/refund-info 查可退金额。真跑:手动退款 status→2/refundmoney=50/扣 getmoney、
          API退款错密码拒。
   ✅  冻结 / 解冻订单  epay Order::freeze/unfreeze → POST /api/admin/orders/:trade_no/freeze|unfreeze [真接口]
