@@ -97,6 +97,24 @@ func (h *SettleHandler) CompleteBatch(c *gin.Context) {
 	resp.OK(c, gin.H{"affected": n})
 }
 
+// ExportBatch GET /api/admin/settle/batch/:batch/export?tmpl=mybank|alipay|wxpay|common
+// 生成银行专用打款 CSV（C-4，对齐 epay download.php?act=settle）。
+func (h *SettleHandler) ExportBatch(c *gin.Context) {
+	batch := c.Param("batch")
+	tmpl := c.Query("tmpl")
+	if tmpl == "" {
+		tmpl = "common"
+	}
+	content, filename, err := h.svc.ExportBatch(batch, tmpl)
+	if err != nil {
+		failFromSettleErr(c, err)
+		return
+	}
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Disposition", "attachment; filename="+filename)
+	c.Data(200, "text/csv; charset=utf-8", []byte(content))
+}
+
 // SetStatus PUT /api/admin/settles/:id/status 变更单条结算状态（含删除退回）
 func (h *SettleHandler) SetStatus(c *gin.Context) {
 	id := settleIDParam(c)

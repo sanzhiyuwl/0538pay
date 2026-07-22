@@ -35,5 +35,11 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem(ROLE_KEY)
   }
 
-  return { token, nickname, role, isLoggedIn, login, logout }
+  // 更新显示昵称并持久化（账号设置保存后同步顶栏）。
+  function setNickname(nick: string) {
+    nickname.value = nick
+    localStorage.setItem(NICK_KEY, nick)
+  }
+
+  return { token, nickname, role, isLoggedIn, login, logout, setNickname }
 })

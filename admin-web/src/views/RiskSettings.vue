@@ -16,6 +16,10 @@ const form = reactive({
   check_sucrate_second: '600',
   check_sucrate_count: '20',
   check_sucrate_value: '30',
+  auto_check_channel: '0',
+  check_channel_second: '600',
+  check_channel_count: '20',
+  check_channel_value: '30',
 })
 
 const loading = ref(false)
@@ -29,6 +33,10 @@ const notifyOn = computed({
 const sucrateOn = computed({
   get: () => form.auto_check_sucrate === '1',
   set: (v: boolean) => (form.auto_check_sucrate = v ? '1' : '0'),
+})
+const channelOn = computed({
+  get: () => form.auto_check_channel === '1',
+  set: (v: boolean) => (form.auto_check_channel = v ? '1' : '0'),
 })
 
 async function load() {
@@ -85,6 +93,26 @@ async function save() {
           <label class="lbl">成功率阈值</label>
           <div class="flex flex-1 items-center gap-2">
             <input v-model="form.check_sucrate_value" class="field-input w-28" /><span class="text-sm text-muted-foreground">% 以下触发关停</span>
+          </div>
+        </div>
+
+        <div class="row-switch border-t border-border/60 pt-3.5"><span>通道成功率自动关停</span><Switch v-model="channelOn" /></div>
+        <div class="row-field">
+          <label class="lbl">统计窗口</label>
+          <div class="flex flex-1 items-center gap-2">
+            <input v-model="form.check_channel_second" class="field-input w-28" /><span class="text-sm text-muted-foreground">秒</span>
+          </div>
+        </div>
+        <div class="row-field">
+          <label class="lbl">最小样本订单数</label>
+          <div class="flex flex-1 items-center gap-2">
+            <input v-model="form.check_channel_count" class="field-input w-28" /><span class="text-sm text-muted-foreground">单</span>
+          </div>
+        </div>
+        <div class="row-field">
+          <label class="lbl">成功率阈值</label>
+          <div class="flex flex-1 items-center gap-2">
+            <input v-model="form.check_channel_value" class="field-input w-28" /><span class="text-sm text-muted-foreground">% 以下关停该通道</span>
           </div>
         </div>
       </div>

@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/0538pay/api/internal/dto"
 	"github.com/0538pay/api/internal/model"
 	"github.com/0538pay/api/internal/repository"
 	"github.com/shopspring/decimal"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -38,6 +38,21 @@ func ApplyConfig(cfg *ConfigService) {
 	reloadOrderConfig(cfg)
 	reloadMerchantCenterConfig(cfg)
 	reloadPayConfig(cfg)
+	payPwdVerifier = cfg // 支付密码校验器（转账/结算/退款二次校验统一走 admin_paypwd）
+}
+
+// payPwdVerifier 持有配置服务，供各资金操作校验管理员支付密码（对齐 epay admin_paypwd）。
+// 由 ApplyConfig 在启动时挂上；未挂时 verifyPayPwd 返回不可用错误（防止误放行）。
+var payPwdVerifier interface {
+	VerifyPayPwd(pwd string) error
+}
+
+// verifyPayPwd 统一的管理员支付密码校验入口（transfer/settle/order_write 共用）。
+func verifyPayPwd(pwd string) error {
+	if payPwdVerifier == nil {
+		return stErr("支付密码校验不可用")
+	}
+	return payPwdVerifier.VerifyPayPwd(pwd)
 }
 
 // reloadSettleConfig 从 config 域刷新结算/代付相关常量（启动 + 设置保存后调用）。
@@ -75,29 +90,129 @@ type SettleService struct {
 	repo         *repository.SettleRepo
 	merchantRepo *repository.MerchantRepo
 	admins       *repository.AdminRepo // 支付密码二次校验（可空；SetAdminRepo 注入）
+	cfg          *ConfigService        // 打款备注 transfer_desc（可空；SetConfigService 注入）
 }
 
 func NewSettleService(repo *repository.SettleRepo, merchantRepo *repository.MerchantRepo) *SettleService {
 	return &SettleService{repo: repo, merchantRepo: merchantRepo}
 }
 
+// SetConfigService 注入配置域（银行结算导出取 transfer_desc 打款备注）。
+func (s *SettleService) SetConfigService(c *ConfigService) { s.cfg = c }
+
+// ExportBatch 生成某批次的银行专用打款文件（C-4，对齐 epay download.php?act=settle）。
+// tmpl: mybank(网商:支付宝+银行卡) / alipay(支付宝批量转账) / wxpay(微信付款到零钱) / common(通用明细)。
+// 返回 (CSV 内容, 文件名)。UTF-8 BOM，Excel 不乱码（不复刻 epay 的 GBK，现代 Excel 兼容 BOM+UTF-8）。
+func (s *SettleService) ExportBatch(batch, tmpl string) (string, string, error) {
+	if strings.TrimSpace(batch) == "" {
+		return "", "", stErr("批次号不能为空")
+	}
+	remark := "货款结算"
+	if s.cfg != nil {
+		if d := strings.TrimSpace(s.cfg.Str("transfer_desc")); d != "" {
+			remark = d
+		}
+	}
+	var rows []model.SettleRecord
+	var err error
+	var b strings.Builder
+	b.WriteString("\xEF\xBB\xBF") // UTF-8 BOM
+
+	switch tmpl {
+	case "mybank": // 网商银行批量：收款方(支付宝+银行卡)
+		rows, err = s.repo.ListByBatch(batch, []int8{1, 4})
+		if err != nil {
+			return "", "", err
+		}
+		b.WriteString("收款人姓名,收款账号,收款方开户行,收款方联行号,金额,用途/备注\r\n")
+		for _, r := range rows {
+			bankType := ""
+			if r.Type == 1 {
+				bankType = "支付宝"
+			}
+			b.WriteString(csvJoin(r.Username, r.Account, bankType, "", r.RealMoney.StringFixed(2), remark))
+		}
+	case "alipay": // 支付宝批量转账模板：仅结算方式=支付宝
+		rows, err = s.repo.ListByBatch(batch, []int8{1})
+		if err != nil {
+			return "", "", err
+		}
+		b.WriteString("支付宝批量付款文件模板\r\n")
+		b.WriteString("序号,收款支付宝账号,收款姓名,金额（单位元）,备注（可选）\r\n")
+		for i, r := range rows {
+			b.WriteString(csvJoin(fmt.Sprintf("%d", i+1), r.Account, r.Username, r.RealMoney.StringFixed(2), remark))
+		}
+	case "wxpay": // 微信付款到零钱模板：仅结算方式=微信
+		rows, err = s.repo.ListByBatch(batch, []int8{2})
+		if err != nil {
+			return "", "", err
+		}
+		allMoney := decimal.Zero
+		var table strings.Builder
+		table.WriteString("商家明细单号,收款用户openid,收款用户姓名（选填）,收款用户身份证（选填）,转账金额（单位元）,转账备注\r\n")
+		for i, r := range rows {
+			table.WriteString(csvJoin(fmt.Sprintf("%s%d", batch, i+1), r.Account, r.Username, "", r.RealMoney.StringFixed(2), remark))
+			allMoney = allMoney.Add(r.RealMoney)
+		}
+		b.WriteString("微信支付批量转账到零钱模板（请勿删除）\r\n")
+		b.WriteString(csvJoin("商家批次单号", batch))
+		b.WriteString(csvJoin("批次名称", "批量转账"+batch))
+		b.WriteString(csvJoin("转账总金额（单位元）", allMoney.StringFixed(2)))
+		b.WriteString(csvJoin("转账总笔数", fmt.Sprintf("%d", len(rows))))
+		b.WriteString(csvJoin("本次备注", "批量转账"+batch))
+		b.WriteString(",\r\n")
+		b.WriteString("转账明细（请勿删除）\r\n")
+		b.WriteString(table.String())
+	default: // common 通用明细
+		tmpl = "common"
+		rows, err = s.repo.ListByBatch(batch, nil)
+		if err != nil {
+			return "", "", err
+		}
+		b.WriteString("序号,收款方式,收款人账号,收款人姓名,金额（元）,交易描述\r\n")
+		for i, r := range rows {
+			b.WriteString(csvJoin(fmt.Sprintf("%d", i+1), settleTypeName(r.Type), r.Account, r.Username, r.RealMoney.StringFixed(2), remark))
+		}
+	}
+	return b.String(), fmt.Sprintf("pay_%s_%s.csv", tmpl, batch), nil
+}
+
+// parseRemainMoney 解析商户预留余额字符串（epay remain_money 为 varchar）。空/非法返回 0。
+func parseRemainMoney(s string) decimal.Decimal {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return decimal.Zero
+	}
+	v, err := decimal.NewFromString(s)
+	if err != nil || v.LessThan(decimal.Zero) {
+		return decimal.Zero
+	}
+	return v
+}
+
+// csvJoin 把字段用逗号拼成一行 CSV（含 \r\n）。含逗号/引号/换行的字段加引号转义。
+func csvJoin(fields ...string) string {
+	parts := make([]string, len(fields))
+	for i, f := range fields {
+		if strings.ContainsAny(f, ",\"\r\n") {
+			f = "\"" + strings.ReplaceAll(f, "\"", "\"\"") + "\""
+		}
+		parts[i] = f
+	}
+	return strings.Join(parts, ",") + "\r\n"
+}
+
 // SetAdminRepo 注入管理员仓储（删除退回需支付密码二次校验，对齐 epay admin_paypwd）。
 func (s *SettleService) SetAdminRepo(a *repository.AdminRepo) { s.admins = a }
 
-// verifyAdminPwd 校验管理员登录密码（作为支付密码二次校验，复用 bcrypt 登录密码）。
-func (s *SettleService) verifyAdminPwd(adminID uint, pwd string) error {
-	if s.admins == nil {
-		return stErr("支付密码校验不可用")
-	}
+// verifyAdminPwd 校验管理员支付密码（对齐 epay admin_paypwd，独立于登录密码）。
+// adminID 保留以兼容调用签名，实际校验走全局支付密码。
+func (s *SettleService) verifyAdminPwd(_ uint, pwd string) error {
 	if pwd == "" {
-		return stErr("请输入管理员密码")
+		return stErr("请输入支付密码")
 	}
-	a, err := s.admins.FindByID(adminID)
-	if err != nil || a == nil {
-		return stErr("管理员不存在")
-	}
-	if bcrypt.CompareHashAndPassword([]byte(a.Password), []byte(pwd)) != nil {
-		return stErr("管理员密码不正确")
+	if err := verifyPayPwd(pwd); err != nil {
+		return stErr("支付密码不正确")
 	}
 	return nil
 }
@@ -259,11 +374,20 @@ func (s *SettleService) RunAutoSettle(ctx context.Context, limit int) (int, erro
 	if err != nil {
 		return 0, err
 	}
+	// cert_force：开启强制实名时，未实名商户不参与自动结算（B-8，对齐 epay cron settle 分支）。
+	certForce := s.cfg != nil && s.cfg.Bool("cert_force")
 	created := 0
 	now := time.Now()
 	for i := range merchants {
 		m := merchants[i]
-		money := m.Money // 结算全部可用余额（预留余额/D+1 待接商户端申请域细化）
+		if certForce && m.Cert == 0 {
+			continue // 强制实名下未实名商户跳过结算
+		}
+		// remain_money 预留余额：自动结算不结算预留部分（B-8，对齐 epay remain_money）。
+		money := m.Money
+		if rm := parseRemainMoney(m.RemainMoney); rm.GreaterThan(decimal.Zero) {
+			money = money.Sub(rm)
+		}
 		if money.LessThan(settleMoney) {
 			continue
 		}

@@ -125,6 +125,10 @@ func toMerchantInfo(m *model.Merchant) dto.MerchantInfo {
 		Username: m.Username,
 		URL:      m.URL,
 		Mode:     m.Mode,
+		KeyLogin:    m.KeyLogin,
+		Refund:      m.Refund,
+		Transfer:    m.Transfer,
+		RemainMoney: m.RemainMoney,
 	}
 }
 

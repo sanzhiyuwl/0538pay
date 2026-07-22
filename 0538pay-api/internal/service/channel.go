@@ -3,7 +3,9 @@ package service
 import (
 	"encoding/json"
 	"strings"
+	"time"
 
+	"github.com/0538pay/api/internal/channel"
 	"github.com/0538pay/api/internal/dto"
 	"github.com/0538pay/api/internal/model"
 	"github.com/0538pay/api/internal/repository"
@@ -14,6 +16,7 @@ import (
 type ChannelService struct {
 	repo        *repository.ChannelRepo
 	subchannels *repository.SubChannelRepo // 删通道级联删其子通道（可空，SetSubChannelRepo 注入）
+	orders      *repository.OrderRepo      // 通道今昨收款/成功率聚合（可空，SetOrderRepo 注入）
 }
 
 func NewChannelService(repo *repository.ChannelRepo) *ChannelService {
@@ -23,18 +26,50 @@ func NewChannelService(repo *repository.ChannelRepo) *ChannelService {
 // SetSubChannelRepo 注入子通道 repo，删主通道时级联删其子通道（对齐 epay 删通道级联）。
 func (s *ChannelService) SetSubChannelRepo(r *repository.SubChannelRepo) { s.subchannels = r }
 
-// List 返回分页通道（转对外 View：费率格式化为两位小数百分数）。
+// SetOrderRepo 注入订单 repo，通道列表补今昨收款额 + 今日成功率（对齐 epay pay_channel 刷新聚合）。
+func (s *ChannelService) SetOrderRepo(r *repository.OrderRepo) { s.orders = r }
+
+// List 返回分页通道（转对外 View：费率格式化 + 今昨收款/成功率实时聚合）。
 func (s *ChannelService) List(q dto.ChannelQuery) ([]dto.ChannelView, int64, error) {
 	q.Normalize()
 	list, total, err := s.repo.List(q)
 	if err != nil {
 		return nil, 0, err
 	}
+	// 今昨收款 + 今日成功率按通道聚合（orders 未注入则留 0，向后兼容）。
+	var todayMap, ydayMap map[int]decimal.Decimal
+	var rateMap map[int][2]int64
+	if s.orders != nil {
+		now := time.Now()
+		today := dayStart(now)
+		yday := today.AddDate(0, 0, -1)
+		todayMap, _ = s.orders.SumPaidMoneyByChannel(today, today.AddDate(0, 0, 1))
+		ydayMap, _ = s.orders.SumPaidMoneyByChannel(yday, today)
+		rateMap, _ = s.orders.ChannelPaidRate(today, today.AddDate(0, 0, 1))
+	}
 	views := make([]dto.ChannelView, 0, len(list))
 	for i := range list {
-		views = append(views, toChannelView(&list[i]))
+		v := toChannelView(&list[i])
+		cid := int(list[i].ID)
+		if m, ok := todayMap[cid]; ok {
+			v.Today = m.StringFixed(2)
+		}
+		if m, ok := ydayMap[cid]; ok {
+			v.Yesterday = m.StringFixed(2)
+		}
+		if r, ok := rateMap[cid]; ok && r[0] > 0 {
+			rate := decimal.NewFromInt(r[1]).Mul(decimal.NewFromInt(100)).Div(decimal.NewFromInt(r[0]))
+			v.SuccessRate = rate.StringFixed(2)
+		}
+		views = append(views, v)
 	}
 	return views, total, nil
+}
+
+// PluginMeta 返回所有已注册渠道插件的能力与配置元数据（后台按插件动态渲染密钥表单/展示能力）。
+// 对齐 epay 插件 $info（inputs/transtypes/是否支持退款代付）由插件自声明的思路。
+func (s *ChannelService) PluginMeta() []channel.PluginMeta {
+	return channel.AllMeta()
 }
 
 // ChannelError 携带业务错误码与提示，handler 据此返回 code+msg。

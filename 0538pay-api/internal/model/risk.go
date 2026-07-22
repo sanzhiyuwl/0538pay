@@ -11,6 +11,7 @@ type RiskRecord struct {
 	URL     string    `gorm:"size:64" json:"url"`                  // 风控网址（关键词屏蔽记来源域名）
 	Content string    `gorm:"size:64" json:"content"`              // 风控内容（命中词/成功率描述/订单数）
 	Date    time.Time `gorm:"index" json:"-"`                      // 触发时间（原始）
+	Status  int8      `gorm:"not null;default:0" json:"status"`    // 处理状态 0未处理 1已处理（E-6，对齐 epay pre_risk.status）
 }
 
 func (RiskRecord) TableName() string { return "pay_risk" }

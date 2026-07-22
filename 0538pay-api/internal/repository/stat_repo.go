@@ -22,6 +22,52 @@ type StatCell struct {
 	Amount  decimal.Decimal
 }
 
+// BuyerStatRow 支付用户统计一行（C-3，对齐 epay buyerStat）。
+type BuyerStatRow struct {
+	User       string          // 付款人标识（buyer/ip/mobile 之一）
+	OrderCount int64           // 付款次数
+	Amount     decimal.Decimal // 累计金额（money 求和）
+	IsBlack    bool            // 是否在黑名单
+}
+
+// BuyerStat 按付款人维度聚合已支付订单（C-3，对齐 epay ajax_user buyerStat）。
+// column: "buyer"(付款账号，method=0) / "ip"(method=1) / "mobile"(method=2)。
+// typeID>0 时按支付方式过滤。范围 [start,end)。关联黑名单标记 is_black。按次数降序，上限 500。
+func (r *StatRepo) BuyerStat(column string, typeID int, start, end time.Time) ([]BuyerStatRow, error) {
+	// column 白名单，防注入
+	switch column {
+	case "buyer", "ip", "mobile":
+	default:
+		column = "buyer"
+	}
+	tx := r.db.Model(&model.Order{}).
+		Select(column+" AS user, COUNT(*) AS order_count, COALESCE(SUM(money),0) AS amount").
+		Where("status = 1 AND "+column+" IS NOT NULL AND "+column+" <> ''").
+		Where("add_time >= ? AND add_time < ?", start, end)
+	if typeID > 0 {
+		tx = tx.Where("type = ?", typeID)
+	}
+	var rows []BuyerStatRow
+	if err := tx.Group(column).Order("order_count DESC").Limit(500).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	// 关联黑名单：查出所有黑名单内容，命中标记（epay 用 LEFT JOIN，这里内存标记避免动态表名 JOIN）。
+	if len(rows) > 0 {
+		var blacks []string
+		r.db.Model(&model.Blacklist{}).Pluck("content", &blacks)
+		set := make(map[string]struct{}, len(blacks))
+		for _, b := range blacks {
+			set[b] = struct{}{}
+		}
+		for i := range rows {
+			if _, ok := set[rows[i].User]; ok {
+				rows[i].IsBlack = true
+			}
+		}
+	}
+	return rows, nil
+}
+
 // AggregateOrders 按 商户 × (支付方式 type_name | 通道 channel) 聚合订单金额。
 // field 为金额字段：money/real_money/get_money/profit_money。仅统计已支付(status=1)。
 // byChannel=true 按 channel 分组，否则按 type_name。时间范围 [start,end)。

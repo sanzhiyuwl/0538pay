@@ -39,7 +39,7 @@ func main() {
 	if err := db.Where("plugin = ?", "mock").First(&mockCh).Error; err != nil {
 		log.Fatalf("未找到 mock 通道，请先跑 seedchannels: %v", err)
 	}
-	uid1 := uint(1)
+	uid1 := uint(1000)
 
 	rules := []model.ProfitReceiver{
 		{

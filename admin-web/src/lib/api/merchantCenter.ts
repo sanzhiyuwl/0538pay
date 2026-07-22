@@ -150,9 +150,27 @@ export interface ProfileReq {
   qq: string
   url: string
   mode: number
+  // 对齐 epay edit_info：可选提交（不传则不改）
+  keylogin?: number
+  refund?: number
+  transfer?: number
+  remain_money?: string
 }
 export function updateProfile(body: ProfileReq): Promise<{ ok: boolean }> {
   return request('/merchant/profile', { method: 'PUT', body })
+}
+
+// D-3 消息提醒配置
+export function fetchMsgConfig(): Promise<{ msgconfig: string }> {
+  return request('/merchant/msgconfig')
+}
+export function saveMsgConfig(msgconfig: string): Promise<{ ok: boolean }> {
+  return request('/merchant/msgconfig', { method: 'PUT', body: { msgconfig } })
+}
+
+// D-3 换绑手机/邮箱（登录密码二次确认）
+export function rebindContact(field: 'phone' | 'email', value: string, password: string): Promise<{ ok: boolean }> {
+  return request('/merchant/rebind', { method: 'POST', body: { field, value, password } })
 }
 
 export function changePassword(oldpwd: string, newpwd: string): Promise<{ ok: boolean }> {

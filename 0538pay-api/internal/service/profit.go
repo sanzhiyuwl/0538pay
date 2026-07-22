@@ -14,13 +14,17 @@ import (
 // ProfitService 分账业务：下单匹配规则、支付成功建分账单、列表/统计、状态流转（提交/查询/回退/取消/改额）。
 // 真实渠道分账 API 待凭证，提交/查询走本地状态流转（对齐 epay 状态机，资金语义完整）。
 type ProfitService struct {
-	repo     *repository.ProfitRepo
-	channels *repository.ChannelRepo
+	repo      *repository.ProfitRepo
+	channels  *repository.ChannelRepo
+	merchants *repository.MerchantRepo // 分账规则校验 uid 存在性（可空；SetMerchantRepo 注入）
 }
 
 func NewProfitService(repo *repository.ProfitRepo, channels *repository.ChannelRepo) *ProfitService {
 	return &ProfitService{repo: repo, channels: channels}
 }
+
+// SetMerchantRepo 注入商户 repo（分账规则管理校验绑定商户存在性）。nil 则跳过 uid 存在性校验。
+func (s *ProfitService) SetMerchantRepo(m *repository.MerchantRepo) { s.merchants = m }
 
 // ProfitError 携带业务错误码与提示。
 type ProfitError struct {
@@ -238,6 +242,187 @@ func (s *ProfitService) AutoExecute(limit int) (int, error) {
 		}
 	}
 	return done, nil
+}
+
+// ===== 分账规则管理（ps_receiver，C-1，对齐 epay ajax_profitsharing add/edit/set/del_receiver）=====
+
+// ListReceivers 列出全部分账规则（装配通道名/商户号派生字段）。
+func (s *ProfitService) ListReceivers() ([]dto.PsReceiverView, error) {
+	rules, err := s.repo.ListRules()
+	if err != nil {
+		return nil, err
+	}
+	views := make([]dto.PsReceiverView, 0, len(rules))
+	for i := range rules {
+		views = append(views, s.toReceiverView(&rules[i]))
+	}
+	return views, nil
+}
+
+// CreateReceiver 新增分账规则（对齐 epay add_receiver）。
+func (s *ProfitService) CreateReceiver(req dto.PsReceiverReq) error {
+	channel, uid, rate, minMoney, err := s.validateReceiver(req, 0)
+	if err != nil {
+		return err
+	}
+	rule := &model.ProfitReceiver{
+		Channel:    channel,
+		SubChannel: req.SubChannel,
+		UID:        uid,
+		Account:    strings.TrimSpace(req.Account),
+		Name:       strings.TrimSpace(req.Name),
+		Rate:       rate,
+		MinMoney:   minMoney,
+		Status:     0, // 新增默认关闭（对齐 epay，开启需 set_receiver 同步真实渠道接收方）
+		AddTime:    time.Now(),
+	}
+	return s.repo.CreateRule(rule)
+}
+
+// UpdateReceiver 编辑分账规则（对齐 epay edit_receiver）。
+// status==1（已开启）时不允许切换通道（对齐 epay），需先关闭。
+func (s *ProfitService) UpdateReceiver(id uint, req dto.PsReceiverReq) error {
+	old, err := s.repo.FindRule(id)
+	if err != nil {
+		return err
+	}
+	if old == nil {
+		return psErr("当前分账规则不存在")
+	}
+	channel, uid, rate, minMoney, err := s.validateReceiver(req, id)
+	if err != nil {
+		return err
+	}
+	if old.Status == 1 && channel != old.Channel {
+		return psErr("请先将状态改为已关闭再切换通道")
+	}
+	// 注：epay 在此对已开启规则会同步真实渠道接收方(addReceiver/deleteReceiver)，依赖渠道凭证，待凭证。
+	fields := map[string]interface{}{
+		"channel":     channel,
+		"sub_channel": req.SubChannel,
+		"uid":         uid,
+		"account":     strings.TrimSpace(req.Account),
+		"name":        strings.TrimSpace(req.Name),
+		"rate":        rate,
+		"min_money":   minMoney,
+	}
+	return s.repo.UpdateRule(id, fields)
+}
+
+// SetReceiverStatus 切换分账规则开关（对齐 epay set_receiver）。
+// 注：epay 开启时会向真实渠道 addReceiver、关闭时 deleteReceiver，依赖渠道凭证，待凭证；本地先落状态。
+func (s *ProfitService) SetReceiverStatus(id uint, status int8) error {
+	rule, err := s.repo.FindRule(id)
+	if err != nil {
+		return err
+	}
+	if rule == nil {
+		return psErr("当前分账规则不存在")
+	}
+	if status != 0 && status != 1 {
+		return psErr("状态值不合法")
+	}
+	return s.repo.SetRuleStatus(id, status)
+}
+
+// DeleteReceiver 删除分账规则（对齐 epay del_receiver）。
+func (s *ProfitService) DeleteReceiver(id uint) error {
+	rule, err := s.repo.FindRule(id)
+	if err != nil {
+		return err
+	}
+	if rule == nil {
+		return psErr("当前分账规则不存在")
+	}
+	// 注：epay 对已开启规则删除前会同步删除真实渠道接收方，待凭证。
+	return s.repo.DeleteRule(id)
+}
+
+// validateReceiver 校验分账规则入参（对齐 epay add/edit_receiver 的校验）。
+// 返回规范化后的 channel/uid/rate/minMoney。excludeID>0 时唯一性校验排除自身（编辑）。
+func (s *ProfitService) validateReceiver(req dto.PsReceiverReq, excludeID uint) (int, *uint, decimal.Decimal, decimal.Decimal, error) {
+	account := strings.TrimSpace(req.Account)
+	if req.Channel <= 0 || account == "" {
+		return 0, nil, decimal.Zero, decimal.Zero, psErr("支付通道和接收方账号为必填项")
+	}
+	// 通道存在性
+	ch, err := s.channels.FindByID(uint(req.Channel))
+	if err != nil {
+		return 0, nil, decimal.Zero, decimal.Zero, err
+	}
+	if ch == nil {
+		return 0, nil, decimal.Zero, decimal.Zero, psErr("支付通道不存在")
+	}
+	// 绑定商户存在性（uid>0 时）
+	var uid *uint
+	if req.UID > 0 {
+		u := uint(req.UID)
+		if s.merchants != nil {
+			m, e := s.merchants.FindByUIDSafe(u)
+			if e != nil {
+				return 0, nil, decimal.Zero, decimal.Zero, e
+			}
+			if m == nil {
+				return 0, nil, decimal.Zero, decimal.Zero, psErr("商户ID不存在")
+			}
+		}
+		uid = &u
+	}
+	// 比例：多接收方(含 |)不校验数值上限，单接收方 ≤100（对齐 epay）
+	rateStr := strings.TrimSpace(req.Rate)
+	if rateStr == "" {
+		rateStr = "30"
+	}
+	rate := decimal.RequireFromString("30")
+	if !strings.Contains(rateStr, "|") {
+		r, e := decimal.NewFromString(rateStr)
+		if e != nil || r.LessThanOrEqual(decimal.Zero) {
+			return 0, nil, decimal.Zero, decimal.Zero, psErr("分账比例不合法")
+		}
+		if r.GreaterThan(hundred) {
+			return 0, nil, decimal.Zero, decimal.Zero, psErr("分账比例不能大于100")
+		}
+		rate = r
+	}
+	// 订单最小金额门槛（可空=0）
+	minMoney := decimal.Zero
+	if ms := strings.TrimSpace(req.MinMoney); ms != "" {
+		mm, e := decimal.NewFromString(ms)
+		if e != nil || mm.LessThan(decimal.Zero) {
+			return 0, nil, decimal.Zero, decimal.Zero, psErr("订单最小金额不合法")
+		}
+		minMoney = mm
+	}
+	// 唯一性：每个 channel+uid 只能有一条规则（对齐 epay "每次支付只能同时给1个人分账"）
+	exists, err := s.repo.RuleExistsByChannelUID(req.Channel, uid, excludeID)
+	if err != nil {
+		return 0, nil, decimal.Zero, decimal.Zero, err
+	}
+	if exists {
+		return 0, nil, decimal.Zero, decimal.Zero, psErr("该支付通道&商户已存在分账规则，每次支付只能给1个接收方分账")
+	}
+	return req.Channel, uid, rate, minMoney, nil
+}
+
+func (s *ProfitService) toReceiverView(r *model.ProfitReceiver) dto.PsReceiverView {
+	v := dto.PsReceiverView{
+		ID:         r.ID,
+		Channel:    r.Channel,
+		SubChannel: r.SubChannel,
+		Account:    r.Account,
+		Name:       r.Name,
+		Rate:       r.Rate.StringFixed(2),
+		MinMoney:   r.MinMoney.StringFixed(2),
+		Status:     r.Status,
+		AddTime:    r.AddTime.Format(timeLayout),
+	}
+	if r.UID != nil {
+		v.UID = int(*r.UID)
+	}
+	if ch, _ := s.channels.FindByID(uint(r.Channel)); ch != nil {
+		v.ChannelName = ch.Name
+	}
+	return v
 }
 
 func (s *ProfitService) toPsOrderView(o *model.ProfitOrder) dto.PsOrderView {

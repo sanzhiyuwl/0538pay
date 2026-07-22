@@ -13,6 +13,54 @@ type LoginResp struct {
 	Role     string `json:"role"`
 }
 
+// AdminProfile 当前管理员账号资料（账号设置回填）。
+type AdminProfile struct {
+	ID       uint   `json:"id"`
+	Username string `json:"username"`
+	Nickname string `json:"nickname"`
+	Role     string `json:"role"`
+}
+
+// AdminChangePwdReq 管理员改登录密码入参。
+type AdminChangePwdReq struct {
+	OldPwd  string `json:"oldpwd" binding:"required"`
+	NewPwd  string `json:"newpwd" binding:"required"`
+	NewPwd2 string `json:"newpwd2" binding:"required"`
+}
+
+// AdminChangePayPwdReq 管理员改支付密码入参（对齐 epay set.php mod=paypwd_n）。
+type AdminChangePayPwdReq struct {
+	OldPwd  string `json:"oldpwd" binding:"required"`
+	NewPwd  string `json:"newpwd" binding:"required"`
+	NewPwd2 string `json:"newpwd2" binding:"required"`
+}
+
+// AdminProfileReq 管理员改账号资料入参（昵称 + 用户名）。
+type AdminProfileReq struct {
+	Nickname string `json:"nickname"`
+	Username string `json:"username" binding:"required"`
+}
+
+// AdminView 管理员列表项（Admins.vue 行）。
+type AdminView struct {
+	ID        uint   `json:"id"`
+	Username  string `json:"username"`
+	Nickname  string `json:"nickname"`
+	Role      string `json:"role"`
+	Status    int8   `json:"status"`
+	LastLogin string `json:"last_login"`
+	CreatedAt string `json:"created_at"`
+}
+
+// AdminSaveReq 新增/编辑管理员入参（编辑时 Password 留空则不改）。
+type AdminSaveReq struct {
+	Username string `json:"username" binding:"required"`
+	Nickname string `json:"nickname"`
+	Password string `json:"password"`
+	Role     string `json:"role"`
+	Status   int8   `json:"status"`
+}
+
 // OrderView 订单对外响应结构。金额统一格式化为两位小数字符串，
 // 字段/json tag 严格对齐前端 mock/orders.ts 的 Order interface。
 type OrderView struct {
@@ -46,9 +94,10 @@ type OrderView struct {
 type SubmitResp struct {
 	TradeNo    string `json:"trade_no"`    // 系统订单号
 	OutTradeNo string `json:"out_trade_no"` // 商户订单号
-	PayType    string `json:"pay_type"`    // qrcode/redirect/html/wap
+	PayType    string `json:"pay_type"`    // qrcode/redirect/html/wap/jsapi/app/scan/urlscheme…
 	PayURL     string `json:"pay_url,omitempty"`
 	QRCode     string `json:"qrcode,omitempty"`
+	RawHTML    string `json:"html,omitempty"`    // 表单自动提交 HTML / JSAPI 参数 JSON（A-2）
 	Money      string `json:"money"` // 订单金额，两位小数
 }
 
@@ -69,6 +118,7 @@ type ChannelView struct {
 	PayMax    string `json:"paymax"`
 	Today     string `json:"today"`     // 今日收款（派生）
 	Yesterday string `json:"yesterday"` // 昨日收款（派生）
+	SuccessRate string `json:"success_rate"` // 今日成功率%（派生，两位小数）
 	Status    int8   `json:"status"`
 }
 
@@ -231,7 +281,7 @@ type KeyTypeReq struct {
 	KeyType int8 `json:"keytype"`
 }
 
-// MerchantProfileReq 修改商户资料入参（仅模型已有字段：收款账号 + 联系方式 + 扣费模式）。
+// MerchantProfileReq 修改商户资料入参（对齐 epay ajax2.php edit_info）。
 type MerchantProfileReq struct {
 	SettleID int    `json:"settle_id"` // 结算方式
 	Account  string `json:"account"`   // 收款账号
@@ -240,6 +290,11 @@ type MerchantProfileReq struct {
 	QQ       string `json:"qq"`
 	URL      string `json:"url"`
 	Mode     int8   `json:"mode"` // 手续费扣除模式 0/1
+	// 以下四项对齐 epay edit_info（用指针区分"未提交"与"提交为0"，nil 则不改该字段）。
+	KeyLogin    *int8   `json:"keylogin"`     // 开启密钥登录 0/1
+	Refund      *int8   `json:"refund"`       // 订单退款 API 开关 0/1
+	Transfer    *int8   `json:"transfer"`     // 代付 API 开关 0/1
+	RemainMoney *string `json:"remain_money"` // 预留余额（不参与自动结算）
 }
 
 // MerchantPwdReq 修改登录密码入参。
@@ -336,6 +391,11 @@ type MerchantInfo struct {
 	Username string `json:"username"`  // 真实姓名
 	URL      string `json:"url"`       // 网站域名
 	Mode     int8   `json:"mode"`      // 手续费扣除模式
+	// edit_info 四项（供资料页回填开关/预留余额）。
+	KeyLogin    int8   `json:"keylogin"`     // 开启密钥登录 0/1
+	Refund      int8   `json:"refund"`       // 订单退款 API 开关 0/1
+	Transfer    int8   `json:"transfer"`     // 代付 API 开关 0/1
+	RemainMoney string `json:"remain_money"` // 预留余额
 }
 
 // SettleView 结算明细对外响应，字段/json tag 对齐前端 mock/settle.ts 的 SettleRecord。
@@ -430,9 +490,16 @@ type MerchantView struct {
 	Cert      int8    `json:"cert"`
 	Pay       int8    `json:"pay"`
 	Settle    int8    `json:"settle"`
+	Refund    int8    `json:"refund"`   // 退款API权限 0关1开(A-7)
+	Transfer  int8    `json:"transfer"` // 代付API权限 0关1开(A-7)
 	UpID      int     `json:"upid"`
 	Mode      int8    `json:"mode"`
 	Deposit   string  `json:"deposit"`
+	// 编辑表单回填（非 PII）：订单名模板/聚合收款开关/预留余额/实名类型
+	OrderName   string `json:"ordername"`
+	OpenCode    int8   `json:"open_code"`
+	RemainMoney string `json:"remain_money"`
+	CertType    int8   `json:"certtype"`
 }
 
 // MerchantCreateReq 后台添加商户入参（对齐 epay uset.php addUser 表单）。
@@ -470,6 +537,17 @@ type MerchantEditReq struct {
 	Settle   int8   `json:"settle"`
 	Status   int8   `json:"status"`
 	Password string `json:"password"` // 非空则改密（bcrypt）
+	// 对齐 epay ajax_user.php edit：订单名模板/聚合收款开关/预留余额/保证金/实名信息
+	OrderName   string `json:"ordername"`
+	OpenCode    int8   `json:"open_code"`
+	RemainMoney string `json:"remain_money"`
+	Deposit     string `json:"deposit"`
+	Cert        int8   `json:"cert"`      // 实名状态 0未认证/审核中 1已认证
+	CertType    int8   `json:"certtype"`  // 0个人 1企业
+	CertName    string `json:"certname"`  // 真实姓名
+	CertNo      string `json:"certno"`    // 证件号
+	CertCorp    string `json:"certcorpname"` // 企业名称
+	CertCorpNo  string `json:"certcorpno"`   // 企业证件号
 }
 
 // MerchantRechargeReq 商户余额充值/扣除入参（走 changeUserMoney 流水）。
@@ -576,6 +654,12 @@ type TransferCreateReq struct {
 	Password string `json:"password"` // 身份校验：后台=管理员密码 / 商户=登录密码
 }
 
+// TransferBatchReq 后台批量代付入参（C-2，对齐 epay transfer_batch）。一次校验密码，逐条处理。
+type TransferBatchReq struct {
+	Password string              `json:"password"` // 管理员密码（一次校验）
+	Items    []TransferCreateReq `json:"items"`    // 批量代付明细
+}
+
 // TransferStatusReq 后台手动改单条代付状态（不动资金）。
 // Status: 1成功 2失败；Result 失败原因（可选）。
 type TransferStatusReq struct {
@@ -643,6 +727,37 @@ func (q *PsOrderQuery) Normalize() {
 type PsStatusReq struct {
 	Action string `json:"action"` // submit/query/return/cancel/editmoney/delete
 	Money  string `json:"money"`  // editmoney 时的新金额
+}
+
+// PsReceiverView 分账规则对外响应（C-1，对齐前端规则管理表格）。
+type PsReceiverView struct {
+	ID          uint   `json:"id"`
+	Channel     int    `json:"channel"`      // 支付通道 id
+	ChannelName string `json:"channel_name"` // 派生通道名
+	SubChannel  int    `json:"subchannel"`   // 子通道 id（0=不限）
+	UID         int    `json:"uid"`          // 绑定商户（0=通道级全局）
+	Account     string `json:"account"`      // 接收方账号（| 分隔多接收方）
+	Name        string `json:"name"`         // 接收方姓名
+	Rate        string `json:"rate"`         // 分账比例 %
+	MinMoney    string `json:"minmoney"`     // 订单最小金额门槛
+	Status      int8   `json:"status"`       // 0关闭 1开启
+	AddTime     string `json:"addtime"`
+}
+
+// PsReceiverReq 分账规则新增/编辑入参（C-1，对齐 epay add/edit_receiver）。
+type PsReceiverReq struct {
+	Channel    int    `json:"channel"`    // 支付通道 id（必填）
+	SubChannel int    `json:"subchannel"` // 子通道 id（0=不限）
+	UID        int    `json:"uid"`        // 绑定商户（0/空=通道级全局）
+	Account    string `json:"account"`    // 接收方账号（必填，| 分隔多接收方）
+	Name       string `json:"name"`       // 接收方姓名（可空）
+	Rate       string `json:"rate"`       // 分账比例 %（空=30，多接收方用 | 分隔）
+	MinMoney   string `json:"minmoney"`   // 订单最小金额门槛（空=0 不限）
+}
+
+// PsReceiverStatusReq 分账规则开关入参。
+type PsReceiverStatusReq struct {
+	Status int8 `json:"status"` // 0关 1开
 }
 
 // ===== 风控 / 黑名单 / 域名（C4）=====
@@ -786,6 +901,22 @@ type StatQuery struct {
 	Type      int    `form:"type"`      // 0订单金额 1支付金额 2分成金额 3手续费利润 4代付金额
 	StartDay  string `form:"startday"`  // yyyy-mm-dd
 	EndDay    string `form:"endday"`    // yyyy-mm-dd
+}
+
+// BuyerStatQuery 支付用户统计入参（C-3，对齐 epay buyerStat）。
+type BuyerStatQuery struct {
+	Method   int    `form:"method"`   // 0按付款账号 buyer / 1按IP / 2按手机号 mobile
+	Type     int    `form:"type"`     // 支付方式ID（0=全部）
+	StartDay string `form:"startday"` // yyyy-mm-dd（必填）
+	EndDay   string `form:"endday"`   // yyyy-mm-dd（必填）
+}
+
+// BuyerStatRow 支付用户统计一行（C-3）。
+type BuyerStatRow struct {
+	User    string `json:"user"`     // 付款人标识
+	Count   int64  `json:"count"`    // 付款次数
+	Amount  string `json:"amount"`   // 累计金额
+	IsBlack bool   `json:"is_black"` // 是否黑名单
 }
 
 // LogView 登录日志对外响应，对齐前端 mock。
@@ -1306,6 +1437,16 @@ type AdminDashboard struct {
 	SuccessRate string             `json:"success_rate"` // 今日成功率(%)
 	Trend       DashTrend          `json:"trend"`        // 近7日趋势
 	Recent      []DashRecentOrder  `json:"recent"`       // 最近订单
+	FeeProfit   DashFeeProfit      `json:"fee_profit"`   // 支付方式手续费利润交叉表（今+近6日）
+	Alerts      []string           `json:"alerts"`       // 安全告警（弱密码/默认密码等）
+}
+
+// DashFeeProfit 支付方式手续费利润交叉表（对齐 epay index.php profit_paytype，今+近6日 × 各支付方式）。
+type DashFeeProfit struct {
+	Days     []string           `json:"days"`     // 日期标签（如 07-22）
+	PayTypes []string           `json:"paytypes"` // 支付方式显示名（列）
+	Income   map[string][]string `json:"income"`  // 支付方式 → 每日收入(实付)数组，与 Days 对齐
+	Profit   map[string][]string `json:"profit"`  // 支付方式 → 每日利润数组，与 Days 对齐
 }
 
 // DashOverviewCard 概况卡：今日/昨日/累计。

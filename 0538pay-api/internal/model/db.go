@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/0538pay/api/internal/config"
@@ -26,9 +27,13 @@ func NewDB(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	return db, nil
 }
 
+// merchantUIDStart 商户号自增起始值。对齐 epay pre_user 表 AUTO_INCREMENT=1000
+// （install.sql:283）——商户号从 1000 起按注册递增 +1，避免个位数号段。
+const merchantUIDStart = 1000
+
 // AutoMigrate 起步阶段用 GORM 自动建表；表结构稳定后改用 migrations/ SQL 脚本管理。
 func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&Admin{},
 		&Order{},
 		&Merchant{},
@@ -58,5 +63,25 @@ func AutoMigrate(db *gorm.DB) error {
 		&MessageRead{},
 		&Announce{},
 		&RegCode{},
-	)
+	); err != nil {
+		return err
+	}
+	return ensureMerchantUIDStart(db)
+}
+
+// ensureMerchantUIDStart 把 pay_merchant 表自增起点抬到 1000（对齐 epay）。
+// MySQL 规则：AUTO_INCREMENT 不能设得比 max(uid)+1 更小，故仅当表为空或最大 uid<1000
+// 时该 ALTER 才实际生效；已有 uid≥1000 的行时是无害的 no-op（保持现有递增）。
+func ensureMerchantUIDStart(db *gorm.DB) error {
+	var maxUID uint
+	// 空表时 MAX 返回 NULL → 用 COALESCE 兜底 0。
+	if err := db.Model(&Merchant{}).Select("COALESCE(MAX(uid),0)").Scan(&maxUID).Error; err != nil {
+		return err
+	}
+	if maxUID >= merchantUIDStart {
+		return nil // 已进入 1000+ 号段，无需调整
+	}
+	// ALTER TABLE 是 DDL，MySQL 不支持占位符参数；merchantUIDStart 是内部常量（非用户输入），
+	// 用 Sprintf 拼接无注入风险。
+	return db.Exec(fmt.Sprintf("ALTER TABLE pay_merchant AUTO_INCREMENT = %d", merchantUIDStart)).Error
 }

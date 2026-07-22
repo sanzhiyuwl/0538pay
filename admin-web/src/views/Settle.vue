@@ -27,6 +27,7 @@ import {
   createSettleBatch,
   completeSettleBatch,
   setSettleStatus,
+  exportSettleBatch,
 } from '@/lib/api/settle'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
@@ -164,6 +165,7 @@ function toggleMenu(id: number, ev?: MouseEvent) {
 }
 function closeMenu() {
   openMenu.value = null
+  exportMenuBatch.value = null
 }
 onMounted(() => window.addEventListener('click', closeMenu))
 onUnmounted(() => window.removeEventListener('click', closeMenu))
@@ -206,6 +208,24 @@ async function doCompleteBatch(batch: string) {
   }
 }
 
+// 银行专用打款导出（C-4）
+const exportMenuBatch = ref<string | null>(null)
+const exportTmpls = [
+  { tmpl: 'mybank', label: '网商银行（支付宝+银行卡）' },
+  { tmpl: 'alipay', label: '支付宝批量转账' },
+  { tmpl: 'wxpay', label: '微信付款到零钱' },
+  { tmpl: 'common', label: '通用明细' },
+]
+async function doExportBatch(batch: string, tmpl: string) {
+  exportMenuBatch.value = null
+  try {
+    await exportSettleBatch(batch, tmpl)
+    toast.success('导出成功')
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : '导出失败')
+  }
+}
+
 // 单条状态变更（0待结算/1已完成/2正在结算/3失败）
 async function changeStatus(id: number, status: number) {
   openMenu.value = null
@@ -234,7 +254,7 @@ async function confirmDelete() {
   const r = delTarget.value
   if (!r || busy.value) return
   if (!delPassword.value) {
-    toast.error('请输入管理员密码')
+    toast.error('请输入支付密码')
     return
   }
   busy.value = true
@@ -398,6 +418,26 @@ function submitExport() {
             >
               <CheckCircle2 />标记完成
             </Button>
+            <div class="relative inline-block">
+              <Button variant="outline" size="sm" @click.stop="exportMenuBatch = exportMenuBatch === b.batch ? null : b.batch">
+                <Download />导出打款
+              </Button>
+              <div
+                v-if="exportMenuBatch === b.batch"
+                class="menu-panel absolute left-0 top-full z-20 mt-1.5 w-52"
+                @click.stop
+              >
+                <button
+                  v-for="t in exportTmpls"
+                  :key="t.tmpl"
+                  class="menu-item"
+                  @click="doExportBatch(b.batch, t.tmpl)"
+                >
+                  <Download class="size-4 shrink-0 opacity-70" />
+                  <span class="flex-1">{{ t.label }}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -589,8 +629,8 @@ function submitExport() {
         将退回该商户余额，此操作不可恢复。
       </p>
       <div class="mt-3 row-field">
-        <label class="lbl">管理员密码</label>
-        <input v-model="delPassword" type="password" placeholder="资金操作需二次校验" class="field-input flex-1" @keyup.enter="confirmDelete" />
+        <label class="lbl">支付密码</label>
+        <input v-model="delPassword" type="password" placeholder="请输入管理员支付密码" class="field-input flex-1" @keyup.enter="confirmDelete" />
       </div>
       <template #footer>
         <Button variant="outline" size="sm" @click="delTarget = null">取消</Button>

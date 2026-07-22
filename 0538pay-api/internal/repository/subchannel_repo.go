@@ -91,7 +91,7 @@ func (r *SubChannelRepo) FindPickable(uid uint, typeID int) ([]SubChannelPick, e
 	err := r.db.Table("pay_subchannel AS B").
 		Select("B.id AS sub_id, A.id AS channel_id, A.plugin AS plugin, A.rate AS rate, A.pay_min AS pay_min, A.pay_max AS pay_max, B.info AS info").
 		Joins("INNER JOIN pay_channel AS A ON B.channel = A.id").
-		Where("B.uid = ? AND A.type = ? AND A.status = 1 AND B.status = 1", uid, typeID).
+		Where("B.uid = ? AND A.type = ? AND A.status = 1 AND B.status = 1 AND A.daystatus = 0", uid, typeID).
 		Order("B.use_time ASC").
 		Scan(&rows).Error
 	return rows, err

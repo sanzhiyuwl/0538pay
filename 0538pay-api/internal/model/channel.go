@@ -24,6 +24,11 @@ type Channel struct {
 	PayMax   string          `gorm:"size:16" json:"paymax"`                        // 单笔最大
 	Config   string          `gorm:"type:text" json:"-"`                           // 渠道密钥/参数 JSON（不对外输出）
 	Status   int8            `gorm:"not null;default:0;index" json:"status"`       // 0=关闭 1=开启
+	// E-5 补齐字段（对齐 epay pre_channel，JSAPI/限额相关，真实渠道消费）
+	AppWxMp   int    `gorm:"column:appwxmp;default:0" json:"appwxmp"`     // 绑定的微信公众号 id（JSAPI 需要）
+	AppWxA    int    `gorm:"column:appwxa;default:0" json:"appwxa"`       // 绑定的微信小程序 id
+	AppType   string `gorm:"column:apptype;size:50" json:"apptype"`       // 通道支持的 APP 支付子类型
+	DayStatus int8   `gorm:"column:daystatus;default:0" json:"daystatus"` // 单日限额开关
 }
 
 func (Channel) TableName() string { return "pay_channel" }

@@ -2,17 +2,19 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import {
   Search, RotateCcw, Download, BarChart3, MoreHorizontal,
-  Send, Undo2, RefreshCw, XCircle,
+  Send, Undo2, RefreshCw, XCircle, Plus, Pencil, Trash2,
 } from 'lucide-vue-next'
-import { Panel, Button, Badge, Select, DateRange, Pagination, Modal } from '@/components/ui'
+import { Panel, Button, Badge, Select, DateRange, Pagination, Modal, Drawer, Switch } from '@/components/ui'
 import {
   fetchPsOrders, fetchPsStats, operatePsOrder,
-  type PsOrder, type PsStats,
+  fetchPsReceivers, createPsReceiver, updatePsReceiver, setPsReceiverStatus, deletePsReceiver,
+  type PsOrder, type PsStats, type PsReceiver, type PsReceiverReq,
 } from '@/lib/api/profitsharing'
+import { fetchChannels } from '@/lib/api/channels'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 import { shouldDropUp } from '@/composables/useRowMenu'
-import { formatMoney } from '@/lib/utils'
+import { formatMoney, exportCsv } from '@/lib/utils'
 
 const toast = useToast()
 
@@ -71,6 +73,29 @@ async function load() {
     loading.value = false
   }
 }
+// 导出（按当前筛选条件从后端拉全量再生成 CSV）
+const exporting = ref(false)
+async function exportList() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const res = await fetchPsOrders({ ...buildParams(), page: 1, pageSize: 10000 })
+    const list = res.list
+    if (!list.length) { toast.error('没有可导出的分账记录'); return }
+    const headers = ['系统订单号', '接口订单号', '分账规则', '通道', '接收方', '分账金额', '创建时间', '状态', '结果']
+    const data = list.map((o) => [
+      o.trade_no, o.api_trade_no, o.rulename, o.channelname, o.receiver, o.money, o.addtime,
+      psStatus[o.status]?.text ?? o.status, o.result,
+    ])
+    exportCsv(`分账记录_${new Date().toISOString().slice(0, 10)}`, headers, data)
+    toast.success(`已导出 ${list.length} 条分账记录`)
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
+
 async function loadStats() {
   if (!showStats.value) return
   try {
@@ -184,6 +209,97 @@ async function doConfirm() {
     busy.value = false
   }
 }
+
+// ===== 分账规则管理（ps_receiver，C-1）=====
+const rules = ref<PsReceiver[]>([])
+const rulesLoading = ref(false)
+const channelOpts = ref<{ value: number; label: string }[]>([])
+
+async function loadRules() {
+  rulesLoading.value = true
+  try {
+    const { list } = await fetchPsReceivers()
+    rules.value = list
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '获取分账规则失败')
+  } finally {
+    rulesLoading.value = false
+  }
+}
+async function loadChannelOpts() {
+  try {
+    const res = await fetchChannels({ pageSize: 200 })
+    channelOpts.value = res.list.map((c) => ({ value: c.id, label: `${c.name}（#${c.id}）` }))
+  } catch {
+    channelOpts.value = []
+  }
+}
+
+// 规则新增/编辑抽屉
+const ruleDrawer = ref(false)
+const ruleEditID = ref<number | null>(null)
+const ruleSaving = ref(false)
+const ruleForm = reactive<PsReceiverReq>({ channel: 0, subchannel: 0, uid: 0, account: '', name: '', rate: '30', minmoney: '0' })
+
+function openRuleCreate() {
+  ruleEditID.value = null
+  Object.assign(ruleForm, { channel: channelOpts.value[0]?.value ?? 0, subchannel: 0, uid: 0, account: '', name: '', rate: '30', minmoney: '0' })
+  ruleDrawer.value = true
+}
+function openRuleEdit(r: PsReceiver) {
+  ruleEditID.value = r.id
+  Object.assign(ruleForm, { channel: r.channel, subchannel: r.subchannel, uid: r.uid, account: r.account, name: r.name, rate: r.rate, minmoney: r.minmoney })
+  ruleDrawer.value = true
+}
+async function saveRule() {
+  if (!ruleForm.channel || !ruleForm.account.trim()) {
+    toast.error('支付通道和接收方账号为必填项')
+    return
+  }
+  ruleSaving.value = true
+  try {
+    if (ruleEditID.value !== null) {
+      await updatePsReceiver(ruleEditID.value, { ...ruleForm })
+      toast.success('修改分账规则成功')
+    } else {
+      await createPsReceiver({ ...ruleForm })
+      toast.success('新增分账规则成功')
+    }
+    ruleDrawer.value = false
+    await loadRules()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    ruleSaving.value = false
+  }
+}
+async function toggleRule(r: PsReceiver) {
+  const next = r.status === 1 ? 0 : 1
+  try {
+    await setPsReceiverStatus(r.id, next)
+    r.status = next
+    toast.success('状态已更新')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '操作失败')
+  }
+}
+const ruleDelTarget = ref<PsReceiver | null>(null)
+async function confirmDelRule() {
+  if (!ruleDelTarget.value) return
+  try {
+    await deletePsReceiver(ruleDelTarget.value.id)
+    toast.success('删除成功')
+    ruleDelTarget.value = null
+    await loadRules()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '删除失败')
+  }
+}
+
+onMounted(() => {
+  loadRules()
+  loadChannelOpts()
+})
 </script>
 
 <template>
@@ -192,7 +308,7 @@ async function doConfirm() {
     <Panel title="分账记录" :subtitle="`共 ${total} 笔分账`">
       <template #actions>
         <Button variant="outline" size="sm" @click="toggleStats"><BarChart3 />统计</Button>
-        <Button variant="outline" size="sm"><Download />导出列表</Button>
+        <Button variant="outline" size="sm" :disabled="exporting" @click="exportList"><Download />导出列表</Button>
       </template>
       <div class="space-y-3">
         <div class="filter-bar">
@@ -335,6 +451,111 @@ async function doConfirm() {
       <template #footer>
         <Button variant="outline" size="sm" @click="confirmOpen = false">取消</Button>
         <Button size="sm" :disabled="busy" @click="doConfirm">确认{{ confirmLabel }}</Button>
+      </template>
+    </Modal>
+
+    <!-- 分账规则管理（ps_receiver，C-1）-->
+    <Panel title="分账规则管理" :subtitle="`共 ${rules.length} 条规则`">
+      <template #actions>
+        <Button size="sm" @click="openRuleCreate"><Plus />新增规则</Button>
+      </template>
+      <p class="mb-3 text-xs text-muted-foreground">
+        每个「通道 + 商户」只能配置一条规则。规则开启后下单命中即按比例创建分账单。
+        绑定商户的规则从其余额扣款；真实渠道分账接收方同步待渠道凭证。
+      </p>
+      <div class="overflow-x-auto">
+        <table class="tbl w-full">
+          <thead>
+            <tr>
+              <th class="w-16">ID</th>
+              <th>通道</th>
+              <th>绑定商户</th>
+              <th>接收方账号 / 姓名</th>
+              <th class="w-24">分账比例</th>
+              <th class="w-28">订单门槛</th>
+              <th class="w-20 col-center">状态</th>
+              <th class="w-28 col-center">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in rules" :key="r.id">
+              <td class="dim tabular-nums">#{{ r.id }}</td>
+              <td>{{ r.channel_name || `通道#${r.channel}` }}<span v-if="r.subchannel" class="ml-1 text-xs dim">子#{{ r.subchannel }}</span></td>
+              <td>
+                <span v-if="r.uid">商户 {{ r.uid }}</span>
+                <span v-else class="dim">通道级全局</span>
+              </td>
+              <td>
+                <div class="truncate" :title="r.account">{{ r.account }}</div>
+                <div v-if="r.name" class="truncate text-xs dim">{{ r.name }}</div>
+              </td>
+              <td class="tabular-nums">{{ r.rate }}%</td>
+              <td class="tabular-nums"><span class="dim text-xs">¥</span>{{ r.minmoney }}</td>
+              <td class="col-center">
+                <Switch :model-value="r.status === 1" @update:model-value="toggleRule(r)" />
+              </td>
+              <td class="col-center">
+                <button class="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title="编辑" @click="openRuleEdit(r)"><Pencil class="size-4" /></button>
+                <button class="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-destructive" title="删除" @click="ruleDelTarget = r"><Trash2 class="size-4" /></button>
+              </td>
+            </tr>
+            <tr v-if="rulesLoading"><td colspan="8" class="py-8 text-center dim">加载中…</td></tr>
+            <tr v-else-if="!rules.length"><td colspan="8" class="py-8 text-center dim">暂无分账规则，点击右上角新增</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+
+    <!-- 规则新增/编辑抽屉 -->
+    <Drawer
+      v-model="ruleDrawer"
+      :title="ruleEditID !== null ? '编辑分账规则' : '新增分账规则'"
+      subtitle="配置通道、接收方与分账比例"
+    >
+      <div class="space-y-3.5">
+        <div class="row-field">
+          <label class="lbl">支付通道<span class="text-destructive">*</span></label>
+          <Select v-model="ruleForm.channel" :options="channelOpts" class="flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">子通道 ID</label>
+          <input v-model.number="ruleForm.subchannel" type="number" min="0" placeholder="0=不限" class="field-input flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">绑定商户 UID</label>
+          <input v-model.number="ruleForm.uid" type="number" min="0" placeholder="0=通道级全局（不绑定商户）" class="field-input flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">接收方账号<span class="text-destructive">*</span></label>
+          <input v-model="ruleForm.account" placeholder="多接收方用 | 分隔" class="field-input flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">接收方姓名</label>
+          <input v-model="ruleForm.name" placeholder="可空，多个用 | 分隔" class="field-input flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">分账比例 %</label>
+          <input v-model="ruleForm.rate" placeholder="默认 30；多接收方用 | 分隔" class="field-input flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">订单最小金额</label>
+          <input v-model="ruleForm.minmoney" placeholder="0=不限，订单金额≥此值才分账" class="field-input flex-1" />
+        </div>
+      </div>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="ruleDrawer = false">取消</Button>
+        <Button size="sm" :disabled="ruleSaving" @click="saveRule">{{ ruleEditID !== null ? '保存' : '创建' }}</Button>
+      </template>
+    </Drawer>
+
+    <!-- 规则删除确认 -->
+    <Modal :model-value="!!ruleDelTarget" title="删除分账规则" @update:model-value="(v) => { if (!v) ruleDelTarget = null }">
+      <p class="text-sm text-muted-foreground">
+        确定删除规则 <b class="text-foreground">#{{ ruleDelTarget?.id }}</b>（接收方 {{ ruleDelTarget?.account }}）吗？此操作不可恢复。
+      </p>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="ruleDelTarget = null">取消</Button>
+        <Button variant="destructive" size="sm" @click="confirmDelRule">删除</Button>
       </template>
     </Modal>
   </div>

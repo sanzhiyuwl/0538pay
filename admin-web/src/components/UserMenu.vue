@@ -2,10 +2,12 @@
 import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { onClickOutside } from '@vueuse/core'
-import { ChevronDown, Settings, SquarePen, Power, Plus } from 'lucide-vue-next'
+import { ChevronDown, Settings, SquarePen, KeyRound, Power, Plus } from 'lucide-vue-next'
 import { Modal, Button } from '@/components/ui'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
+import { fetchProfile, updateProfile, changePassword, changePayPassword } from '@/lib/api/auth'
+import { ApiError } from '@/lib/api/client'
 
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
@@ -40,30 +42,89 @@ function onAvatarChange(e: Event) {
   reader.onload = () => (avatar.value = reader.result as string)
   reader.readAsDataURL(file)
 }
-function saveAccount() {
-  accountOpen.value = false
+const savingAccount = ref(false)
+async function saveAccount() {
+  if (savingAccount.value) return
+  savingAccount.value = true
+  try {
+    await updateProfile({ nickname: account.name.trim(), username: account.username.trim() })
+    auth.setNickname(account.name.trim())
+    toast.success('账号资料已保存')
+    accountOpen.value = false
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    savingAccount.value = false
+  }
 }
 
-// ===== 修改密码弹窗（登录密码 + 支付密码）=====
+// ===== 修改登录密码弹窗 =====
+// 登录密码用于后台登录；支付密码（下方）独立，用于转账/结算/退款二次校验，对齐 epay admin_paypwd。
 const pwdOpen = ref(false)
-// 登录密码
 const pwd = reactive({ oldpwd: '', newpwd: '', newpwd2: '' })
-// 支付密码（对齐 epay set.php mod=paypwd，用于转账接口与 API 退款，默认 123456）
-const paypwd = reactive({ oldpwd: '', newpwd: '', newpwd2: '' })
-function savePwd() {
-  pwdOpen.value = false
-  pwd.oldpwd = pwd.newpwd = pwd.newpwd2 = ''
-  paypwd.oldpwd = paypwd.newpwd = paypwd.newpwd2 = ''
+const savingPwd = ref(false)
+async function savePwd() {
+  if (savingPwd.value) return
+  if (!pwd.oldpwd) return toast.error('请输入原始密码')
+  if (!pwd.newpwd || pwd.newpwd.length < 6) return toast.error('新密码至少 6 位')
+  if (pwd.newpwd !== pwd.newpwd2) return toast.error('两次输入的新密码不一致')
+  savingPwd.value = true
+  try {
+    await changePassword({ oldpwd: pwd.oldpwd, newpwd: pwd.newpwd, newpwd2: pwd.newpwd2 })
+    toast.success('密码修改成功，请重新登录')
+    pwd.oldpwd = pwd.newpwd = pwd.newpwd2 = ''
+    pwdOpen.value = false
+    // 改密后强制重新登录（对齐 epay "请重新登录"）
+    auth.logout()
+    router.replace('/login')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '修改失败')
+  } finally {
+    savingPwd.value = false
+  }
+}
+
+// ===== 修改支付密码弹窗 =====
+// 支付密码用于转账/结算/API 退款二次校验，独立于登录密码，出厂默认 123456（对齐 epay admin_paypwd）。
+const payPwdOpen = ref(false)
+const payPwd = reactive({ oldpwd: '', newpwd: '', newpwd2: '' })
+const savingPayPwd = ref(false)
+async function savePayPwd() {
+  if (savingPayPwd.value) return
+  if (!payPwd.oldpwd) return toast.error('请输入原支付密码')
+  if (!payPwd.newpwd || payPwd.newpwd.length < 6) return toast.error('新支付密码至少 6 位')
+  if (payPwd.newpwd !== payPwd.newpwd2) return toast.error('两次输入的新支付密码不一致')
+  savingPayPwd.value = true
+  try {
+    await changePayPassword({ oldpwd: payPwd.oldpwd, newpwd: payPwd.newpwd, newpwd2: payPwd.newpwd2 })
+    toast.success('支付密码修改成功')
+    payPwd.oldpwd = payPwd.newpwd = payPwd.newpwd2 = ''
+    payPwdOpen.value = false
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '修改失败')
+  } finally {
+    savingPayPwd.value = false
+  }
 }
 
 // ===== 菜单动作 =====
-function openAccount() {
+async function openAccount() {
   open.value = false
   accountOpen.value = true
+  // 拉真实资料回填（用户名 + 昵称）
+  try {
+    const p = await fetchProfile()
+    account.username = p.username
+    account.name = p.nickname
+  } catch { /* 保留默认 */ }
 }
 function openPwd() {
   open.value = false
   pwdOpen.value = true
+}
+function openPayPwd() {
+  open.value = false
+  payPwdOpen.value = true
 }
 </script>
 
@@ -93,7 +154,7 @@ function openPwd() {
     >
       <div
         v-if="open"
-        class="absolute right-0 top-full z-50 mt-2 w-36 overflow-hidden rounded-md border border-border bg-popover shadow-md"
+        class="absolute right-0 top-full z-50 mt-2 w-40 overflow-hidden rounded-md border border-border bg-popover shadow-md"
       >
         <!-- 顶部用户块 -->
         <div class="flex items-center gap-2 px-3 py-2.5">
@@ -122,6 +183,12 @@ function openPwd() {
             @click="openPwd"
           >
             <SquarePen class="size-4 text-muted-foreground" />修改密码
+          </button>
+          <button
+            class="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
+            @click="openPayPwd"
+          >
+            <KeyRound class="size-4 text-muted-foreground" />修改支付密码
           </button>
           <button
             class="flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
@@ -169,12 +236,11 @@ function openPwd() {
       </template>
     </Modal>
 
-    <!-- 修改密码弹窗（登录密码 + 支付密码）-->
-    <Modal v-model="pwdOpen" title="修改密码" width="max-w-lg">
+    <!-- 修改登录密码弹窗 -->
+    <Modal v-model="pwdOpen" title="修改登录密码" width="max-w-lg">
       <div class="space-y-6">
         <!-- 登录密码 -->
         <section class="space-y-3">
-          <h4 class="pwd-group-title">登录密码</h4>
           <div class="pwd-row">
             <label class="pwd-lbl"><span class="text-destructive">*</span> 原始密码</label>
             <div class="pwd-control">
@@ -185,7 +251,7 @@ function openPwd() {
             <label class="pwd-lbl"><span class="text-destructive">*</span> 新密码</label>
             <div class="pwd-control">
               <input v-model="pwd.newpwd" type="password" placeholder="请输入新密码" class="field-input w-full" />
-              <p class="pwd-hint">修改密码时必填，不修改密码时留空</p>
+              <p class="pwd-hint">至少 6 位。修改成功后需重新登录。</p>
             </div>
           </div>
           <div class="pwd-row">
@@ -195,37 +261,41 @@ function openPwd() {
             </div>
           </div>
         </section>
+      </div>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="pwdOpen = false">取消</Button>
+        <Button size="sm" :disabled="savingPwd" @click="savePwd">保存</Button>
+      </template>
+    </Modal>
 
-        <!-- 支付密码 -->
-        <section class="space-y-3 border-t border-border/60 pt-5">
-          <div>
-            <h4 class="pwd-group-title">支付密码</h4>
-            <p class="mt-1 text-xs text-muted-foreground">用于转账接口及 API 退款，默认为 123456</p>
-          </div>
+    <!-- 修改支付密码弹窗 -->
+    <Modal v-model="payPwdOpen" title="修改支付密码" width="max-w-lg">
+      <div class="space-y-6">
+        <section class="space-y-3">
           <div class="pwd-row">
-            <label class="pwd-lbl">原支付密码</label>
+            <label class="pwd-lbl"><span class="text-destructive">*</span> 原支付密码</label>
             <div class="pwd-control">
-              <input v-model="paypwd.oldpwd" type="password" placeholder="修改支付密码时填写" class="field-input w-full" />
+              <input v-model="payPwd.oldpwd" type="password" placeholder="请输入原支付密码" class="field-input w-full" />
             </div>
           </div>
           <div class="pwd-row">
-            <label class="pwd-lbl">新支付密码</label>
+            <label class="pwd-lbl"><span class="text-destructive">*</span> 新支付密码</label>
             <div class="pwd-control">
-              <input v-model="paypwd.newpwd" type="password" placeholder="请输入新支付密码" class="field-input w-full" />
-              <p class="pwd-hint">修改支付密码时必填，不修改时留空</p>
+              <input v-model="payPwd.newpwd" type="password" placeholder="请输入新支付密码" class="field-input w-full" />
+              <p class="pwd-hint">至少 6 位，用于转账 / 结算 / 退款二次校验。</p>
             </div>
           </div>
           <div class="pwd-row">
-            <label class="pwd-lbl">确认支付密码</label>
+            <label class="pwd-lbl"><span class="text-destructive">*</span> 确认密码</label>
             <div class="pwd-control">
-              <input v-model="paypwd.newpwd2" type="password" placeholder="请再次输入新支付密码" class="field-input w-full" />
+              <input v-model="payPwd.newpwd2" type="password" placeholder="请再次输入新支付密码" class="field-input w-full" />
             </div>
           </div>
         </section>
       </div>
       <template #footer>
-        <Button variant="outline" size="sm" @click="pwdOpen = false">取消</Button>
-        <Button size="sm" @click="savePwd">保存</Button>
+        <Button variant="outline" size="sm" @click="payPwdOpen = false">取消</Button>
+        <Button size="sm" :disabled="savingPayPwd" @click="savePayPwd">保存</Button>
       </template>
     </Modal>
   </div>

@@ -77,6 +77,30 @@ export function roleName(roleId: number) {
   return roles.find((r) => r.id === roleId)?.name ?? '—'
 }
 
+/**
+ * 后端管理员 role 为字符串（super/admin/…）。下面是新增/编辑管理员时可选的角色，
+ * 与后端 AdminService 的 role 语义对齐（super 受保护，其余为运营角色标签）。
+ */
+export const roleOptions = [
+  { value: 'admin', label: '管理员' },
+  { value: 'operator', label: '运营' },
+  { value: 'finance', label: '财务' },
+  { value: 'service', label: '客服' },
+]
+
+const roleLabelMap: Record<string, string> = {
+  super: '超级管理员',
+  admin: '管理员',
+  operator: '运营',
+  finance: '财务',
+  service: '客服',
+}
+
+/** role 字符串 → 中文标签（未知角色原样返回） */
+export function roleLabel(role: string): string {
+  return roleLabelMap[role] ?? role
+}
+
 /** 角色权限展示文案 */
 export function rolePermText(role: Role): string {
   if (role.permissions.includes('*')) return '全部权限'

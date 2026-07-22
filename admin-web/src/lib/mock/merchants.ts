@@ -20,9 +20,15 @@ export interface Merchant {
   cert: 0 | 1 // 实名
   pay: 0 | 1 | 2 // 支付权限 0关1开2未审核
   settle: 0 | 1 // 结算权限
+  refund?: 0 | 1 // 退款API权限 0关1开(对齐 epay refund,默认1)
+  transfer?: 0 | 1 // 代付API权限 0关1开(对齐 epay transfer,默认0)
   upid: number // 邀请方
   mode: 0 | 1 // 手续费模式
   deposit: string // 保证金
+  ordername?: string // 订单名模板（回传给下游的商品名，空=用原始名）
+  open_code?: 0 | 1 // 单独开启聚合收款
+  remain_money?: string // 预留余额（自动结算不参与）
+  certtype?: 0 | 1 // 实名类型 0个人1企业
 }
 
 /** 结算方式字典 */

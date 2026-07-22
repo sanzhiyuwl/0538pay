@@ -55,6 +55,54 @@ func (r *AdminRepo) FindByID(id uint) (*model.Admin, error) {
 	return &a, nil
 }
 
+// List 全部管理员（按 id 升序；管理员数量少，不分页）。
+func (r *AdminRepo) List() ([]model.Admin, error) {
+	var list []model.Admin
+	err := r.db.Order("id ASC").Find(&list).Error
+	return list, err
+}
+
+// CountByUsername 统计用户名出现次数（新增/改名查重）。exceptID>0 时排除该 id 自身。
+func (r *AdminRepo) CountByUsername(username string, exceptID uint) (int64, error) {
+	tx := r.db.Model(&model.Admin{}).Where("username = ?", username)
+	if exceptID > 0 {
+		tx = tx.Where("id <> ?", exceptID)
+	}
+	var n int64
+	err := tx.Count(&n).Error
+	return n, err
+}
+
+// Create 新增管理员。
+func (r *AdminRepo) Create(a *model.Admin) error { return r.db.Create(a).Error }
+
+// UpdateFields 更新管理员的白名单字段（避免误改密码/主键）。
+func (r *AdminRepo) UpdateFields(id uint, fields map[string]interface{}) error {
+	return r.db.Model(&model.Admin{}).Where("id = ?", id).Updates(fields).Error
+}
+
+// UpdatePassword 只更新密码哈希。
+func (r *AdminRepo) UpdatePassword(id uint, hash string) error {
+	return r.db.Model(&model.Admin{}).Where("id = ?", id).Update("password", hash).Error
+}
+
+// SetStatus 只更新启停状态。
+func (r *AdminRepo) SetStatus(id uint, status int8) error {
+	return r.db.Model(&model.Admin{}).Where("id = ?", id).Update("status", status).Error
+}
+
+// Delete 删除管理员。
+func (r *AdminRepo) Delete(id uint) error {
+	return r.db.Where("id = ?", id).Delete(&model.Admin{}).Error
+}
+
+// Count 管理员总数（删除最后一个超管前的护栏用）。
+func (r *AdminRepo) Count() (int64, error) {
+	var n int64
+	err := r.db.Model(&model.Admin{}).Count(&n).Error
+	return n, err
+}
+
 // MerchantRepo 商户数据访问。
 type MerchantRepo struct{ db *gorm.DB }
 
@@ -322,6 +370,17 @@ func (r *ChannelRepo) SetStatus(id uint, status int8) error {
 	return r.db.Model(&model.Channel{}).Where("id = ?", id).Update("status", status).Error
 }
 
+// SetDayStatus 只更新 daystatus 字段（单日限额触发暂停/次日重置用；对齐 epay daystatus）。
+func (r *ChannelRepo) SetDayStatus(id uint, daystatus int8) error {
+	return r.db.Model(&model.Channel{}).Where("id = ?", id).Update("daystatus", daystatus).Error
+}
+
+// ResetAllDayStatus 把所有通道 daystatus 重置为 0（cron 每日重置，对齐 epay cron.php:152）。
+func (r *ChannelRepo) ResetAllDayStatus() (int64, error) {
+	res := r.db.Model(&model.Channel{}).Where("daystatus <> 0").Update("daystatus", 0)
+	return res.RowsAffected, res.Error
+}
+
 // SaveConfig 只更新 config（密钥/参数 JSON）字段。
 func (r *ChannelRepo) SaveConfig(id uint, config string) error {
 	return r.db.Model(&model.Channel{}).Where("id = ?", id).Update("config", config).Error
@@ -348,12 +407,11 @@ func (r *ChannelRepo) FindEnabledByType(typeID int) (*model.Channel, error) {
 	return &c, nil
 }
 
-// ListEnabledByType 取某支付方式下全部已开启通道（用户组 -1 随机分配用）。
+// ListEnabledByType 取某支付方式下全部已开启且未达单日限额的通道（用户组 -1 随机分配用）。
 // 对齐 epay getSubmitInfo -1 分支的 `SELECT ... WHERE type AND status=1 AND daystatus=0`。
-// 我方暂无 daystatus 超限暂停字段，仅按 status=1 过滤。
 func (r *ChannelRepo) ListEnabledByType(typeID int) ([]model.Channel, error) {
 	var list []model.Channel
-	err := r.db.Where("type = ? AND status = 1", typeID).Order("id ASC").Find(&list).Error
+	err := r.db.Where("type = ? AND status = 1 AND daystatus = 0", typeID).Order("id ASC").Find(&list).Error
 	return list, err
 }
 
@@ -680,6 +738,105 @@ func (r *OrderRepo) MarkPaid(tradeNo, apiTradeNo, buyer string, endTime time.Tim
 	return res.RowsAffected == 1, nil
 }
 
+// SumPaidMoneyByChannel 汇总 [start,end) 内各通道已支付订单的 money 总额（通道列表今/昨收款列用）。
+// 返回 channelID → 金额。对齐 epay pay_channel.php 刷新时按通道聚合。
+func (r *OrderRepo) SumPaidMoneyByChannel(start, end time.Time) (map[int]decimal.Decimal, error) {
+	type row struct {
+		Channel int
+		Total   decimal.Decimal
+	}
+	var rows []row
+	err := r.db.Model(&model.Order{}).
+		Select("channel, COALESCE(SUM(money),0) AS total").
+		Where("status = 1 AND channel > 0 AND add_time >= ? AND add_time < ?", start, end).
+		Group("channel").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[int]decimal.Decimal, len(rows))
+	for _, x := range rows {
+		m[x.Channel] = x.Total
+	}
+	return m, nil
+}
+
+// SumTodayPaidRealMoneyByChannel 汇总某通道「今日」已付订单的实付额(realmoney，为空退回 money)。
+// 用于 daytop 单日限额累计（对齐 epay functions.php 的 daytop 缓存累计 realmoney）。
+func (r *OrderRepo) SumTodayPaidRealMoneyByChannel(channelID int, dayStart, dayEnd time.Time) (decimal.Decimal, error) {
+	var result struct{ Total decimal.Decimal }
+	err := r.db.Model(&model.Order{}).
+		Select("COALESCE(SUM(COALESCE(NULLIF(realmoney,0), money)),0) AS total").
+		Where("channel = ? AND status = 1 AND add_time >= ? AND add_time < ?", channelID, dayStart, dayEnd).
+		Scan(&result).Error
+	return result.Total, err
+}
+
+// ChannelPaidRate 统计各通道在 [start,end) 内的订单总数与已付数（成功率列用）。返回 channelID → (total,paid)。
+func (r *OrderRepo) ChannelPaidRate(start, end time.Time) (map[int][2]int64, error) {
+	type row struct {
+		Channel int
+		Total   int64
+		Paid    int64
+	}
+	var rows []row
+	err := r.db.Model(&model.Order{}).
+		Select("channel, COUNT(*) AS total, SUM(CASE WHEN status=1 THEN 1 ELSE 0 END) AS paid").
+		Where("channel > 0 AND add_time >= ? AND add_time < ?", start, end).
+		Group("channel").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[int][2]int64, len(rows))
+	for _, x := range rows {
+		m[x.Channel] = [2]int64{x.Total, x.Paid}
+	}
+	return m, nil
+}
+
+// SetProfitMoney 写订单平台利润（支付成功入账后，对齐 epay processOrder 写 profitmoney）。
+func (r *OrderRepo) SetProfitMoney(tradeNo string, profit decimal.Decimal) error {
+	return r.db.Model(&model.Order{}).Where("trade_no = ?", tradeNo).Update("profit_money", profit).Error
+}
+
+// BackfillCallbackFields 重复回调时补写订单缺失的 api_trade_no/buyer/bill_trade_no（A-10，
+// 对齐 epay processOrder：订单已终态但缺这些字段时补写，仅填当前为空的列）。
+func (r *OrderRepo) BackfillCallbackFields(tradeNo, apiTradeNo, buyer, billTradeNo string) error {
+	fields := map[string]interface{}{}
+	if apiTradeNo != "" {
+		fields["api_trade_no"] = apiTradeNo
+	}
+	if buyer != "" {
+		fields["buyer"] = buyer
+	}
+	if billTradeNo != "" {
+		fields["bill_trade_no"] = billTradeNo
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	// 只补当前为空的列：用 COALESCE(NULLIF(col,''), :val) 语义——这里用条件 UPDATE 逐列判空。
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var o model.Order
+		if err := tx.Where("trade_no = ?", tradeNo).First(&o).Error; err != nil {
+			return err
+		}
+		upd := map[string]interface{}{}
+		if apiTradeNo != "" && o.APITradeNo == "" {
+			upd["api_trade_no"] = apiTradeNo
+		}
+		if buyer != "" && o.Buyer == "" {
+			upd["buyer"] = buyer
+		}
+		if billTradeNo != "" && o.BillTradeNo == "" {
+			upd["bill_trade_no"] = billTradeNo
+		}
+		if len(upd) == 0 {
+			return nil
+		}
+		return tx.Model(&model.Order{}).Where("trade_no = ?", tradeNo).Updates(upd).Error
+	})
+}
+
 // SavePayInfo 回填下单后的收银台渲染信息（pay_type + 二维码/支付链接）。
 func (r *OrderRepo) SavePayInfo(tradeNo, payType, qrCode string) error {
 	return r.db.Model(&model.Order{}).Where("trade_no = ?", tradeNo).
@@ -716,6 +873,15 @@ func (r *OrderRepo) FindNotifyPending(limit int) ([]model.Order, error) {
 	return list, err
 }
 
+// FindAbandonedNotify 取已放弃通知(notify=-1)且完成时间在近一天内的订单（notify2 兜底重发用）。
+// 对齐 epay cron notify2：WHERE notify=-1 AND (NOW()-endtime <= 1 天)，LIMIT。
+func (r *OrderRepo) FindAbandonedNotify(limit int) ([]model.Order, error) {
+	var list []model.Order
+	err := r.db.Where("notify = -1 AND end_time > ?", time.Now().Add(-24*time.Hour)).
+		Order("end_time DESC").Limit(limit).Find(&list).Error
+	return list, err
+}
+
 // CleanExpiredUnpaid 清理超时未支付订单：删除 status=0 且创建时间早于 before 的订单。
 // 对齐 epay cron do=order 的 `delete from pre_order where status=0 and addtime<24h前`。
 // 未支付订单无资金影响，直接删除；返回清理条数。
@@ -744,6 +910,57 @@ func (r *OrderRepo) CountPaidByMerchant(uid uint, since time.Time) (int64, error
 	}
 	var n int64
 	err := tx.Count(&n).Error
+	return n, err
+}
+
+// ListByMerchantV1 V1 api.php orders 列表：按 uid(+可选 status)，trade_no 降序，limit/offset 分页（A-5）。
+func (r *OrderRepo) ListByMerchantV1(uid uint, status *int, limit, offset int) ([]model.Order, error) {
+	tx := r.db.Where("uid = ?", uid)
+	if status != nil {
+		tx = tx.Where("status = ?", *status)
+	}
+	var list []model.Order
+	err := tx.Order("trade_no DESC").Limit(limit).Offset(offset).Find(&list).Error
+	return list, err
+}
+
+// SumTodayPaidRealMoney 汇总商户当日(自 dayStart 起)已成功订单的 realmoney(tid≠2 排除充值余额)。
+// A-8：代付 settle_type=1 可用余额 = 余额 - 当日已收 realmoney（对齐 epay Transfer.php:19-22）。
+func (r *OrderRepo) SumTodayPaidRealMoney(uid uint, dayStart time.Time) (decimal.Decimal, error) {
+	var result struct{ Total decimal.Decimal }
+	err := r.db.Model(&model.Order{}).
+		Select("COALESCE(SUM(real_money),0) AS total").
+		Where("uid = ? AND status = 1 AND tid <> 2 AND end_time >= ?", uid, dayStart).
+		Scan(&result).Error
+	return result.Total, err
+}
+
+// CountPaidByIPRange 统计某 IP 在 [start,end) 内已支付订单数（status>0，对齐 epay pay_iplimit 的 status>0）。
+func (r *OrderRepo) CountPaidByIPRange(ip string, start, end time.Time) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.Order{}).
+		Where("ip = ? AND status > 0 AND add_time >= ? AND add_time < ?", ip, start, end).
+		Count(&n).Error
+	return n, err
+}
+
+// CountPaidByBuyerRange 统计某买家(buyer/openid)在 [start,end) 内已支付订单数（status>0，
+// 对齐 epay checkBlockUser 的 status>0 当日限单口径）。
+func (r *OrderRepo) CountPaidByBuyerRange(buyer string, start, end time.Time) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.Order{}).
+		Where("buyer = ? AND status > 0 AND add_time >= ? AND add_time < ?", buyer, start, end).
+		Count(&n).Error
+	return n, err
+}
+
+// CountPaidByMerchantRange 统计商户在 [start,end) 内已支付订单数（status=1）。
+// 用于精确的今日/昨日订单数统计（对齐 epay Merchant::info 按 date 精确统计，避免差值近似跨天出错）。
+func (r *OrderRepo) CountPaidByMerchantRange(uid uint, start, end time.Time) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.Order{}).
+		Where("uid = ? AND status = 1 AND add_time >= ? AND add_time < ?", uid, start, end).
+		Count(&n).Error
 	return n, err
 }
 

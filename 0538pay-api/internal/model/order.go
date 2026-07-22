@@ -15,6 +15,7 @@ type Order struct {
 	TradeNo     string          `gorm:"size:32;uniqueIndex;not null" json:"trade_no"`     // 系统订单号
 	OutTradeNo  string          `gorm:"size:64;index" json:"out_trade_no"`                // 商户订单号
 	APITradeNo  string          `gorm:"size:64" json:"api_trade_no"`                      // 接口订单号
+	BillTradeNo string          `gorm:"size:150;index" json:"bill_trade_no"`              // 对账/账单交易号(对齐 epay pre_order.bill_trade_no，A-10 回调回填，V2 回调优先此值作 api_trade_no)
 	UID         uint            `gorm:"index;not null" json:"uid"`                        // 商户号
 	Domain      string          `gorm:"size:128" json:"domain"`                           // 网站域名
 	NotifyURL   string          `gorm:"size:512" json:"-"`                                // 商户异步通知地址
@@ -38,6 +39,7 @@ type Order struct {
 	EndTime     *time.Time      `json:"endtime"`                                          // 完成时间（可空）
 	PayType     string          `gorm:"size:16" json:"-"`                                 // 收银台渲染方式 qrcode/redirect/html（下单后回填）
 	QRCode      string          `gorm:"size:1024" json:"-"`                               // 渠道二维码内容/支付链接（下单后回填，收银台据此渲染）
+	Version     int8            `gorm:"not null;default:0;index" json:"-"`                // 接口版本(对齐 epay pre_order.version)：0=V1(MD5回调) 1=V2(平台私钥RSA回调+timestamp)
 	Status      int8            `gorm:"not null;default:0;index" json:"status"`           // 0未付1已付2退款3冻结4预授权
 	Settle      int8            `gorm:"not null;default:0" json:"settle"`                 // 结算子状态 0/1/2/3
 	Combine     int8            `gorm:"not null;default:0" json:"combine"`                // 是否合单 0/1
@@ -45,6 +47,13 @@ type Order struct {
 	Tid         int8            `gorm:"not null;default:0;index" json:"-"`                // 订单业务类型(对齐 epay pre_order.tid)：0普通 2充值余额 4购买会员 5充值保证金
 	Notify      int8            `gorm:"not null;default:0;index" json:"-"`                // 商户通知状态/重试计数：0成功或无需 / >0 待重试第N次 / -1 放弃(对齐 epay notify 字段)
 	NotifyTime  *time.Time      `json:"-"`                                                // 下次通知重试时间（可空）
+	// E-3 补齐字段（对齐 epay pre_order）
+	Invite      int             `gorm:"column:invite;default:0" json:"-"`                 // 邀请返现受益商户 uid
+	InviteMoney decimal.Decimal `gorm:"column:invitemoney;type:decimal(18,4);default:0" json:"-"` // 邀请返现金额
+	Profits2    uint            `gorm:"column:profits2;default:0" json:"-"`               // 二级分账规则 id
+	Domain2     string          `gorm:"column:domain2;size:64" json:"-"`                  // 第二域名/回调域名
+	Mobile      string          `gorm:"column:mobile;size:100" json:"-"`                  // 下单手机号（pay_iplimit/buyer 维度之一）
+	Ext         string          `gorm:"column:ext;type:text" json:"-"`                    // 通用扩展位(对齐 epay pre_order.ext，存 jsapi 参数/payurl 备份等杂项)
 }
 
 func (Order) TableName() string { return "pay_order" }

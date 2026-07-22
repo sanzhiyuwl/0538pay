@@ -50,8 +50,8 @@ function pick(o: Option) {
     </button>
 
     <transition
-      enter-active-class="transition duration-150 ease-out"
-      leave-active-class="transition duration-100 ease-in"
+      enter-active-class="transition duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]"
+      leave-active-class="transition duration-100 ease-[cubic-bezier(0.23,1,0.32,1)]"
       enter-from-class="opacity-0 -translate-y-1"
       leave-to-class="opacity-0 -translate-y-1"
     >

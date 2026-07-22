@@ -77,6 +77,38 @@ func (r *ProfitRepo) ListRules() ([]model.ProfitReceiver, error) {
 	return list, err
 }
 
+// UpdateRule 更新分账规则的可编辑字段（channel/subchannel/uid/account/name/rate/minmoney）。
+func (r *ProfitRepo) UpdateRule(id uint, fields map[string]interface{}) error {
+	return r.db.Model(&model.ProfitReceiver{}).Where("id = ?", id).Updates(fields).Error
+}
+
+// SetRuleStatus 切换规则开关（0关/1开）。
+func (r *ProfitRepo) SetRuleStatus(id uint, status int8) error {
+	return r.db.Model(&model.ProfitReceiver{}).Where("id = ?", id).Update("status", status).Error
+}
+
+// DeleteRule 删除分账规则。
+func (r *ProfitRepo) DeleteRule(id uint) error {
+	return r.db.Delete(&model.ProfitReceiver{}, id).Error
+}
+
+// RuleExistsByChannelUID 判断某 channel+uid 是否已存在规则（对齐 epay：每次支付只能给1人分账，唯一约束）。
+// uid 为 nil 表示通道级全局（uid IS NULL）。excludeID>0 时排除自身（编辑用）。
+func (r *ProfitRepo) RuleExistsByChannelUID(channelID int, uid *uint, excludeID uint) (bool, error) {
+	tx := r.db.Model(&model.ProfitReceiver{}).Where("channel = ?", channelID)
+	if uid == nil {
+		tx = tx.Where("uid IS NULL")
+	} else {
+		tx = tx.Where("uid = ?", *uid)
+	}
+	if excludeID > 0 {
+		tx = tx.Where("id != ?", excludeID)
+	}
+	var n int64
+	err := tx.Count(&n).Error
+	return n > 0, err
+}
+
 // CreateOrder 创建分账订单（支付成功回调触发）。
 func (r *ProfitRepo) CreateOrder(o *model.ProfitOrder) error {
 	return r.db.Create(o).Error

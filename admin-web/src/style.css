@@ -22,8 +22,10 @@
   --primary: oklch(0.53 0.23 262);
   --primary-foreground: oklch(0.985 0 0);
 
-  /* 内容区浅灰底（衬托白卡片，微冷调、非纯白） */
-  --content-bg: oklch(0.975 0.006 255);
+  /* 内容区浅灰底（衬托白卡片，微冷调、非纯白）
+     —— 加深色差：白卡片(1.0)与底色拉开约 4 点明度，让面板作为独立平面浮出，
+        不靠边框/阴影也能清晰分层（规范认可的“靠色差区分”手段）。 */
+  --content-bg: oklch(0.962 0.007 255);
 
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -163,12 +165,14 @@
   padding: 0.75rem 1rem 0.75rem 0;
   border-bottom: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
   font-variant-numeric: tabular-nums;
+  transition: background-color 0.12s cubic-bezier(0.23, 1, 0.32, 1);
 }
 .tbl tbody tr:last-child td {
   border-bottom: 0;
 }
+/* 行 hover：极淡品牌蓝调（替代中性灰），柔和过渡，不生硬跳变 */
 .tbl tbody tr:hover td {
-  background: color-mix(in oklch, var(--accent) 40%, transparent);
+  background: color-mix(in oklch, var(--primary) 5%, transparent);
 }
 /* 表尾合计行：与 tbody 同 padding，顶部加粗分隔线强调 */
 .tbl tfoot td {
@@ -226,10 +230,16 @@
   padding: 0 0.75rem;
   font-size: 14px;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s cubic-bezier(0.23, 1, 0.32, 1),
+    box-shadow 0.15s cubic-bezier(0.23, 1, 0.32, 1);
 }
+.field-input:hover {
+  border-color: color-mix(in oklch, var(--ring) 55%, var(--input));
+}
+/* focus：品牌色描边 + 极淡内圈（内边框式，非外发光），聚焦有分量不刺眼 */
 .field-input:focus {
   border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 14%, transparent);
 }
 .field-input::placeholder {
   color: var(--muted-foreground);
@@ -242,6 +252,18 @@
   background: var(--popover);
   padding: 0.25rem;
   box-shadow: 0 8px 24px -4px rgb(0 0 0 / 0.12);
+  transform-origin: top;
+  animation: menu-in 0.15s cubic-bezier(0.23, 1, 0.32, 1);
+}
+/* 向上弹出的菜单从底部展开 */
+.menu-panel.bottom-full {
+  transform-origin: bottom;
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-2px);
+  }
 }
 .menu-item {
   display: flex;
@@ -253,10 +275,14 @@
   text-align: left;
   font-size: 13px;
   color: var(--foreground);
-  transition: background-color 0.15s;
+  transition: background-color 0.15s cubic-bezier(0.23, 1, 0.32, 1),
+    transform 0.1s cubic-bezier(0.23, 1, 0.32, 1);
 }
 .menu-item:hover {
   background: var(--accent);
+}
+.menu-item:active {
+  transform: scale(0.98);
 }
 .menu-item-danger {
   color: var(--destructive);
@@ -322,7 +348,8 @@
 .reveal {
   opacity: 0;
   transform: translateY(12px);
-  transition: opacity 0.5s ease, transform 0.5s ease;
+  transition: opacity 0.5s cubic-bezier(0.23, 1, 0.32, 1),
+    transform 0.5s cubic-bezier(0.23, 1, 0.32, 1);
   will-change: opacity, transform;
 }
 .reveal-in {
@@ -434,4 +461,16 @@
   position: relative;
   z-index: 1;
   filter: drop-shadow(0 1px 1px color-mix(in oklch, var(--primary) 30%, transparent));
+}
+
+/* ===== 无障碍：尊重系统「减少动态效果」偏好（motion-craft 硬性兜底）===== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -35,6 +35,26 @@ type Channel struct{}
 
 func (Channel) Key() string { return "epayn" }
 
+// Inputs 声明本渠道的配置字段（元数据驱动后台密钥表单，对齐 epay $info['inputs']）。
+func (Channel) Inputs() []channel.FieldInput {
+	return []channel.FieldInput{
+		{Name: "appid", Label: "上游商户号 PID", Type: "text", Require: true, Tip: "本站在上游易支付登记的商户 pid"},
+		{Name: "appurl", Label: "上游接口地址", Type: "text", Require: true, Tip: "上游易支付接口根地址，末尾不带 /"},
+		{Name: "platform_public_key", Label: "上游平台公钥", Type: "textarea", Require: true, Tip: "验上游返回/回调签名，单行 base64 或 PEM"},
+		{Name: "merchant_private_key", Label: "本站商户私钥", Type: "textarea", Require: true, Tip: "签下单请求，单行 base64 或 PEM"},
+		{Name: "uptype", Label: "上游支付方式", Type: "text", Require: false, Tip: "上游收单支付方式，自测闭环可配 mock"},
+	}
+}
+
+// Products 声明本渠道支持的支付产品形态（对齐 epay $info['transtypes']）。
+func (Channel) Products() []channel.ProductType {
+	return []channel.ProductType{
+		{Code: "alipay", Name: "支付宝"},
+		{Code: "wxpay", Name: "微信支付"},
+		{Code: "qqpay", Name: "QQ钱包"},
+	}
+}
+
 var httpClient = &http.Client{Timeout: 15 * time.Second}
 
 // conf 从 config 解出上游对接四要素。

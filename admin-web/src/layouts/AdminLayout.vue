@@ -84,7 +84,7 @@ const currentParent = computed(
             <RouterLink
               v-if="node.to"
               :to="node.to"
-              class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+              class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-[color,background-color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-sidebar-accent active:scale-[0.98]"
               active-class="!bg-sidebar-accent !text-sidebar-accent-foreground font-semibold"
               exact-active-class="!bg-sidebar-accent !text-sidebar-accent-foreground font-semibold"
             >
@@ -136,7 +136,7 @@ const currentParent = computed(
                   <li v-for="leaf in node.children" :key="leaf.to">
                     <RouterLink
                       :to="leaf.to"
-                      class="flex items-center gap-2 rounded-lg py-2 pl-3 pr-2 text-[13px] text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      class="flex items-center gap-2 rounded-lg py-2 pl-3 pr-2 text-[13px] text-sidebar-foreground/80 transition-[color,background-color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:scale-[0.98]"
                       active-class="!bg-sidebar-accent !text-sidebar-accent-foreground font-medium"
                       exact-active-class="!bg-sidebar-accent !text-sidebar-accent-foreground font-medium"
                     >
@@ -204,14 +204,14 @@ const currentParent = computed(
 
         <!-- 搜索 -->
         <button
-          class="hidden size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent md:flex"
+          class="hidden size-9 items-center justify-center rounded-lg text-muted-foreground transition-[color,background-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-accent hover:text-foreground active:scale-90 md:flex"
         >
           <Search class="size-[18px]" />
         </button>
 
         <!-- 通知（点击打开右侧抽屉） -->
         <button
-          class="relative flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent"
+          class="relative flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-[color,background-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-accent hover:text-foreground active:scale-90"
           @click="noticeOpen = true"
         >
           <Bell class="size-[18px]" />
@@ -220,14 +220,14 @@ const currentParent = computed(
 
         <!-- 设置 -->
         <button
-          class="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent"
+          class="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-[color,background-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-accent hover:text-foreground active:scale-90"
         >
           <Settings2 class="size-[18px]" />
         </button>
 
         <!-- 主题切换 -->
         <button
-          class="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent"
+          class="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-[color,background-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-accent hover:text-foreground active:scale-90"
           @click="theme.toggle()"
         >
           <Moon v-if="!theme.isDark" class="size-[18px]" />

@@ -12,6 +12,7 @@ import (
 type Deps struct {
 	JWT            *jwtauth.Manager
 	Auth           *handler.AuthHandler
+	Admin          *handler.AdminHandler
 	Order          *handler.OrderHandler
 	Merchant       *handler.MerchantHandler
 	Group          *handler.GroupHandler
@@ -37,6 +38,7 @@ type Deps struct {
 	MerchantAuth   *handler.MerchantAuthHandler
 	MerchantCenter *handler.MerchantCenterHandler
 	Mapi           *handler.MapiHandler
+	ApiV1          *handler.ApiV1Handler
 	Paypage        *handler.PaypageHandler
 	Message        *handler.MessageHandler
 	Dashboard      *handler.DashboardHandler
@@ -62,6 +64,18 @@ func Setup(r *gin.Engine, d Deps) {
 		authed := admin.Group("")
 		authed.Use(middleware.Auth(d.JWT, "admin"))
 		{
+			// 当前管理员账号资料 / 改密
+			authed.GET("/profile", d.Auth.Profile)
+			authed.PUT("/profile", d.Auth.UpdateProfile)
+			authed.PUT("/password", d.Auth.ChangePassword)
+
+			// 管理员账号 CRUD（RBAC 增强）
+			authed.GET("/admins", d.Admin.List)
+			authed.POST("/admins", d.Admin.Create)
+			authed.PUT("/admins/:id", d.Admin.Update)
+			authed.PUT("/admins/:id/status", d.Admin.SetStatus)
+			authed.DELETE("/admins/:id", d.Admin.Delete)
+
 			// 仪表盘（全平台聚合）
 			authed.GET("/dashboard", d.Dashboard.Overview)
 
@@ -92,6 +106,7 @@ func Setup(r *gin.Engine, d Deps) {
 			// 系统设置（config 域）
 			authed.GET("/config/:group", d.Config.GetGroup)
 			authed.PUT("/config/:group", d.Config.SaveGroup)
+			authed.PUT("/paypwd", d.Config.ChangePayPwd) // 修改管理员支付密码（对齐 epay admin_paypwd）
 
 			// 用户组管理
 			authed.GET("/groups", d.Group.List)
@@ -103,6 +118,7 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.GET("/groups/:gid/assigns", d.Group.GetAssigns)
 			authed.PUT("/groups/:gid/assigns", d.Group.SaveAssigns)
 
+			authed.GET("/channels/plugins", d.Channel.PluginMeta) // 插件能力/配置元数据
 			authed.GET("/channels", d.Channel.List)
 			authed.POST("/channels", d.Channel.Create)
 			authed.PUT("/channels/:id", d.Channel.Update)
@@ -151,6 +167,7 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.GET("/settle/batches", d.Settle.Batches)
 			authed.POST("/settle/batch", d.Settle.CreateBatch)
 			authed.POST("/settle/batch/:batch/complete", d.Settle.CompleteBatch)
+			authed.GET("/settle/batch/:batch/export", d.Settle.ExportBatch) // C-4 银行专用打款导出
 
 			// 资金流水（C2 尾巴：后台资金明细页）
 			authed.GET("/records", d.Record.List)
@@ -160,6 +177,7 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.GET("/transfers", d.Transfer.List)
 			authed.GET("/transfers/stats", d.Transfer.Stats)
 			authed.POST("/transfers", d.Transfer.Create)
+			authed.POST("/transfers/batch", d.Transfer.CreateBatch) // C-2 批量代付
 			authed.PUT("/transfers/:biz/status", d.Transfer.SetStatus)
 			authed.POST("/transfers/:biz/refund", d.Transfer.Refund)
 			authed.DELETE("/transfers/:biz", d.Transfer.Delete)
@@ -168,6 +186,12 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.GET("/ps/orders", d.Profit.List)
 			authed.GET("/ps/orders/stats", d.Profit.Stats)
 			authed.POST("/ps/orders/:id/op", d.Profit.Operate)
+			// 分账规则管理（ps_receiver，C-1）
+			authed.GET("/ps/receivers", d.Profit.ListReceivers)
+			authed.POST("/ps/receivers", d.Profit.CreateReceiver)
+			authed.PUT("/ps/receivers/:id", d.Profit.UpdateReceiver)
+			authed.PUT("/ps/receivers/:id/status", d.Profit.SetReceiverStatus)
+			authed.DELETE("/ps/receivers/:id", d.Profit.DeleteReceiver)
 
 			// 风控（C4，只读）
 			authed.GET("/risks", d.Risk.List)
@@ -187,6 +211,7 @@ func Setup(r *gin.Engine, d Deps) {
 
 			// 统计（C5，只读聚合）
 			authed.GET("/stat/pay", d.Stat.PayStat)
+			authed.GET("/stat/buyer", d.Stat.BuyerStat) // C-3 支付用户统计
 			// 登录日志（C5，只读）
 			authed.GET("/logs", d.Log.List)
 			// 邀请码（C5）
@@ -234,6 +259,12 @@ func Setup(r *gin.Engine, d Deps) {
 	{
 		mapi.POST("/:class/:action", d.Mapi.Dispatch)
 		mapi.GET("/:class/:action", d.Mapi.Dispatch)
+	}
+
+	// V1 遗留接口 api.php?act=（A-5，GET+明文key，code=1 语义，兼容老商户）。
+	if d.ApiV1 != nil {
+		api.GET("/v1", d.ApiV1.Dispatch)
+		api.POST("/v1", d.ApiV1.Dispatch)
 	}
 
 	// 对外手动触发计划任务（对齐 epay cron.php，由 cronkey 校验，无 JWT）
@@ -287,6 +318,9 @@ func Setup(r *gin.Engine, d Deps) {
 			mAuthed.POST("/apikey/rsa", d.MerchantCenter.GenRSAKey)      // V2 生成 RSA 密钥对
 			mAuthed.PUT("/apikey/keytype", d.MerchantCenter.SetKeyType)  // V2 设置签名模式
 			mAuthed.PUT("/profile", d.MerchantCenter.UpdateProfile)
+			mAuthed.GET("/msgconfig", d.MerchantCenter.MsgConfig)      // D-3 消息提醒配置
+			mAuthed.PUT("/msgconfig", d.MerchantCenter.SaveMsgConfig)  // D-3
+			mAuthed.POST("/rebind", d.MerchantCenter.Rebind)           // D-3 换绑手机/邮箱
 			mAuthed.PUT("/password", d.MerchantCenter.ChangePassword)
 			// 代付（C3 商户端）
 			mAuthed.GET("/transfers", d.MerchantCenter.Transfers)

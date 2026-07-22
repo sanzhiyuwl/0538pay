@@ -38,6 +38,153 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	resp.OK(c, out)
 }
 
+// currentAdminID 从 JWT 上下文取当前管理员 ID，0/异常返回 (0,false)。
+func currentAdminID(c *gin.Context) (uint, bool) {
+	v, _ := c.Get(middleware.CtxUID)
+	id, ok := v.(uint)
+	return id, ok && id > 0
+}
+
+// Profile GET /api/admin/profile 当前管理员账号资料。
+func (h *AuthHandler) Profile(c *gin.Context) {
+	id, ok := currentAdminID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	out, err := h.svc.Profile(id)
+	if err != nil {
+		resp.Fail(c, 1001, "查询失败: "+err.Error())
+		return
+	}
+	resp.OK(c, out)
+}
+
+// UpdateProfile PUT /api/admin/profile 修改当前管理员昵称/用户名。
+func (h *AuthHandler) UpdateProfile(c *gin.Context) {
+	id, ok := currentAdminID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var req dto.AdminProfileReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.UpdateProfile(id, req.Nickname, req.Username); err != nil {
+		resp.Fail(c, 1001, err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}
+
+// ChangePassword PUT /api/admin/password 修改当前管理员登录密码。
+func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	id, ok := currentAdminID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var req dto.AdminChangePwdReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.ChangePassword(id, req.OldPwd, req.NewPwd, req.NewPwd2); err != nil {
+		resp.Fail(c, 1001, err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}
+
+// AdminHandler 管理员账号 CRUD（RBAC 增强）。
+type AdminHandler struct {
+	svc *service.AdminService
+}
+
+func NewAdminHandler(svc *service.AdminService) *AdminHandler {
+	return &AdminHandler{svc: svc}
+}
+
+// List GET /api/admin/admins
+func (h *AdminHandler) List(c *gin.Context) {
+	list, err := h.svc.List()
+	if err != nil {
+		resp.Fail(c, 1004, "查询失败: "+err.Error())
+		return
+	}
+	resp.OK(c, list)
+}
+
+// Create POST /api/admin/admins
+func (h *AdminHandler) Create(c *gin.Context) {
+	var req dto.AdminSaveReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Create(req); err != nil {
+		resp.Fail(c, 1001, err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}
+
+// Update PUT /api/admin/admins/:id
+func (h *AdminHandler) Update(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "ID 不合法")
+		return
+	}
+	var req dto.AdminSaveReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Update(id, req); err != nil {
+		resp.Fail(c, 1001, err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}
+
+// SetStatus PUT /api/admin/admins/:id/status
+func (h *AdminHandler) SetStatus(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "ID 不合法")
+		return
+	}
+	var req struct {
+		Status int8 `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SetStatus(id, req.Status); err != nil {
+		resp.Fail(c, 1001, err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}
+
+// Delete DELETE /api/admin/admins/:id
+func (h *AdminHandler) Delete(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "ID 不合法")
+		return
+	}
+	if err := h.svc.Delete(id); err != nil {
+		resp.Fail(c, 1001, err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}
+
 // MerchantHandler 商户相关接口。
 type MerchantHandler struct {
 	svc *service.MerchantService
@@ -393,6 +540,12 @@ func (h *ChannelHandler) List(c *gin.Context) {
 	resp.Page(c, list, total, q.Page, q.PageSize)
 }
 
+// PluginMeta GET /api/admin/channels/plugins
+// 返回所有已注册渠道插件的能力与配置元数据（后台动态渲染密钥表单/展示退款代付能力）。
+func (h *ChannelHandler) PluginMeta(c *gin.Context) {
+	resp.OK(c, h.svc.PluginMeta())
+}
+
 // channelIDParam 解析路径 :id，失败返回 0。
 func channelIDParam(c *gin.Context) uint {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -622,6 +775,33 @@ func (h *TransferHandler) Create(c *gin.Context) {
 	resp.OK(c, gin.H{"biz_no": bizNo})
 }
 
+// CreateBatch POST /api/admin/transfers/batch 后台批量代付（C-2）。
+func (h *TransferHandler) CreateBatch(c *gin.Context) {
+	adminID, _ := c.Get(middleware.CtxUID)
+	id, ok := adminID.(uint)
+	if !ok || id == 0 {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var req dto.TransferBatchReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	results, err := h.svc.CreateBatchByAdmin(id, req.Password, req.Items)
+	if err != nil {
+		failFromTransferErr(c, err)
+		return
+	}
+	ok2 := 0
+	for _, r := range results {
+		if r.Success {
+			ok2++
+		}
+	}
+	resp.OK(c, gin.H{"results": results, "success": ok2, "total": len(results)})
+}
+
 // SetStatus PUT /api/admin/transfers/:biz/status 手动改状态（不动资金）。
 func (h *TransferHandler) SetStatus(c *gin.Context) {
 	var req dto.TransferStatusReq
@@ -719,6 +899,84 @@ func (h *ProfitHandler) Operate(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"id": id, "action": req.Action})
+}
+
+// ===== 分账规则管理（ps_receiver，C-1）=====
+
+// ListReceivers GET /admin/ps/receivers：列出全部分账规则。
+func (h *ProfitHandler) ListReceivers(c *gin.Context) {
+	list, err := h.svc.ListReceivers()
+	if err != nil {
+		resp.Fail(c, 1107, "获取分账规则失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"list": list})
+}
+
+// CreateReceiver POST /admin/ps/receivers：新增分账规则。
+func (h *ProfitHandler) CreateReceiver(c *gin.Context) {
+	var req dto.PsReceiverReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.CreateReceiver(req); err != nil {
+		failFromProfitErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"msg": "新增分账规则成功"})
+}
+
+// UpdateReceiver PUT /admin/ps/receivers/:id：编辑分账规则。
+func (h *ProfitHandler) UpdateReceiver(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "分账规则 ID 不合法")
+		return
+	}
+	var req dto.PsReceiverReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.UpdateReceiver(id, req); err != nil {
+		failFromProfitErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+// SetReceiverStatus PUT /admin/ps/receivers/:id/status：切换开关。
+func (h *ProfitHandler) SetReceiverStatus(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "分账规则 ID 不合法")
+		return
+	}
+	var req dto.PsReceiverStatusReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SetReceiverStatus(id, req.Status); err != nil {
+		failFromProfitErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id, "status": req.Status})
+}
+
+// DeleteReceiver DELETE /admin/ps/receivers/:id：删除分账规则。
+func (h *ProfitHandler) DeleteReceiver(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "分账规则 ID 不合法")
+		return
+	}
+	if err := h.svc.DeleteReceiver(id); err != nil {
+		failFromProfitErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
 }
 
 // ===== 风控 / 黑名单 / 域名（C4）=====
@@ -957,6 +1215,21 @@ func (h *StatHandler) PayStat(c *gin.Context) {
 	resp.OK(c, res)
 }
 
+// BuyerStat GET /api/admin/stat/buyer 支付用户统计（C-3）。
+func (h *StatHandler) BuyerStat(c *gin.Context) {
+	var q dto.BuyerStatQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	list, err := h.svc.BuyerStat(q)
+	if err != nil {
+		resp.Fail(c, 1009, "统计失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"list": list})
+}
+
 // LogHandler 登录日志（只读）。
 type LogHandler struct{ svc *service.LogService }
 
@@ -1134,6 +1407,26 @@ func (h *ConfigHandler) SaveGroup(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"group": c.Param("group")})
+}
+
+// ChangePayPwd PUT /api/admin/paypwd 修改管理员支付密码（对齐 epay set.php mod=paypwd_n）。
+// 与登录密码相互独立，用于转账/结算/API 退款二次校验。
+func (h *ConfigHandler) ChangePayPwd(c *gin.Context) {
+	var req dto.AdminChangePayPwdReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.ChangePayPwd(req.OldPwd, req.NewPwd, req.NewPwd2); err != nil {
+		var ce *service.ConfigError
+		if errors.As(err, &ce) {
+			resp.Fail(c, 1001, ce.Msg)
+			return
+		}
+		resp.Fail(c, 1012, "修改失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
 }
 
 // OrderHandler 订单相关接口。

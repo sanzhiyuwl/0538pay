@@ -13,7 +13,7 @@ import {
   bindConfig,
 } from '@/lib/mock/merchant/profile'
 import { fetchMerchantInfo } from '@/lib/api/merchantAuth'
-import { updateProfile } from '@/lib/api/merchantCenter'
+import { updateProfile, fetchMsgConfig, saveMsgConfig, rebindContact } from '@/lib/api/merchantCenter'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 import { useMerchantAuthStore } from '@/stores/merchantAuth'
@@ -23,9 +23,9 @@ const merchantAuth = useMerchantAuthStore()
 
 const settle = reactive({ ...settleConfig })
 const contact = reactive({ ...contactConfig })
-const msg = reactive({ ...msgConfig }) // 消息提醒：后端暂无字段，保留本地态
+const msg = reactive({ ...msgConfig })
 const mode = reactive({ ...modeConfig })
-const binds = reactive({ ...bindConfig }) // 第三方绑定：待 OAuth 域
+const binds = reactive({ ...bindConfig }) // 第三方绑定：绑定跳转需真实 OAuth 凭证
 
 // 拉当前商户资料填充（收款账号/联系方式/扣费模式为真数据）
 onMounted(async () => {
@@ -38,11 +38,89 @@ onMounted(async () => {
     contact.email = info.email
     contact.qq = info.qq
     contact.url = info.url
+    contact.keylogin = info.keylogin === 1
+    contact.refund = info.refund === 1
+    contact.transfer = info.transfer === 1
+    contact.remain_money = info.remain_money || '0.00'
     mode.mode = String(info.mode || 0)
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '资料加载失败')
   }
+  // D-3 加载消息提醒配置
+  try {
+    const { msgconfig } = await fetchMsgConfig()
+    const c = JSON.parse(msgconfig || '{}')
+    msg.notice_order = !!c.order
+    msg.notice_settle = !!c.settle
+    msg.notice_login = !!c.login
+    msg.notice_balance = !!c.balance
+    if (c.balance_threshold) msg.notice_balance_money = String(c.balance_threshold)
+  } catch { /* 用默认 */ }
 })
+
+// D-3 保存消息提醒
+const savingMsg = ref(false)
+async function saveMsg() {
+  if (savingMsg.value) return
+  savingMsg.value = true
+  try {
+    const cfg = JSON.stringify({
+      order: msg.notice_order ? 1 : 0,
+      settle: msg.notice_settle ? 1 : 0,
+      login: msg.notice_login ? 1 : 0,
+      balance: msg.notice_balance ? 1 : 0,
+      balance_threshold: msg.notice_balance ? msg.notice_balance_money : '',
+    })
+    await saveMsgConfig(cfg)
+    toast.success('消息提醒设置已保存')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    savingMsg.value = false
+  }
+}
+
+// D-3 换绑手机（登录密码二次确认）
+const rebind = reactive({ open: false, value: '', password: '', busy: false })
+async function submitRebind() {
+  if (rebind.busy) return
+  if (!rebind.value.trim()) return toast.error('请输入新手机号')
+  rebind.busy = true
+  try {
+    await rebindContact('phone', rebind.value.trim(), rebind.password)
+    contact.phone = rebind.value.trim()
+    rebind.open = false
+    rebind.value = ''
+    rebind.password = ''
+    toast.success('手机号换绑成功')
+    await merchantAuth.refreshInfo()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '换绑失败')
+  } finally {
+    rebind.busy = false
+  }
+}
+
+// 换绑邮箱（登录密码二次确认，复用后端 Rebind field=email 的唯一性/格式校验）
+const rebindEmail = reactive({ open: false, value: '', password: '', busy: false })
+async function submitRebindEmail() {
+  if (rebindEmail.busy) return
+  if (!rebindEmail.value.trim()) return toast.error('请输入新邮箱')
+  rebindEmail.busy = true
+  try {
+    await rebindContact('email', rebindEmail.value.trim(), rebindEmail.password)
+    contact.email = rebindEmail.value.trim()
+    rebindEmail.open = false
+    rebindEmail.value = ''
+    rebindEmail.password = ''
+    toast.success('邮箱换绑成功')
+    await merchantAuth.refreshInfo()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '换绑失败')
+  } finally {
+    rebindEmail.busy = false
+  }
+}
 
 // 收款账号：微信结算时账号标签变化
 const accountLabel = computed(() => {
@@ -69,6 +147,10 @@ async function save() {
       qq: contact.qq,
       url: contact.url,
       mode: Number(mode.mode),
+      keylogin: contact.keylogin ? 1 : 0,
+      refund: contact.refund ? 1 : 0,
+      transfer: contact.transfer ? 1 : 0,
+      remain_money: contact.remain_money,
     })
     toast.success('资料已保存')
     await merchantAuth.refreshInfo() // 同步顶栏/工作台
@@ -118,13 +200,34 @@ function toggleBind(key: 'qq' | 'wx' | 'alipay') {
         <div class="row-field">
           <label class="lbl">手机号码</label>
           <div class="flex flex-1 items-center gap-2">
-            <input :value="contact.phone" readonly class="field-input flex-1 bg-muted/40" />
-            <Button variant="outline" size="sm"><ShieldCheck class="size-4" />短信验证改绑</Button>
+            <input :value="contact.phone || '未绑定'" readonly class="field-input flex-1 bg-muted/40" />
+            <Button variant="outline" size="sm" @click="rebind.open = !rebind.open"><ShieldCheck class="size-4" />换绑手机</Button>
+          </div>
+        </div>
+        <div v-if="rebind.open" class="row-field">
+          <label class="lbl">新手机号</label>
+          <div class="flex flex-1 flex-wrap items-center gap-2">
+            <input v-model="rebind.value" placeholder="新手机号" class="field-input w-40" />
+            <input v-model="rebind.password" type="password" placeholder="登录密码确认" class="field-input w-40" />
+            <Button size="sm" :disabled="rebind.busy" @click="submitRebind">确认换绑</Button>
+            <Button variant="outline" size="sm" @click="rebind.open = false">取消</Button>
           </div>
         </div>
         <div class="row-field">
           <label class="lbl">邮箱</label>
-          <input v-model="contact.email" class="field-input flex-1" />
+          <div class="flex flex-1 items-center gap-2">
+            <input :value="contact.email || '未绑定'" readonly class="field-input flex-1 bg-muted/40" />
+            <Button variant="outline" size="sm" @click="rebindEmail.open = !rebindEmail.open"><ShieldCheck class="size-4" />换绑邮箱</Button>
+          </div>
+        </div>
+        <div v-if="rebindEmail.open" class="row-field">
+          <label class="lbl">新邮箱</label>
+          <div class="flex flex-1 flex-wrap items-center gap-2">
+            <input v-model="rebindEmail.value" placeholder="新邮箱" class="field-input w-52" />
+            <input v-model="rebindEmail.password" type="password" placeholder="登录密码确认" class="field-input w-40" />
+            <Button size="sm" :disabled="rebindEmail.busy" @click="submitRebindEmail">确认换绑</Button>
+            <Button variant="outline" size="sm" @click="rebindEmail.open = false">取消</Button>
+          </div>
         </div>
         <div class="row-field">
           <label class="lbl">QQ</label>
@@ -174,7 +277,7 @@ function toggleBind(key: 'qq' | 'wx' | 'alipay') {
           </div>
         </div>
       </div>
-      <div class="mt-5 border-t border-border/60 pt-4"><Button @click="toast.info('消息提醒设置即将开放')"><Save />保存消息提醒</Button></div>
+      <div class="mt-5 border-t border-border/60 pt-4"><Button :disabled="savingMsg" @click="saveMsg"><Save />保存消息提醒</Button></div>
     </Panel>
 
     <!-- 手续费扣除模式 -->

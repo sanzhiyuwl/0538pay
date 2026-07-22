@@ -190,7 +190,7 @@ func (s *ChannelSelector) pickFixedOrRoll(assign GroupAssign, channelVal int, mo
 	if err != nil {
 		return nil, err
 	}
-	if ch == nil || ch.Status != 1 {
+	if ch == nil || ch.Status != 1 || ch.DayStatus != 0 {
 		return nil, selErr("指定支付通道不可用")
 	}
 	return s.buildResult(ch, 0, "", rateOverride, hasRate), nil
@@ -238,7 +238,7 @@ func (s *ChannelSelector) getChannelFromRoll(rollID uint, money decimal.Decimal)
 	avail := make([]rollMember, 0, len(members))
 	for _, m := range members {
 		ch := chMap[m.ChannelID]
-		if ch == nil || ch.Status != 1 {
+		if ch == nil || ch.Status != 1 || ch.DayStatus != 0 {
 			continue
 		}
 		if !channelFitsMoney(ch, money) {

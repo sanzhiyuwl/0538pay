@@ -22,6 +22,17 @@ const reg = reactive({
   captcha_key: '',
 })
 
+// 保证金门槛（config group=deposit，被下单前置校验 + 实名工本费消费）
+const deposit = reactive({
+  user_deposit: '0',      // 是否启用保证金门槛 0/1
+  user_deposit_min: '0',  // 最低保证金要求（元）
+  cert_money: '0',        // 实名工本费（元，0=免费）
+})
+const depositOn = computed({
+  get: () => deposit.user_deposit === '1',
+  set: (v: boolean) => { deposit.user_deposit = v ? '1' : '0' },
+})
+
 // 布尔开关 ↔ 字符串 "0"/"1" 适配（Switch 组件只吃 boolean）
 function boolFor(key: keyof typeof reg) {
   return computed({
@@ -43,7 +54,9 @@ const saving = ref(false)
 async function load() {
   loading.value = true
   try {
-    Object.assign(reg, await fetchConfig('reg'))
+    const [regKv, depKv] = await Promise.all([fetchConfig('reg'), fetchConfig('deposit')])
+    Object.assign(reg, regKv)
+    Object.assign(deposit, depKv)
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '加载注册设置失败')
   } finally {
@@ -55,7 +68,7 @@ onMounted(load)
 async function save() {
   saving.value = true
   try {
-    await saveConfig('reg', { ...reg })
+    await Promise.all([saveConfig('reg', { ...reg }), saveConfig('deposit', { ...deposit })])
     toast.success('注册登录设置已保存')
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '保存失败')
@@ -138,6 +151,34 @@ async function save() {
               </div>
             </div>
           </template>
+        </div>
+
+        <!-- 保证金门槛 -->
+        <div class="space-y-4 border-t border-border/60 pt-5">
+          <h4 class="text-sm font-medium">保证金与实名工本费</h4>
+          <div class="set-field">
+            <label class="set-lbl">启用保证金门槛</label>
+            <div class="min-w-0 flex-1">
+              <Switch v-model="depositOn" />
+              <p class="set-hint">开启后，商户余额低于最低保证金时拦截下单</p>
+            </div>
+          </div>
+          <div v-if="depositOn" class="set-field">
+            <label class="set-lbl">最低保证金</label>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <input v-model="deposit.user_deposit_min" class="field-input w-32" /><span class="text-sm text-muted-foreground">元</span>
+              </div>
+            </div>
+          </div>
+          <div class="set-field">
+            <label class="set-lbl">实名工本费</label>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <input v-model="deposit.cert_money" class="field-input w-32" /><span class="text-sm text-muted-foreground">元（0=免费）</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

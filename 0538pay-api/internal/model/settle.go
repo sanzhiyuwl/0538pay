@@ -27,6 +27,13 @@ type SettleRecord struct {
 	EndTime   *time.Time      `json:"-"`                                                // 完成时间（status=1 时写入，原始）
 	Status    int8            `gorm:"not null;default:0;index" json:"status"`           // 0待结算 1已完成 2正在结算 3结算失败
 	Result    string          `gorm:"size:255" json:"result"`                           // 结算失败原因
+	// E-4 真实打款回填字段（对齐 epay pre_settle transfer_*，真实渠道打款待凭证）
+	TransferNo      string     `gorm:"column:transfer_no;size:64;index" json:"-"`        // 打款交易号
+	TransferChannel int        `gorm:"column:transfer_channel" json:"-"`                 // 打款使用的通道 id
+	TransferStatus  int8       `gorm:"column:transfer_status;default:0" json:"-"`        // 打款状态
+	TransferResult  string     `gorm:"column:transfer_result;size:255" json:"-"`         // 打款结果
+	TransferDate    *time.Time `gorm:"column:transfer_date" json:"-"`                    // 打款时间
+	TransferExt     string     `gorm:"column:transfer_ext;type:text" json:"-"`           // 打款扩展
 }
 
 func (SettleRecord) TableName() string { return "pay_settle" }

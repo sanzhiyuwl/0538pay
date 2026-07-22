@@ -11,6 +11,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/0538pay/api/internal/repository"
 	"github.com/0538pay/api/internal/service"
 )
 
@@ -20,11 +21,17 @@ type Scheduler struct {
 	settle   *service.SettleService
 	profit   *service.ProfitService   // 分账自动执行（可空）
 	riskAuto *service.RiskAutoService // 风控自动关停（可空）
+	regcodes *repository.RegCodeRepo  // 过期验证码清理（可空，B-7）
+	blacks   *repository.BlacklistRepo // 过期黑名单清理（可空，B-7）
+	channels *repository.ChannelRepo   // 单日限额 daystatus 每日重置（可空）
 	cancel   context.CancelFunc
 	done     chan struct{}
 
+	lastDayReset string // 上次执行 daystatus 重置的日期（YYYY-MM-DD），跨天触发一次
+
 	// 可配置的间隔与批量（起步用固定默认值，后续可接配置）。
 	notifyInterval    time.Duration
+	notify2Interval   time.Duration
 	reconcileInterval time.Duration
 	cleanupInterval   time.Duration
 	settleInterval    time.Duration
@@ -43,6 +50,7 @@ func New(pay *service.PayService, settle *service.SettleService) *Scheduler {
 		pay:               pay,
 		settle:            settle,
 		notifyInterval:    1 * time.Minute,  // 每分钟扫一次待重试通知
+		notify2Interval:   30 * time.Minute, // 每 30 分钟兜底重发一次已放弃(notify=-1)单
 		reconcileInterval: 5 * time.Minute,  // 每 5 分钟对账一次未支付单
 		cleanupInterval:   1 * time.Hour,    // 每小时清理一次超时未付单
 		settleInterval:    1 * time.Hour,    // 每小时检查一次自动结算（服务层每日只跑一次）
@@ -61,6 +69,14 @@ func (s *Scheduler) SetProfit(p *service.ProfitService) { s.profit = p }
 
 // SetRiskAuto 注入风控自动关停服务。nil 则不跑风控自动检查。
 func (s *Scheduler) SetRiskAuto(r *service.RiskAutoService) { s.riskAuto = r }
+
+// SetMaintenanceRepos 注入过期记录清理仓储（B-7：清理过期验证码/黑名单，随超时关单任务一起跑）。
+func (s *Scheduler) SetMaintenanceRepos(rc *repository.RegCodeRepo, bl *repository.BlacklistRepo) {
+	s.regcodes, s.blacks = rc, bl
+}
+
+// SetChannelRepo 注入通道仓储（单日限额 daystatus 每日重置，对齐 epay cron.php:152）。
+func (s *Scheduler) SetChannelRepo(c *repository.ChannelRepo) { s.channels = c }
 
 // Start 启动后台任务协程。非阻塞。
 func (s *Scheduler) Start() {
@@ -84,12 +100,14 @@ func (s *Scheduler) Stop() {
 func (s *Scheduler) run(ctx context.Context) {
 	defer close(s.done)
 	notifyTicker := time.NewTicker(s.notifyInterval)
+	notify2Ticker := time.NewTicker(s.notify2Interval)
 	reconcileTicker := time.NewTicker(s.reconcileInterval)
 	cleanupTicker := time.NewTicker(s.cleanupInterval)
 	settleTicker := time.NewTicker(s.settleInterval)
 	profitTicker := time.NewTicker(s.profitInterval)
 	riskTicker := time.NewTicker(s.riskInterval)
 	defer notifyTicker.Stop()
+	defer notify2Ticker.Stop()
 	defer reconcileTicker.Stop()
 	defer cleanupTicker.Stop()
 	defer settleTicker.Stop()
@@ -102,6 +120,8 @@ func (s *Scheduler) run(ctx context.Context) {
 			return
 		case <-notifyTicker.C:
 			s.runNotify(ctx)
+		case <-notify2Ticker.C:
+			s.runNotify2(ctx)
 		case <-reconcileTicker.C:
 			s.runReconcile(ctx)
 		case <-cleanupTicker.C:
@@ -123,6 +143,8 @@ func (s *Scheduler) RunTask(task string) bool {
 	switch task {
 	case "notify":
 		s.runNotify(ctx)
+	case "notify2":
+		s.runNotify2(ctx)
 	case "reconcile":
 		s.runReconcile(ctx)
 	case "order", "cleanup":
@@ -192,6 +214,17 @@ func (s *Scheduler) runNotify(ctx context.Context) {
 	}
 }
 
+func (s *Scheduler) runNotify2(ctx context.Context) {
+	n, err := s.pay.RetryNotifyAbandoned(ctx, s.batchLimit)
+	if err != nil {
+		log.Printf("[scheduler] 兜底重发(notify2)出错: %v", err)
+		return
+	}
+	if n > 0 {
+		log.Printf("[scheduler] 兜底重发(notify2)处理 %d 单", n)
+	}
+}
+
 func (s *Scheduler) runReconcile(ctx context.Context) {
 	since := time.Now().Add(-s.reconcileWindow)
 	n, err := s.pay.ReconcileUnpaid(ctx, since, s.batchLimit)
@@ -213,5 +246,29 @@ func (s *Scheduler) runCleanup() {
 	}
 	if n > 0 {
 		log.Printf("[scheduler] 清理超时未付单 %d 条", n)
+	}
+	// B-7：清理过期验证码（保留近 24h）与已过期黑名单（对齐 epay cron order 清理项）。
+	now := time.Now()
+	if s.regcodes != nil {
+		if rn, err := s.regcodes.CleanExpired(now.Add(-24 * time.Hour)); err == nil && rn > 0 {
+			log.Printf("[scheduler] 清理过期验证码 %d 条", rn)
+		}
+	}
+	if s.blacks != nil {
+		if bn, err := s.blacks.CleanExpired(now); err == nil && bn > 0 {
+			log.Printf("[scheduler] 清理过期黑名单 %d 条", bn)
+		}
+	}
+	// 单日限额每日重置：跨天后把所有 daystatus 置 0（对齐 epay cron.php:152 "update pre_channel set daystatus=0"）。
+	if s.channels != nil {
+		today := now.Format("2006-01-02")
+		if s.lastDayReset != today {
+			if n, err := s.channels.ResetAllDayStatus(); err == nil {
+				s.lastDayReset = today
+				if n > 0 {
+					log.Printf("[scheduler] 单日限额每日重置：解除 %d 个通道暂停", n)
+				}
+			}
+		}
 	}
 }

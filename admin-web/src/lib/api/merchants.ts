@@ -52,6 +52,17 @@ export interface MerchantEditReq {
   settle: number
   status: number
   password?: string
+  // 对齐 epay edit：订单名模板/聚合收款/预留余额/保证金/实名信息
+  ordername?: string
+  open_code?: number
+  remain_money?: string
+  deposit?: string
+  cert?: number
+  certtype?: number
+  certname?: string
+  certno?: string
+  certcorpname?: string
+  certcorpno?: string
 }
 
 /** 添加商户，返回新建 uid 与通信密钥 */

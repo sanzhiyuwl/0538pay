@@ -34,6 +34,8 @@ type Merchant struct {
 	CertTime  *time.Time      `gorm:"column:cert_time" json:"-"`                    // 认证通过时间
 	Pay       int8            `gorm:"default:2" json:"pay"`                         // 支付权限 0关1开2未审核
 	Settle    int8            `gorm:"default:0" json:"settle"`                      // 结算权限 0/1
+	Refund    int8            `gorm:"default:1" json:"refund"`                      // 退款API权限 0关1开(对齐 epay pre_user.refund,默认1)
+	Transfer  int8            `gorm:"default:0" json:"transfer"`                    // 代付API权限 0关1开(对齐 epay pre_user.transfer,默认0)
 	UpID      int             `gorm:"column:upid;default:0" json:"upid"`            // 邀请方
 	Mode      int8            `gorm:"default:0" json:"mode"`                        // 手续费模式 0/1
 	Deposit   decimal.Decimal `gorm:"type:decimal(18,4);default:0" json:"-"`        // 保证金（原始）
@@ -43,6 +45,18 @@ type Merchant struct {
 	QQUID     string          `gorm:"column:qq_uid;size:64;index" json:"-"`         // QQ 快捷登录 openid（对齐 epay pre_user.qq_uid）
 	WxUID     string          `gorm:"column:wx_uid;size:64;index" json:"-"`         // 微信快捷登录 openid（对齐 epay pre_user.wx_uid）
 	AlipayUID string          `gorm:"column:alipay_uid;size:64;index" json:"-"`     // 支付宝快捷登录 user_id（对齐 epay pre_user.alipay_uid）
+	// E-2 补齐字段（对齐 epay pre_user 剩余列）
+	Level       int8       `gorm:"default:0" json:"level"`                        // 商户等级
+	Apply       int8       `gorm:"default:0" json:"-"`                            // 是否申请进件/子通道 0/1
+	KeyLogin    int8       `gorm:"column:keylogin;default:1" json:"-"`            // 是否允许密钥登录 0/1（默认允许）
+	LastTime    *time.Time `gorm:"column:lasttime" json:"-"`                      // 最后登录时间
+	OrderName   string     `gorm:"column:ordername;size:255" json:"-"`            // 订单名称模板
+	MsgConfig   string     `gorm:"column:msgconfig;size:300" json:"-"`            // 消息通知渠道配置 JSON（D-3）
+	RemainMoney string     `gorm:"column:remain_money;size:20" json:"-"`          // 预留余额（不可结算部分）
+	ChannelInfo string     `gorm:"column:channelinfo;type:text" json:"-"`         // 商户级通道分配 JSON
+	CertMethod  int8       `gorm:"column:certmethod;default:0" json:"-"`          // 实名核验方式（四方式分派）
+	CertToken   string     `gorm:"column:certtoken;size:64" json:"-"`             // 实名核验 token
+	CertCorpNo  string     `gorm:"column:certcorpno;size:30" json:"-"`            // 企业证件号
 }
 
 func (Merchant) TableName() string { return "pay_merchant" }

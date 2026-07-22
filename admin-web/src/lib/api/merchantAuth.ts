@@ -19,6 +19,10 @@ export interface MerchantInfo {
   username: string
   url: string
   mode: number
+  keylogin: number
+  refund: number
+  transfer: number
+  remain_money: string
 }
 
 export interface MerchantLoginResp {

@@ -55,3 +55,51 @@ export function operatePsOrder(
 ): Promise<{ id: number; action: string }> {
   return request(`/admin/ps/orders/${id}/op`, { method: 'POST', body: { action, money } })
 }
+
+// ===== 分账规则管理（ps_receiver，C-1）=====
+
+/** 分账规则（对齐后端 dto.PsReceiverView） */
+export interface PsReceiver {
+  id: number
+  channel: number
+  channel_name: string
+  subchannel: number
+  uid: number // 0=通道级全局
+  account: string
+  name: string
+  rate: string
+  minmoney: string
+  status: number // 0关 1开
+  addtime: string
+}
+
+/** 新增/编辑分账规则入参（对齐后端 dto.PsReceiverReq） */
+export interface PsReceiverReq {
+  channel: number
+  subchannel: number
+  uid: number
+  account: string
+  name: string
+  rate: string
+  minmoney: string
+}
+
+export function fetchPsReceivers(): Promise<{ list: PsReceiver[] }> {
+  return request<{ list: PsReceiver[] }>('/admin/ps/receivers')
+}
+
+export function createPsReceiver(body: PsReceiverReq): Promise<{ msg: string }> {
+  return request('/admin/ps/receivers', { method: 'POST', body })
+}
+
+export function updatePsReceiver(id: number, body: PsReceiverReq): Promise<{ id: number }> {
+  return request(`/admin/ps/receivers/${id}`, { method: 'PUT', body })
+}
+
+export function setPsReceiverStatus(id: number, status: number): Promise<{ id: number; status: number }> {
+  return request(`/admin/ps/receivers/${id}/status`, { method: 'PUT', body: { status } })
+}
+
+export function deletePsReceiver(id: number): Promise<{ id: number }> {
+  return request(`/admin/ps/receivers/${id}`, { method: 'DELETE' })
+}

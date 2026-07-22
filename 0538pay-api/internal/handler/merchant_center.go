@@ -294,6 +294,65 @@ func (h *MerchantCenterHandler) UpdateProfile(c *gin.Context) {
 	resp.OK(c, gin.H{"ok": true})
 }
 
+// Rebind POST /api/merchant/rebind 换绑手机/邮箱（D-3，登录密码二次确认）。
+func (h *MerchantCenterHandler) Rebind(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var req struct {
+		Field    string `json:"field"`
+		Value    string `json:"value"`
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.Rebind(uid, req.Field, req.Value, req.Password); err != nil {
+		failMC(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}
+
+// MsgConfig GET /api/merchant/msgconfig 读消息提醒配置（D-3）。
+func (h *MerchantCenterHandler) MsgConfig(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	cfg, err := h.svc.GetMsgConfig(uid)
+	if err != nil {
+		failMC(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"msgconfig": cfg})
+}
+
+// SaveMsgConfig PUT /api/merchant/msgconfig 存消息提醒配置（D-3）。
+func (h *MerchantCenterHandler) SaveMsgConfig(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var req struct {
+		MsgConfig string `json:"msgconfig"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SaveMsgConfig(uid, req.MsgConfig); err != nil {
+		failMC(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}
+
 // ChangePassword PUT /api/merchant/password 修改登录密码
 func (h *MerchantCenterHandler) ChangePassword(c *gin.Context) {
 	uid, ok := currentUID(c)

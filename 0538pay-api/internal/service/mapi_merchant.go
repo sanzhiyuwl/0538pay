@@ -18,15 +18,11 @@ func (s *MapiService) MerchantInfo(m *model.Merchant) (map[string]string, error)
 	yesterday := today.AddDate(0, 0, -1)
 
 	orderNum, _ := s.orders.CountPaidByMerchant(m.UID, time.Time{})
-	orderToday, _ := s.orders.CountPaidByMerchant(m.UID, today)
-	// 昨日订单数：今日之前 - 昨日之前，用两次范围差；简化用日订单数聚合。
-	moneyToday, _ := s.orders.SumPaidMoneyByMerchant(m.UID, today, now.AddDate(0, 0, 1))
+	// 今日/昨日订单数按 [start,end) 范围精确统计（A-11，对齐 epay 按 date 精确，避免旧差值近似跨天出错）。
+	orderToday, _ := s.orders.CountPaidByMerchantRange(m.UID, today, today.AddDate(0, 0, 1))
+	orderLastday, _ := s.orders.CountPaidByMerchantRange(m.UID, yesterday, today)
+	moneyToday, _ := s.orders.SumPaidMoneyByMerchant(m.UID, today, today.AddDate(0, 0, 1))
 	moneyYesterday, _ := s.orders.SumPaidMoneyByMerchant(m.UID, yesterday, today)
-	orderYesterdayCnt, _ := s.orders.CountPaidByMerchant(m.UID, yesterday)
-	orderLastday := orderYesterdayCnt - orderToday
-	if orderLastday < 0 {
-		orderLastday = 0
-	}
 
 	out := map[string]string{
 		"code":               "0",
@@ -35,6 +31,7 @@ func (s *MapiService) MerchantInfo(m *model.Merchant) (map[string]string, error)
 		"pay_status":         fmt.Sprintf("%d", m.Pay),
 		"settle_status":      fmt.Sprintf("%d", m.Settle),
 		"money":              money.String(m.Money),
+		"settle_type":        fmt.Sprintf("%d", m.SettleID), // 结算方式(对齐 epay settle_type)
 		"settle_account":     m.Account,
 		"settle_name":        m.Username,
 		"order_num":          fmt.Sprintf("%d", orderNum),
@@ -159,9 +156,14 @@ func (s *MapiService) TransferBalance(m *model.Merchant) (map[string]string, err
 	if strings.TrimSpace(rate) == "" {
 		rate = s.cfg.Str("settle_rate") // 空则复用结算费率（对齐 transfer 配置回退）
 	}
+	// A-8：可用余额按 settle_type 计（settle_type=1 扣当日已收 realmoney），对齐 epay Transfer::balance。
+	available := m.Money
+	if s.transfer != nil {
+		available = s.transfer.enableMoney(m)
+	}
 	out := map[string]string{
 		"code":            "0",
-		"available_money": money.String(m.Money),
+		"available_money": money.String(available),
 		"transfer_rate":   rate,
 	}
 	return out, nil

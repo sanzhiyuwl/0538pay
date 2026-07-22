@@ -44,6 +44,7 @@ type ProfitOrder struct {
 	Result     string          `gorm:"type:text" json:"result"`                      // 失败原因
 	AddTime    time.Time       `gorm:"index" json:"-"`                               // 创建时间（原始）
 	Debited    int8            `gorm:"not null;default:0" json:"-"`                  // 是否已扣商户余额（1=已扣，用于取消/回退时判断是否解冻退回）
+	Delay      int8            `gorm:"not null;default:0;index" json:"-"`            // 延迟分账标记（E-6，对齐 epay pre_psorder.delay，供定时扫描）
 }
 
 func (ProfitOrder) TableName() string { return "pay_ps_order" }

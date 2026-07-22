@@ -14,7 +14,8 @@ import { fetchMerchantOrders, refundOrder, renotifyOrder } from '@/lib/api/merch
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 import { shouldDropUp } from '@/composables/useRowMenu'
-import { formatMoney } from '@/lib/utils'
+import { formatMoney, exportCsv } from '@/lib/utils'
+import { Download } from 'lucide-vue-next'
 
 const router = useRouter()
 const toast = useToast()
@@ -72,6 +73,20 @@ watch(filters, () => { page.value = 1 }, { deep: true })
 // ===== 统计 =====
 const showStats = ref(false)
 const stats = computed(() => calcStats(filtered.value))
+
+// ===== 导出（按当前筛选结果导出全部，非仅当前页；对齐 epay order.php 导出）=====
+function exportOrders() {
+  const rows = filtered.value
+  if (!rows.length) { toast.error('没有可导出的订单'); return }
+  const headers = ['系统订单号', '商户订单号', '接口订单号', '商品名称', '商品金额', '实付金额', '已退款', '支付方式', '支付账号', '支付IP', '创建时间', '完成时间', '状态']
+  const data = rows.map((o) => [
+    o.trade_no, o.out_trade_no, o.api_trade_no, o.name, o.money, o.realmoney ?? '', o.refundmoney,
+    o.typeshowname, o.account, o.ip, o.addtime, o.endtime ?? '',
+    (orderStatus as Record<number, { text: string }>)[o.status]?.text ?? o.status,
+  ])
+  exportCsv(`订单记录_${new Date().toISOString().slice(0, 10)}`, headers, data)
+  toast.success(`已导出 ${rows.length} 条订单`)
+}
 
 // ===== 行操作菜单 =====
 const openMenu = ref<string | null>(null)
@@ -218,6 +233,9 @@ async function submitRefund() {
 
     <!-- 列表 -->
     <Panel title="订单列表" :subtitle="`${total} 条`">
+      <template #actions>
+        <Button variant="outline" size="sm" @click="exportOrders"><Download class="size-4" />导出</Button>
+      </template>
       <div>
         <table class="tbl w-full table-fixed">
           <thead>

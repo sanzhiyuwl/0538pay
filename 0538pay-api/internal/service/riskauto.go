@@ -22,12 +22,55 @@ func NewRiskAutoService(repo *repository.RiskAutoRepo, cfg *ConfigService) *Risk
 	return &RiskAutoService{repo: repo, cfg: cfg}
 }
 
-// Run 执行一轮风控自动检查，返回本轮关停商户数。
+// Run 执行一轮风控自动检查，返回本轮关停数（商户+通道）。
 func (s *RiskAutoService) Run() (int, error) {
 	closed := 0
 	closed += s.checkNotifyFail()
 	closed += s.checkSuccessRate()
+	closed += s.checkChannelRate()
 	return closed, nil
+}
+
+// checkChannelRate 通道成功率关停（B-5，对齐 epay auto_check_channel）。
+// 窗口内通道订单数达样本下限且成功率低于阈值 → 关停通道 status=0 + 写 pay_risk。
+// 邮件通知运维依赖 SMTP 凭证，待凭证；此处先落库关停（核心风控闭环）。
+func (s *RiskAutoService) checkChannelRate() int {
+	if s.cfg.Int("auto_check_channel", 0) != 1 {
+		return 0
+	}
+	windowSec := s.cfg.Int("check_channel_second", 600)
+	minCount := s.cfg.Int("check_channel_count", 20)
+	minRate := s.cfg.Int("check_channel_value", 30)
+	if windowSec <= 0 || minCount <= 0 {
+		return 0
+	}
+	start := time.Now().Add(-time.Duration(windowSec) * time.Second)
+	ids, err := s.repo.ActiveChannels(start)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, cid := range ids {
+		total, paid, err := s.repo.ChannelOrderRate(cid, start)
+		if err != nil || total < int64(minCount) {
+			continue
+		}
+		rate := paid * 100 / total
+		if rate >= int64(minRate) {
+			continue
+		}
+		ok, err := s.repo.CloseChannel(cid)
+		if err != nil || !ok {
+			continue
+		}
+		_ = s.repo.WriteRisk(&model.RiskRecord{
+			UID: 0, Type: 1,
+			Content: fmt.Sprintf("通道#%d成功率%d%%(低于%d%%,%d单)，自动关停通道", cid, rate, minRate, total),
+			Date:    time.Now(),
+		})
+		n++
+	}
+	return n
 }
 
 // checkNotifyFail 连续通知失败关停（type=2）。

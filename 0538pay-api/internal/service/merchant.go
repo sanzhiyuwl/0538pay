@@ -107,9 +107,15 @@ func toMerchantView(m *model.Merchant) dto.MerchantView {
 		Cert:      m.Cert,
 		Pay:       m.Pay,
 		Settle:    m.Settle,
+		Refund:    m.Refund,
+		Transfer:  m.Transfer,
 		UpID:      m.UpID,
 		Mode:      m.Mode,
 		Deposit:   money.String(m.Deposit),
+		OrderName:   m.OrderName,
+		OpenCode:    m.OpenCode,
+		RemainMoney: m.RemainMoney,
+		CertType:    m.CertType,
 	}
 	if m.GroupEnd != nil {
 		s := m.GroupEnd.Format(timeLayout)
@@ -212,6 +218,24 @@ func (s *MerchantService) Update(uid uint, req dto.MerchantEditReq) error {
 		"pay":       req.Pay,
 		"settle":    req.Settle,
 		"status":    req.Status,
+		// 对齐 epay ajax_user.php edit 的其余可编辑字段
+		"ordername":    strings.TrimSpace(req.OrderName),
+		"open_code":    normBool(req.OpenCode),
+		"remain_money": strings.TrimSpace(req.RemainMoney),
+		"cert":         normBool(req.Cert),
+		"cert_type":    normBool(req.CertType),
+		"cert_name":    strings.TrimSpace(req.CertName),
+		"cert_no":      strings.TrimSpace(req.CertNo),
+		"cert_corp":    strings.TrimSpace(req.CertCorp),
+		"certcorpno":   strings.TrimSpace(req.CertCorpNo),
+	}
+	// deposit 保证金：空串按 0 存（对齐 epay !empty 判断，避免误清）。
+	if dv := strings.TrimSpace(req.Deposit); dv != "" {
+		d, err := decimal.NewFromString(dv)
+		if err != nil || d.IsNegative() {
+			return meErr("保证金格式不正确")
+		}
+		fields["deposit"] = d
 	}
 	// money 直接覆盖（管理员强改旁路，不走 changeUserMoney 流水，对齐 epay editUser）
 	if strings.TrimSpace(req.Money) != "" {
@@ -294,6 +318,10 @@ func (s *MerchantService) SetStatus(uid uint, req dto.MerchantSetStatusReq) erro
 		col = "pay"
 	case "settle":
 		col = "settle"
+	case "refund": // per-merchant 退款API开关（A-7）
+		col = "refund"
+	case "transfer": // per-merchant 代付API开关（A-7）
+		col = "transfer"
 	case "user", "", "status":
 		col = "status"
 	default:

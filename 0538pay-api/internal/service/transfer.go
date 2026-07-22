@@ -19,6 +19,8 @@ var (
 	transferMinMoney = decimal.RequireFromString("1")     // transfer_minmoney 单笔最小
 	transferMaxMoney = decimal.RequireFromString("20000") // transfer_maxmoney 单笔最大
 	transferMaxLimit = 10                                 // transfer_maxlimit 同账号每日代付次数上限（0=不限）
+
+	transferSettleTypeOrder = true // settle_type=1(订单结算)：代付可用余额扣当日已收 realmoney（A-8）
 )
 
 // reloadTransferConfig 从 config 域刷新代付常量。transfer_rate 留空时复用 settle_rate（对齐 epay）。
@@ -31,6 +33,7 @@ func reloadTransferConfig(cfg *ConfigService) {
 	transferMinMoney = cfg.Dec("transfer_minmoney", transferMinMoney)
 	transferMaxMoney = cfg.Dec("transfer_maxmoney", transferMaxMoney)
 	transferMaxLimit = cfg.Int("transfer_maxlimit", transferMaxLimit)
+	transferSettleTypeOrder = cfg.Str("settle_type") != "0" // 非 "0" 即订单结算(D+1)，代付可用余额扣当日已收
 }
 
 // 付款方式 → 默认通道 id（对齐 epay transfer_alipay/wxpay/qqpay/bank，0=未开启该方式）。
@@ -49,6 +52,7 @@ type TransferService struct {
 	repo      *repository.TransferRepo
 	merchants *repository.MerchantRepo
 	admins    *repository.AdminRepo
+	orders    *repository.OrderRepo // 可空；SetOrderRepo 注入。settle_type=1 可用余额扣当日已收 realmoney 用
 }
 
 func NewTransferService(
@@ -57,6 +61,28 @@ func NewTransferService(
 	admins *repository.AdminRepo,
 ) *TransferService {
 	return &TransferService{repo: repo, merchants: merchants, admins: admins}
+}
+
+// SetOrderRepo 注入订单 repo（A-8：settle_type=1 时代付可用余额 = 余额 - 当日已成功订单 realmoney）。
+// nil 则可用余额直接取商户余额（settle_type=0 语义，向后兼容）。
+func (s *TransferService) SetOrderRepo(o *repository.OrderRepo) { s.orders = o }
+
+// enableMoney 计算代付可用余额（A-8，对齐 epay Transfer.php:17-25）。
+// settle_type=1(订单结算)：可用 = 余额 - 当日已成功订单 realmoney(tid≠2)，不小于 0；否则=全部余额。
+func (s *TransferService) enableMoney(m *model.Merchant) decimal.Decimal {
+	if s.orders == nil || !transferSettleTypeOrder {
+		return m.Money
+	}
+	today := dayStart(time.Now())
+	todayPaid, err := s.orders.SumTodayPaidRealMoney(m.UID, today)
+	if err != nil {
+		return m.Money // 查询失败退回全额，不阻断代付
+	}
+	enable := m.Money.Sub(todayPaid)
+	if enable.LessThan(decimal.Zero) {
+		enable = decimal.Zero
+	}
+	return enable
 }
 
 // TransferError 携带业务错误码与提示。
@@ -146,6 +172,58 @@ func (s *TransferService) CreateByAdmin(adminID uint, req dto.TransferCreateReq)
 	return bizNo, nil
 }
 
+// BatchItemResult 批量代付单条结果（C-2）。
+type BatchItemResult struct {
+	Index    int    `json:"index"`
+	Account  string `json:"account"`
+	BizNo    string `json:"biz_no,omitempty"`
+	Success  bool   `json:"success"`
+	Msg      string `json:"msg,omitempty"`
+}
+
+// CreateBatchByAdmin 后台批量代付（C-2，对齐 epay transfer_batch）：一次校验管理员密码，
+// 逐条走 CreateByAdmin 的落库逻辑，返回每条成功/失败。任一条失败不影响其余（逐条独立）。
+// 真实渠道打款同单笔待凭证，此处批量落库进处理中。
+func (s *TransferService) CreateBatchByAdmin(adminID uint, password string, items []dto.TransferCreateReq) ([]BatchItemResult, error) {
+	if err := s.verifyAdminPwd(adminID, password); err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, tfErr("批量代付列表为空")
+	}
+	if len(items) > 200 {
+		return nil, tfErr("单次批量代付上限 200 条")
+	}
+	results := make([]BatchItemResult, 0, len(items))
+	for i, it := range items {
+		r := BatchItemResult{Index: i, Account: strings.TrimSpace(it.Account)}
+		money, bizNo, err := s.validateCommon(it)
+		if err != nil {
+			r.Msg = err.Error()
+			results = append(results, r)
+			continue
+		}
+		t := &model.Transfer{
+			BizNo: bizNo, UID: 0, Type: it.Type, Channel: s.resolveChannel(it),
+			Account: strings.TrimSpace(it.Account), Username: strings.TrimSpace(it.Username),
+			Money: money, CostMoney: money, AddTime: time.Now(), Status: 0, Desc: it.Desc,
+		}
+		if err := s.repo.CreateAdmin(t); err != nil {
+			if err == repository.ErrDuplicateBizNo {
+				r.Msg = "交易号已存在"
+			} else {
+				r.Msg = err.Error()
+			}
+			results = append(results, r)
+			continue
+		}
+		r.Success = true
+		r.BizNo = bizNo
+		results = append(results, r)
+	}
+	return results, nil
+}
+
 // CreateByMerchant 商户发起代付：校验登录密码/结算权限/限额/次数 → 计费 → 即时扣款落库(处理中)。
 // 对齐 epay user/transfer_add：走完整校验 + changeUserMoney 扣 need_money。真实打款待渠道凭证。
 func (s *TransferService) CreateByMerchant(uid uint, req dto.TransferCreateReq) (string, error) {
@@ -179,6 +257,10 @@ func (s *TransferService) CreateByMerchantSigned(uid uint, req dto.TransferCreat
 	if m == nil {
 		return "", tfErr("商户不存在")
 	}
+	// per-merchant 代付API开关（A-7，对齐 epay Transfer.php:15 userrow['transfer']==0）。
+	if m.Transfer == 0 {
+		return "", tfErr("商户未开启代付API接口")
+	}
 	if m.Settle != 1 {
 		return "", tfErr("结算功能未开启，无法发起代付")
 	}
@@ -205,6 +287,15 @@ func (s *TransferService) createByMerchantCore(uid uint, req dto.TransferCreateR
 
 	fee := calcTransferFee(money)
 	cost := money.Add(fee)
+
+	// settle_type=1 可用余额校验（A-8）：需支付金额 > 可用余额(余额-当日已收 realmoney)则拒。
+	// CreateWithDebit 内另有余额行锁校验兜底；此处按 epay 语义提前拦并给准确文案。
+	if m, err := s.merchants.FindByUIDSafe(uid); err == nil && m != nil {
+		if cost.GreaterThan(s.enableMoney(m)) {
+			return "", tfErr("需支付金额大于可转账余额")
+		}
+	}
+
 	t := &model.Transfer{
 		BizNo:     bizNo,
 		UID:       uid,
@@ -295,8 +386,13 @@ func (s *TransferService) validateCommon(req dto.TransferCreateReq) (decimal.Dec
 	if !transferTypes[req.Type] {
 		return decimal.Zero, "", tfErr("付款方式不合法")
 	}
-	if strings.TrimSpace(req.Account) == "" {
+	acct := strings.TrimSpace(req.Account)
+	if acct == "" {
 		return decimal.Zero, "", tfErr("请填写收款账号")
+	}
+	// QQ 钱包收款账号需 6~10 位纯数字（A-8，对齐 epay Transfer.php:63）。
+	if req.Type == "qqpay" && (!isNumeric(acct) || len(acct) < 6 || len(acct) > 10) {
+		return decimal.Zero, "", tfErr("QQ号码格式错误")
 	}
 	if l := len([]rune(req.Desc)); l > 32 {
 		return decimal.Zero, "", tfErr("备注最多 32 字")
@@ -342,14 +438,14 @@ func (s *TransferService) resolveChannel(req dto.TransferCreateReq) int {
 	return transferDefaultChannel[req.Type]
 }
 
-// verifyAdminPwd 校验后台管理员密码（无独立支付密码，用登录密码二次确认，对齐 admin_paypwd 意图）。
-func (s *TransferService) verifyAdminPwd(adminID uint, pwd string) error {
-	a, err := s.admins.FindByID(adminID)
-	if err != nil {
-		return tfErr("管理员不存在")
+// verifyAdminPwd 校验管理员支付密码（对齐 epay admin_paypwd，独立于登录密码）。
+// adminID 保留以兼容调用签名，实际校验走全局支付密码。
+func (s *TransferService) verifyAdminPwd(_ uint, pwd string) error {
+	if pwd == "" {
+		return tfErr("请输入支付密码")
 	}
-	if bcrypt.CompareHashAndPassword([]byte(a.Password), []byte(pwd)) != nil {
-		return tfErr("管理员密码不正确")
+	if err := verifyPayPwd(pwd); err != nil {
+		return tfErr("支付密码不正确")
 	}
 	return nil
 }

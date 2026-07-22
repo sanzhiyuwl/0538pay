@@ -4,7 +4,7 @@ import { Search, RotateCcw, Download, BarChart3, ArrowUpRight, ArrowDownRight } 
 import { Panel, Button, Select, DateRange, Pagination } from '@/components/ui'
 import { fetchRecords, fetchRecordStats, type FundRecord, type RecordStats } from '@/lib/api/records'
 import { ApiError } from '@/lib/api/client'
-import { formatMoney } from '@/lib/utils'
+import { formatMoney, exportCsv } from '@/lib/utils'
 import { useToast } from '@/composables/useToast'
 
 const toast = useToast()
@@ -94,6 +94,29 @@ function go(p: number) {
 
 onMounted(load)
 
+// ===== 导出（按当前筛选条件从后端拉全量再生成 CSV，对齐 epay record.php 导出）=====
+const exporting = ref(false)
+async function exportList() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const res = await fetchRecords({ ...buildParams(), page: 1, pageSize: 10000 })
+    const list = res.list
+    if (!list.length) { toast.error('没有可导出的流水'); return }
+    const headers = ['时间', '商户ID', '操作类型', '收支', '变更金额', '变更前余额', '变更后余额', '关联订单号']
+    const data = list.map((r) => [
+      r.date, r.uid, r.type, r.action === 1 ? '收入' : '支出',
+      (r.action === 1 ? '+' : '-') + r.money, r.oldmoney, r.newmoney, r.trade_no,
+    ])
+    exportCsv(`资金明细_${new Date().toISOString().slice(0, 10)}`, headers, data)
+    toast.success(`已导出 ${list.length} 条流水`)
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
+
 // ===== 统计（按当前筛选条件向后端拉取） =====
 const showStats = ref(false)
 const stats = ref<RecordStats | null>(null)
@@ -125,7 +148,7 @@ async function toggleStats() {
     <Panel title="资金明细" :subtitle="`共 ${total} 条流水`">
       <template #actions>
         <Button variant="outline" size="sm" @click="toggleStats"><BarChart3 />统计</Button>
-        <Button variant="outline" size="sm"><Download />导出列表</Button>
+        <Button variant="outline" size="sm" :disabled="exporting" @click="exportList"><Download />导出列表</Button>
       </template>
       <div class="space-y-3">
         <div class="filter-bar">

@@ -45,7 +45,7 @@ func (s *PayService) RetryNotify(ctx context.Context, limit int) (int, error) {
 		if err != nil || m == nil {
 			continue
 		}
-		params := buildCallbackParams(o, m)
+		params := s.buildCallbackParams(o, m)
 		if doNotify(ctx, appendQuery(o.NotifyURL, params)) {
 			_ = s.orders.SetNotifySuccess(o.TradeNo)
 			continue
@@ -57,6 +57,32 @@ func (s *PayService) RetryNotify(ctx context.Context, limit int) (int, error) {
 			continue
 		}
 		_ = s.orders.SetNotifyRetry(o.TradeNo, next, time.Now().Add(notifyBackoff(next)))
+	}
+	return len(orders), nil
+}
+
+// RetryNotifyAbandoned 兜底重发已放弃(notify=-1)且近一天完成的订单（对齐 epay cron do=notify2）。
+// 与 RetryNotify 不同：不再走退避计数，成功则 notify=0 清零，失败保持 notify=-1（等下轮兜底）。
+// 返回本次处理条数。
+func (s *PayService) RetryNotifyAbandoned(ctx context.Context, limit int) (int, error) {
+	orders, err := s.orders.FindAbandonedNotify(limit)
+	if err != nil {
+		return 0, err
+	}
+	for i := range orders {
+		o := &orders[i]
+		if o.NotifyURL == "" {
+			continue
+		}
+		m, err := s.merchants.FindByUID(o.UID)
+		if err != nil || m == nil {
+			continue
+		}
+		params := s.buildCallbackParams(o, m)
+		if doNotify(ctx, appendQuery(o.NotifyURL, params)) {
+			_ = s.orders.SetNotifySuccess(o.TradeNo)
+		}
+		// 失败保持 notify=-1，交下一轮 notify2 兜底（对齐 epay 不改状态）。
 	}
 	return len(orders), nil
 }

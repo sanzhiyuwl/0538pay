@@ -248,7 +248,7 @@ async function submitRefund() {
   if (!r) return
   const money = refundForm.value.money.trim()
   if (!money || Number(money) <= 0) return toast.error('请输入有效退款金额')
-  if (r.api && !refundForm.value.password) return toast.error('原路退款需输入管理员密码')
+  if (r.api && !refundForm.value.password) return toast.error('原路退款需输入支付密码')
   busy.value = true
   try {
     await refundOrder({ trade_no: r.order.trade_no, money, api: r.api, password: refundForm.value.password })
@@ -697,8 +697,8 @@ function submitExport() {
           </div>
         </div>
         <div v-if="refundState?.api" class="row-field">
-          <label class="lbl">管理员密码</label>
-          <input v-model="refundForm.password" type="password" placeholder="原路退款需二次校验" class="field-input flex-1" />
+          <label class="lbl">支付密码</label>
+          <input v-model="refundForm.password" type="password" placeholder="原路退款需输入支付密码" class="field-input flex-1" />
         </div>
         <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           <template v-if="refundState?.api">

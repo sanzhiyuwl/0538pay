@@ -63,6 +63,23 @@ export function createTransfer(body: TransferCreateReq): Promise<{ biz_no: strin
   return request('/admin/transfers', { method: 'POST', body })
 }
 
+/** 批量代付单条结果（C-2） */
+export interface BatchItemResult {
+  index: number
+  account: string
+  biz_no?: string
+  success: boolean
+  msg?: string
+}
+
+/** 后台批量代付（C-2）：一次校验密码，逐条处理，返回每条结果 */
+export function createTransferBatch(
+  password: string,
+  items: TransferCreateReq[],
+): Promise<{ results: BatchItemResult[]; success: number; total: number }> {
+  return request('/admin/transfers/batch', { method: 'POST', body: { password, items } })
+}
+
 export function setTransferStatus(bizNo: string, status: number, result = ''): Promise<{ biz_no: string; status: number }> {
   return request(`/admin/transfers/${encodeURIComponent(bizNo)}/status`, {
     method: 'PUT',

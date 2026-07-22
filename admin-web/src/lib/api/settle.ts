@@ -37,6 +37,23 @@ export function completeSettleBatch(batch: string): Promise<{ affected: number }
   )
 }
 
+/** 导出批次银行专用打款文件（C-4）。tmpl: mybank/alipay/wxpay/common。带鉴权头 fetch→Blob 下载。 */
+export async function exportSettleBatch(batch: string, tmpl: string): Promise<void> {
+  const token = localStorage.getItem('admin_token') || ''
+  const res = await fetch(
+    `/api/admin/settle/batch/${encodeURIComponent(batch)}/export?tmpl=${encodeURIComponent(tmpl)}`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+  )
+  if (!res.ok) throw new Error(`导出失败(${res.status})`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `pay_${tmpl}_${batch}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 /**
  * 变更单条结算记录状态。
  * status: 0待结算 1已完成 2正在结算 3结算失败 4删除(余额退回)。

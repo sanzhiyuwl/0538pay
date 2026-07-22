@@ -11,6 +11,7 @@ type LoginLog struct {
 	Date time.Time `gorm:"index" json:"-"`                      // 时间（原始）
 	IP   string    `gorm:"size:50" json:"ip"`                   // 操作IP
 	City string    `gorm:"size:20" json:"city"`                 // 归属地（可空）
+	Data string    `gorm:"type:text" json:"-"`                  // 日志明细 JSON（E-6，对齐 epay pre_log.data）
 }
 
 func (LoginLog) TableName() string { return "pay_log" }

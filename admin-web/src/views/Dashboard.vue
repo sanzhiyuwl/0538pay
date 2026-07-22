@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
-import { RefreshCw } from 'lucide-vue-next'
+import { RefreshCw, ShieldAlert } from 'lucide-vue-next'
 import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
 import TrendChart from '@/components/TrendChart.vue'
@@ -29,11 +29,13 @@ onMounted(load)
 
 const overview = computed(() => data.value?.overview ?? [])
 const trendLabels = computed(() => data.value?.trend.labels ?? [])
+// 图表配色收口到设计令牌：订单量走品牌蓝、交易额走语义绿（收敛饱和度，
+// 去掉原先游离在系统外的 #4b7bec / #07c160 突兀硬编码）
 const orderTrend = computed(() => [
-  { name: '订单量', color: '#4b7bec', data: data.value?.trend.orders ?? [] },
+  { name: '订单量', color: '#0062ef', data: data.value?.trend.orders ?? [] },
 ])
 const amountTrend = computed(() => [
-  { name: '交易额', color: '#07c160', data: (data.value?.trend.amounts ?? []).map((a) => Number(a)) },
+  { name: '交易额', color: '#3a9e4f', data: (data.value?.trend.amounts ?? []).map((a) => Number(a)) },
 ])
 
 const todoCards = computed(() => {
@@ -53,10 +55,36 @@ const statusMap: Record<number, { text: string; variant: 'success' | 'warning' |
   2: { text: '已退款', variant: 'destructive' },
   3: { text: '已冻结', variant: 'muted' },
 }
+
+// 安全告警（弱密码/默认密码等）
+const alerts = computed(() => data.value?.alerts ?? [])
+
+// 支付方式手续费利润交叉表（今+近6日 × 各支付方式）
+const feeProfit = computed(() => data.value?.fee_profit ?? null)
+const hasFeeProfit = computed(() => !!feeProfit.value && feeProfit.value.paytypes.length > 0)
 </script>
 
 <template>
   <div class="space-y-2.5">
+    <!-- ===== 安全告警条（弱密码/默认密码等，多条合并到同一横幅，未来可承载站点公告）=====
+         配色抄 Badge warning 的 Element UI 精确 hex（#fdf6ec 底 / #faecd8 边 / #985f0d 文），
+         淡黄底横幅 + 安全盾牌图标，明暗主题均高对比可读，不加阴影/动效（后台告警求稳）。 -->
+    <div
+      v-if="alerts.length"
+      class="flex gap-2.5 rounded border px-4 py-3"
+      style="background:#fdf6ec;border-color:#faecd8"
+    >
+      <ShieldAlert class="mt-px size-[17px] shrink-0" style="color:#E6A23C" />
+      <div class="min-w-0 space-y-1">
+        <p
+          v-for="(a, i) in alerts"
+          :key="i"
+          class="text-[13px] leading-relaxed"
+          style="color:#985f0d"
+        >{{ a }}</p>
+      </div>
+    </div>
+
     <!-- ===== 实时概况 ===== -->
     <Card>
       <div class="flex items-center gap-2 px-6 py-4">
@@ -72,11 +100,11 @@ const statusMap: Record<number, { text: string; variant: 'success' | 'warning' |
         <div class="grid grid-cols-2 gap-x-8 gap-y-7 lg:grid-cols-4">
           <div v-for="s in overview" :key="s.label">
             <div class="text-[13px] text-muted-foreground">{{ s.label }}</div>
-            <div class="mt-2.5 text-[28px] font-normal leading-none tabular-nums text-foreground">{{ s.today }}</div>
+            <div class="mt-2.5 text-[28px] font-semibold leading-none tracking-tight tabular-nums text-foreground">{{ s.today }}</div>
             <div class="mt-2 text-xs text-muted-foreground/60">昨日:{{ s.yesterday }}</div>
             <div class="mt-5">
               <div class="text-[13px] text-muted-foreground">{{ s.total_label }}</div>
-              <div class="mt-2 text-[22px] font-normal leading-none tabular-nums text-foreground">{{ s.total }}</div>
+              <div class="mt-2 text-[22px] font-semibold leading-none tracking-tight tabular-nums text-foreground">{{ s.total }}</div>
             </div>
           </div>
         </div>
@@ -91,23 +119,23 @@ const statusMap: Record<number, { text: string; variant: 'success' | 'warning' |
         <div class="grid grid-cols-2 gap-x-8 gap-y-6 lg:grid-cols-5">
           <div>
             <div class="text-[13px] text-muted-foreground">商户总数</div>
-            <div class="mt-2.5 text-[24px] font-normal tabular-nums">{{ data?.merchants ?? 0 }}</div>
+            <div class="mt-2.5 text-[24px] font-semibold tracking-tight tabular-nums">{{ data?.merchants ?? 0 }}</div>
           </div>
           <div>
             <div class="text-[13px] text-muted-foreground">订单总数</div>
-            <div class="mt-2.5 text-[24px] font-normal tabular-nums">{{ data?.orders_total ?? 0 }}</div>
+            <div class="mt-2.5 text-[24px] font-semibold tracking-tight tabular-nums">{{ data?.orders_total ?? 0 }}</div>
           </div>
           <div>
             <div class="text-[13px] text-muted-foreground">今日成功率</div>
-            <div class="mt-2.5 text-[24px] font-normal tabular-nums text-success">{{ data?.success_rate ?? '0' }}%</div>
+            <div class="mt-2.5 text-[24px] font-semibold tracking-tight tabular-nums text-success">{{ data?.success_rate ?? '0' }}%</div>
           </div>
           <div>
             <div class="text-[13px] text-muted-foreground">商户余额总额</div>
-            <div class="mt-2.5 text-[24px] font-normal tabular-nums"><span class="text-sm text-muted-foreground">¥</span>{{ data?.total_money ?? '0.00' }}</div>
+            <div class="mt-2.5 text-[24px] font-semibold tracking-tight tabular-nums"><span class="text-sm font-normal text-muted-foreground">¥</span>{{ data?.total_money ?? '0.00' }}</div>
           </div>
           <div>
             <div class="text-[13px] text-muted-foreground">已结算总额</div>
-            <div class="mt-2.5 text-[24px] font-normal tabular-nums"><span class="text-sm text-muted-foreground">¥</span>{{ data?.settled_sum ?? '0.00' }}</div>
+            <div class="mt-2.5 text-[24px] font-semibold tracking-tight tabular-nums"><span class="text-sm font-normal text-muted-foreground">¥</span>{{ data?.settled_sum ?? '0.00' }}</div>
           </div>
         </div>
       </div>
@@ -125,7 +153,7 @@ const statusMap: Record<number, { text: string; variant: 'success' | 'warning' |
               <span v-if="t.urgent && t.value > 0" class="ml-1 inline-block size-1.5 rounded-full bg-destructive align-middle" />
             </div>
             <div
-              class="mt-2.5 text-[26px] font-normal leading-none tabular-nums transition-colors group-hover:text-primary"
+              class="mt-2.5 text-[26px] font-semibold leading-none tracking-tight tabular-nums transition-colors group-hover:text-primary"
               :class="t.urgent && t.value > 0 ? 'text-destructive' : 'text-foreground'"
             >{{ t.value }}</div>
           </RouterLink>
@@ -146,6 +174,43 @@ const statusMap: Record<number, { text: string; variant: 'success' | 'warning' |
         <div class="px-6 py-5"><TrendChart :labels="trendLabels" :series="amountTrend" /></div>
       </Card>
     </div>
+
+    <!-- ===== 支付方式手续费利润（已扣通道成本，今+近6日）===== -->
+    <Card v-if="hasFeeProfit && feeProfit">
+      <div class="px-6 py-4">
+        <h3 class="text-[15px] font-semibold tracking-tight">支付方式手续费利润</h3>
+        <span class="text-xs text-muted-foreground/70">已扣除通道成本，收入取实付额，利润取平台利润</span>
+      </div>
+      <div class="border-t border-border/70" />
+      <div class="px-6 py-4">
+        <div class="overflow-x-auto">
+          <table class="tbl w-full">
+            <thead>
+              <tr>
+                <th class="whitespace-nowrap">支付方式</th>
+                <th v-for="d in feeProfit.days" :key="d" class="num whitespace-nowrap">{{ d }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="pt in feeProfit.paytypes" :key="pt">
+                <tr>
+                  <td class="whitespace-nowrap">{{ pt }} <span class="dim text-xs">收入</span></td>
+                  <td v-for="(v, i) in feeProfit.income[pt]" :key="i" class="num tabular-nums">
+                    <span class="dim text-xs">¥</span>{{ v }}
+                  </td>
+                </tr>
+                <tr>
+                  <td class="whitespace-nowrap">{{ pt }} <span class="text-xs text-primary">利润</span></td>
+                  <td v-for="(v, i) in feeProfit.profit[pt]" :key="i" class="num tabular-nums text-primary">
+                    <span class="dim text-xs">¥</span>{{ v }}
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Card>
 
     <!-- ===== 实时订单 ===== -->
     <Card>

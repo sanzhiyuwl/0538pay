@@ -183,12 +183,17 @@ const form = reactive({
   settle: 1,
   status: 1,
   password: '',
+  ordername: '',
+  open_code: 0,
+  remain_money: '',
+  deposit: '',
 })
 
 function resetForm() {
   Object.assign(form, {
     gid: 0, upid: 0, settle_id: 1, account: '', username: '', money: '',
     url: '', email: '', qq: '', phone: '', mode: 0, pay: 1, settle: 1, status: 1, password: '',
+    ordername: '', open_code: 0, remain_money: '', deposit: '',
   })
 }
 
@@ -216,6 +221,10 @@ function openEdit(m: Merchant) {
     settle: m.settle,
     status: m.status === 2 ? 1 : m.status,
     password: '',
+    ordername: m.ordername ?? '',
+    open_code: m.open_code ?? 0,
+    remain_money: m.remain_money ?? '',
+    deposit: m.deposit ?? '',
   })
   editDrawer.value = true
   openMenu.value = null
@@ -234,6 +243,8 @@ async function saveMerchant() {
         url: form.url.trim(), email: form.email.trim(), qq: form.qq.trim(), phone: form.phone.trim(),
         mode: form.mode, pay: form.pay, settle: form.settle, status: form.status,
         password: form.password.trim() || undefined,
+        ordername: form.ordername.trim(), open_code: form.open_code,
+        remain_money: form.remain_money.trim(), deposit: form.deposit.trim(),
       }
       await updateMerchant(editingUID.value, payload)
       toast.success('商户已更新')
@@ -402,16 +413,20 @@ async function confirmGroup() {
 }
 
 // ===== 状态切换（正常/封禁、支付、结算）=====
-async function toggle(m: Merchant, field: 'user' | 'pay' | 'settle') {
+async function toggle(m: Merchant, field: 'user' | 'pay' | 'settle' | 'refund' | 'transfer') {
   let next: number
   if (field === 'user') next = m.status === 1 ? 0 : 1
   else if (field === 'pay') next = m.pay === 1 ? 0 : 1
-  else next = m.settle === 1 ? 0 : 1
+  else if (field === 'settle') next = m.settle === 1 ? 0 : 1
+  else if (field === 'refund') next = (m.refund ?? 1) === 1 ? 0 : 1
+  else next = (m.transfer ?? 0) === 1 ? 0 : 1
   try {
     await setMerchantStatus(m.uid, field, next)
     if (field === 'user') m.status = next as Merchant['status']
     else if (field === 'pay') m.pay = next as Merchant['pay']
-    else m.settle = next as Merchant['settle']
+    else if (field === 'settle') m.settle = next as Merchant['settle']
+    else if (field === 'refund') m.refund = next as Merchant['refund']
+    else m.transfer = next as Merchant['transfer']
     toast.success('已更新')
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '操作失败')
@@ -607,6 +622,14 @@ async function confirmDelete() {
                       <component :is="m.settle === 1 ? XCircle : CheckCircle2" class="size-4 shrink-0 opacity-70" />
                       <span class="flex-1">{{ m.settle === 1 ? '关闭结算' : '开启结算' }}</span>
                     </button>
+                    <button class="menu-item" @click="toggle(m, 'refund')">
+                      <component :is="(m.refund ?? 1) === 1 ? XCircle : CheckCircle2" class="size-4 shrink-0 opacity-70" />
+                      <span class="flex-1">{{ (m.refund ?? 1) === 1 ? '关闭退款API' : '开启退款API' }}</span>
+                    </button>
+                    <button class="menu-item" @click="toggle(m, 'transfer')">
+                      <component :is="(m.transfer ?? 0) === 1 ? XCircle : CheckCircle2" class="size-4 shrink-0 opacity-70" />
+                      <span class="flex-1">{{ (m.transfer ?? 0) === 1 ? '关闭代付API' : '开启代付API' }}</span>
+                    </button>
                     <div class="menu-sep" />
                     <button class="menu-item menu-item-danger" @click="askDelete(m)">
                       <Trash2 class="size-4 shrink-0 opacity-70" /><span class="flex-1">删除商户</span>
@@ -700,6 +723,31 @@ async function confirmDelete() {
           <label class="lbl">登录密码</label>
           <input v-model="form.password" type="password" :placeholder="editingUID ? '留空则不修改' : '选填，商户可用密码登录'" class="field-input flex-1" />
         </div>
+
+        <!-- 进阶字段（仅编辑时；对齐 epay ajax_user.php edit）-->
+        <template v-if="editingUID">
+          <div class="row-field">
+            <label class="lbl">订单名模板</label>
+            <input v-model="form.ordername" placeholder="回传给下游的商品名，留空用原始名" class="field-input flex-1" />
+          </div>
+          <div class="row-field">
+            <label class="lbl">聚合收款</label>
+            <Select v-model="form.open_code" :options="[{ value: 0, label: '关闭' }, { value: 1, label: '开启' }]" class="flex-1" />
+          </div>
+          <div class="row-field">
+            <label class="lbl">预留余额</label>
+            <div class="flex flex-1 items-center gap-2">
+              <input v-model="form.remain_money" placeholder="自动结算不参与的金额，留空为 0" class="field-input flex-1" />
+            </div>
+          </div>
+          <div class="row-field">
+            <label class="lbl">保证金</label>
+            <div class="flex flex-1 items-center gap-2">
+              <input v-model="form.deposit" placeholder="商户保证金，留空为 0" class="field-input flex-1" />
+            </div>
+          </div>
+        </template>
+
         <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           手机号和邮箱不能都为空，且各自不可与已有商户重复。新增成功后系统自动生成 32 位通信密钥。
         </p>

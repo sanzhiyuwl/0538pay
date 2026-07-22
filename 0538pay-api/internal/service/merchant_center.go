@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"time"
 
@@ -777,7 +778,112 @@ func (s *MerchantCenterService) UpdateProfile(uid uint, req dto.MerchantProfileR
 		"url":       strings.TrimSpace(req.URL),
 		"mode":      req.Mode,
 	}
+	// 对齐 epay edit_info：keylogin/refund/transfer/remain_money 提交时才更新（nil=未提交不改）。
+	if req.KeyLogin != nil {
+		fields["keylogin"] = normBool(*req.KeyLogin)
+	}
+	if req.Refund != nil {
+		fields["refund"] = normBool(*req.Refund)
+	}
+	if req.Transfer != nil {
+		fields["transfer"] = normBool(*req.Transfer)
+	}
+	if req.RemainMoney != nil {
+		fields["remain_money"] = strings.TrimSpace(*req.RemainMoney)
+	}
 	return s.merchants.UpdateFields(uid, fields)
+}
+
+// normBool 把任意 int8 归一为 0/1（对齐 epay intval 后仅存 0/1 语义，非 0 一律视为 1）。
+func normBool(v int8) int8 {
+	if v != 0 {
+		return 1
+	}
+	return 0
+}
+
+// Rebind 换绑手机/邮箱（D-3，对齐 epay editinfo 密保换绑）。
+// epay 用旧联系方式 OTP 验证；真 OTP 待短信/邮件凭证，此处用登录密码二次确认作身份校验（等价安全）。
+// field: "phone" | "email"；校验格式 + 全局唯一。
+func (s *MerchantCenterService) Rebind(uid uint, field, newValue, password string) error {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return maErr("商户不存在")
+	}
+	// 身份校验：已设密码则校验（未设密码的老账号允许直接换绑，与改密逻辑一致）。
+	if m.Password != "" {
+		if password == "" {
+			return maErr("请输入登录密码确认身份")
+		}
+		if bcrypt.CompareHashAndPassword([]byte(m.Password), []byte(password)) != nil {
+			return maErr("登录密码不正确")
+		}
+	}
+	newValue = strings.TrimSpace(newValue)
+	if newValue == "" {
+		return maErr("请输入新的" + rebindLabel(field))
+	}
+	switch field {
+	case "phone":
+		if !rebindPhoneRe.MatchString(newValue) {
+			return maErr("手机号格式不正确")
+		}
+		if n, _ := s.merchants.CountByPhone(newValue, uid); n > 0 {
+			return maErr("该手机号已被其他商户绑定")
+		}
+		return s.merchants.UpdateFields(uid, map[string]interface{}{"phone": newValue})
+	case "email":
+		if !emailRe.MatchString(newValue) {
+			return maErr("邮箱格式不正确")
+		}
+		if n, _ := s.merchants.CountByEmail(newValue, uid); n > 0 {
+			return maErr("该邮箱已被其他商户绑定")
+		}
+		return s.merchants.UpdateFields(uid, map[string]interface{}{"email": newValue})
+	default:
+		return maErr("不支持的换绑类型")
+	}
+}
+
+// rebindPhoneRe 中国大陆手机号格式（换绑校验用）。
+var rebindPhoneRe = regexp.MustCompile(`^1[3-9]\d{9}$`)
+
+func rebindLabel(field string) string {
+	if field == "email" {
+		return "邮箱"
+	}
+	return "手机号"
+}
+
+// GetMsgConfig 返回商户消息提醒配置 JSON（D-3，对齐 epay editinfo 消息提醒设置）。空则返回默认。
+func (s *MerchantCenterService) GetMsgConfig(uid uint) (string, error) {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return "", err
+	}
+	if m == nil {
+		return "", maErr("商户不存在")
+	}
+	if strings.TrimSpace(m.MsgConfig) == "" {
+		// 默认全部开启订单/结算/登录提醒（对齐 epay 默认）
+		return `{"order":1,"settle":1,"login":0,"balance":0,"balance_threshold":""}`, nil
+	}
+	return m.MsgConfig, nil
+}
+
+// SaveMsgConfig 保存商户消息提醒配置（D-3）。校验为合法 JSON、长度≤300。
+func (s *MerchantCenterService) SaveMsgConfig(uid uint, cfg string) error {
+	cfg = strings.TrimSpace(cfg)
+	if len(cfg) > 300 {
+		return maErr("消息配置过长")
+	}
+	if cfg != "" && !json.Valid([]byte(cfg)) {
+		return maErr("消息配置不是合法 JSON")
+	}
+	return s.merchants.UpdateFields(uid, map[string]interface{}{"msgconfig": cfg})
 }
 
 // ChangePassword 修改登录密码（bcrypt）。已设密码则校验旧密码。

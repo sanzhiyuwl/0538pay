@@ -50,3 +50,9 @@ func (r *RegCodeRepo) IncrErr(id uint) error {
 func (r *RegCodeRepo) MarkUsed(id uint) error {
 	return r.db.Model(&model.RegCode{}).Where("id = ?", id).Update("status", 1).Error
 }
+
+// CleanExpired 删除 before 之前创建的验证码记录（B-7，对齐 epay cron order 清理过期 regcode）。
+func (r *RegCodeRepo) CleanExpired(before time.Time) (int64, error) {
+	res := r.db.Where("send_time < ?", before).Delete(&model.RegCode{})
+	return res.RowsAffected, res.Error
+}

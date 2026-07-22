@@ -63,6 +63,32 @@ func (r *RiskAutoRepo) ClosePay(uid uint) (bool, error) {
 	return res.RowsAffected > 0, res.Error
 }
 
+// ActiveChannels 取近窗口内有订单的已启用通道 id（B-5 通道成功率检查候选）。
+func (r *RiskAutoRepo) ActiveChannels(start time.Time) ([]int, error) {
+	var ids []int
+	err := r.db.Model(&model.Order{}).
+		Distinct("pay_order.channel").
+		Joins("JOIN pay_channel ON pay_channel.id = pay_order.channel AND pay_channel.status = 1").
+		Where("pay_order.add_time >= ? AND pay_order.channel > 0", start).
+		Pluck("pay_order.channel", &ids).Error
+	return ids, err
+}
+
+// ChannelOrderRate 统计某通道在 [start,now) 内的订单总数与已支付数（算成功率，B-5）。
+func (r *RiskAutoRepo) ChannelOrderRate(channelID int, start time.Time) (total, paid int64, err error) {
+	if err = r.db.Model(&model.Order{}).Where("channel = ? AND add_time >= ?", channelID, start).Count(&total).Error; err != nil {
+		return
+	}
+	err = r.db.Model(&model.Order{}).Where("channel = ? AND add_time >= ? AND status = 1", channelID, start).Count(&paid).Error
+	return
+}
+
+// CloseChannel 关停通道(status=0)。仅当前 status=1 才改。返回是否实际关停。
+func (r *RiskAutoRepo) CloseChannel(channelID int) (bool, error) {
+	res := r.db.Model(&model.Channel{}).Where("id = ? AND status = 1", channelID).Update("status", 0)
+	return res.RowsAffected > 0, res.Error
+}
+
 // WriteRisk 写一条风控记录。
 func (r *RiskAutoRepo) WriteRisk(rec *model.RiskRecord) error {
 	return r.db.Create(rec).Error

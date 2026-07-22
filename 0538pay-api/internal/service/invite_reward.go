@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -39,6 +40,7 @@ type InviteRewardService struct {
 	merchants *repository.MerchantRepo
 	accounts  *repository.AccountRepo
 	records   *repository.RecordRepo
+	groups    *repository.GroupRepo // 上级所在组的 invite_* 覆盖配置（可空，SetGroupRepo 注入）
 	cfg       *ConfigService
 }
 
@@ -46,17 +48,90 @@ func NewInviteRewardService(m *repository.MerchantRepo, a *repository.AccountRep
 	return &InviteRewardService{merchants: m, accounts: a, records: r, cfg: cfg}
 }
 
+// SetGroupRepo 注入用户组仓储，使邀请返现读取「上级所在组」的组级 invite_* 配置覆盖全局。
+// nil 则一律使用全局配置（向后兼容）。
+func (s *InviteRewardService) SetGroupRepo(g *repository.GroupRepo) { s.groups = g }
+
+// inviteConf 单笔返现结算时生效的邀请配置（组级覆盖全局后的最终值，对齐 epay array_merge(conf, groupconfig)）。
+type inviteConf struct {
+	open      bool
+	rate      decimal.Decimal
+	orderType int
+	orderFee  bool
+}
+
+// resolveInviteConf 计算某上级(upgid=上级所在组)生效的邀请配置：
+// 以全局为底，组级 config 里非空的 invite_open/invite_rate/invite_order_type/invite_order_fee 覆盖之
+// （对齐 epay getGroupConfig + array_merge，只覆盖组里"非空"的键）。
+func (s *InviteRewardService) resolveInviteConf(upgid int) inviteConf {
+	c := inviteConf{
+		open:      s.cfg.Int("invite_open", 0) == 1,
+		rate:      s.cfg.Dec("invite_rate", decimal.Zero),
+		orderType: s.cfg.Int("invite_order_type", 0),
+		orderFee:  s.cfg.Int("invite_order_fee", 0) == 1,
+	}
+	if s.groups == nil {
+		return c
+	}
+	g, err := s.groups.FindByID(upgid)
+	if err != nil || g == nil || strings.TrimSpace(g.Config) == "" {
+		return c
+	}
+	var gc map[string]interface{}
+	if json.Unmarshal([]byte(g.Config), &gc) != nil {
+		return c
+	}
+	if v, ok := groupConfStr(gc, "invite_open"); ok {
+		c.open = v == "1"
+	}
+	if v, ok := groupConfStr(gc, "invite_rate"); ok {
+		if d, err := decimal.NewFromString(v); err == nil {
+			c.rate = d
+		}
+	}
+	if v, ok := groupConfStr(gc, "invite_order_type"); ok {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.orderType = n
+		}
+	}
+	if v, ok := groupConfStr(gc, "invite_order_fee"); ok {
+		c.orderFee = v == "1"
+	}
+	return c
+}
+
+// groupConfStr 从组 config map 里取键并转字符串，空值(""/nil)视为"未设置"返回 ok=false
+// （对齐 epay getGroupConfig 里 isNullOrEmpty 跳过 + 非空才覆盖）。
+func groupConfStr(m map[string]interface{}, key string) (string, bool) {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return "", false
+	}
+	var s string
+	switch t := v.(type) {
+	case string:
+		s = strings.TrimSpace(t)
+	case float64:
+		s = strconv.FormatFloat(t, 'f', -1, 64)
+	case bool:
+		if t {
+			s = "1"
+		} else {
+			s = "0"
+		}
+	default:
+		return "", false
+	}
+	if s == "" {
+		return "", false
+	}
+	return s, true
+}
+
 // SettleOnPaid 订单支付成功后结算邀请返现（实时发放，对齐 epay functions.php 结算钩子）。
 // uid=下单商户；money=订单金额；getMoney=商户实得(分成)；reduceMoney=手续费(平台+商户差额)。
 // 返现发到该商户上级(upid)的余额并写流水。任一环节不满足则静默跳过（不影响主链）。
 func (s *InviteRewardService) SettleOnPaid(uid uint, money, getMoney decimal.Decimal, tradeNo string) {
-	if s.cfg.Int("invite_open", 0) != 1 {
-		return
-	}
-	rate := s.cfg.Dec("invite_rate", decimal.Zero)
-	if rate.LessThanOrEqual(decimal.Zero) {
-		return
-	}
 	buyer, err := s.merchants.FindByUID(uid)
 	if err != nil || buyer == nil || buyer.UpID <= 0 {
 		return
@@ -64,6 +139,12 @@ func (s *InviteRewardService) SettleOnPaid(uid uint, money, getMoney decimal.Dec
 	// 上级必须存在且未封禁。
 	up, err := s.merchants.FindByUID(uint(buyer.UpID))
 	if err != nil || up == nil || up.Status == 0 {
+		return
+	}
+
+	// 读「上级所在组」生效的邀请配置（组级覆盖全局，对齐 epay getGroupConfig(upgid)）。
+	ic := s.resolveInviteConf(up.GID)
+	if !ic.open || ic.rate.LessThanOrEqual(decimal.Zero) {
 		return
 	}
 
@@ -76,7 +157,7 @@ func (s *InviteRewardService) SettleOnPaid(uid uint, money, getMoney decimal.Dec
 		}
 	}
 
-	reward := s.calcReward(money, getMoney, reduceMoney, rate)
+	reward := s.calcReward(ic, money, reduceMoney)
 	if reward.LessThanOrEqual(decimal.Zero) {
 		return
 	}
@@ -84,23 +165,23 @@ func (s *InviteRewardService) SettleOnPaid(uid uint, money, getMoney decimal.Dec
 	_ = s.accounts.ChangeUserMoney(up.UID, reward, true, inviteRewardType, tradeNo)
 }
 
-// calcReward 三种返现口径（对齐 epay invite_order_type）：
+// calcReward 三种返现口径（对齐 epay invite_order_type，配置取自上级所在组的生效值 ic）：
 //
 //	0(默认)：按订单金额 money × rate/100，且 invite_order_fee=0 时封顶不超过手续费 reduceMoney
 //	1：按订单手续费 reduceMoney × rate/100
 //	2：按平台利润 profit(=reduceMoney，我方无独立利润字段，等同手续费) × rate/100
-func (s *InviteRewardService) calcReward(money, getMoney, reduceMoney, rate decimal.Decimal) decimal.Decimal {
+func (s *InviteRewardService) calcReward(ic inviteConf, money, reduceMoney decimal.Decimal) decimal.Decimal {
 	hundred := decimal.NewFromInt(100)
-	switch s.cfg.Int("invite_order_type", 0) {
+	switch ic.orderType {
 	case 1:
-		return reduceMoney.Mul(rate).Div(hundred).Round(2)
+		return reduceMoney.Mul(ic.rate).Div(hundred).Round(2)
 	case 2:
 		// 平台利润：我方口径 = 手续费（无独立成本字段可扣，对齐 epay profitmoney 缺省行为）。
-		return reduceMoney.Mul(rate).Div(hundred).Round(2)
+		return reduceMoney.Mul(ic.rate).Div(hundred).Round(2)
 	default:
-		reward := money.Mul(rate).Div(hundred).Round(2)
+		reward := money.Mul(ic.rate).Div(hundred).Round(2)
 		// invite_order_fee=0：返现不超过手续费（对齐 epay "分成金额最多不超过订单手续费"）。
-		if s.cfg.Int("invite_order_fee", 0) != 1 && reward.GreaterThan(reduceMoney) {
+		if !ic.orderFee && reward.GreaterThan(reduceMoney) {
 			reward = reduceMoney
 		}
 		return reward

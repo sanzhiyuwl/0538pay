@@ -45,7 +45,7 @@ func main() {
 	orders := []model.Order{
 		{
 			TradeNo: "20260717" + "0001", OutTradeNo: "M1001", APITradeNo: "2026071722001",
-			UID: 1, Domain: "shop-a.com", Name: "VIP会员月卡",
+			UID: 1000, Domain: "shop-a.com", Name: "VIP会员月卡",
 			Money: dec("30.00"), RealMoney: decp("30.00"), GetMoney: dec("29.40"), ProfitMoney: dec("0.60"),
 			Type: 1, TypeName: "alipay", TypeShow: "支付宝", Channel: 1, Plugin: "alipay",
 			IP: "112.10.20.30", Buyer: "158****6688",
@@ -53,7 +53,7 @@ func main() {
 		},
 		{
 			TradeNo: "20260717" + "0002", OutTradeNo: "M1002", APITradeNo: "",
-			UID: 1, Domain: "shop-a.com", Name: "游戏充值100元",
+			UID: 1000, Domain: "shop-a.com", Name: "游戏充值100元",
 			Money: dec("100.00"), RealMoney: nil, GetMoney: dec("0"), ProfitMoney: dec("0"),
 			Type: 2, TypeName: "wxpay", TypeShow: "微信支付", Channel: 2, Plugin: "wxpay",
 			IP: "112.10.20.31", Buyer: "",
@@ -61,7 +61,7 @@ func main() {
 		},
 		{
 			TradeNo: "20260717" + "0003", OutTradeNo: "M1003", APITradeNo: "2026071722003",
-			UID: 2, Domain: "shop-b.net", Name: "实物商品-蓝牙耳机",
+			UID: 1001, Domain: "shop-b.net", Name: "实物商品-蓝牙耳机",
 			Money: dec("199.00"), RealMoney: decp("199.00"), GetMoney: dec("195.02"),
 			RefundMoney: dec("199.00"), ProfitMoney: dec("3.98"),
 			Type: 1, TypeName: "alipay", TypeShow: "支付宝", Channel: 1, Plugin: "alipay",

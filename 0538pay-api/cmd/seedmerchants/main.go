@@ -51,21 +51,21 @@ func main() {
 
 	merchants := []model.Merchant{
 		{
-			UID: 1, GID: 2, GroupEnd: &ge, Money: dec("1580.60"), SettleID: 1,
+			UID: 1000, GID: 2, GroupEnd: &ge, Money: dec("1580.60"), SettleID: 1,
 			AppKey: "testkey_uid1_abcdef", KeyType: 0, Password: pwd,
 			Account: "13800001111", Username: "张伟", QQ: "10001", Phone: "13800001111",
 			Email: "zhang@example.com", URL: "shop-a.com", AddTime: now.AddDate(0, -3, 0),
 			Status: 1, Cert: 1, Pay: 1, Settle: 1, UpID: 0, Mode: 0, Deposit: dec("500.00"),
 		},
 		{
-			UID: 2, GID: 1, Money: dec("326.00"), SettleID: 2, Password: pwd,
+			UID: 1001, GID: 1, Money: dec("326.00"), SettleID: 2, Password: pwd,
 			AppKey: "testkey_uid2_ghijkl", KeyType: 0,
 			Account: "wx_li_ming", Username: "李明", QQ: "10002", Phone: "13900002222",
 			Email: "li@example.com", URL: "shop-b.net", AddTime: now.AddDate(0, -1, 0),
-			Status: 1, Cert: 0, Pay: 1, Settle: 0, UpID: 1, Mode: 0, Deposit: dec("0.00"),
+			Status: 1, Cert: 0, Pay: 1, Settle: 0, UpID: 1000, Mode: 0, Deposit: dec("0.00"),
 		},
 		{
-			UID: 3, GID: 0, Money: dec("0.00"), SettleID: 1, Password: pwd,
+			UID: 1002, GID: 0, Money: dec("0.00"), SettleID: 1, Password: pwd,
 			AppKey: "testkey_uid3_mnopqr", KeyType: 0,
 			Account: "", Username: "", QQ: "", Phone: "13700003333",
 			Email: "new@example.com", URL: "shop-c.cn", AddTime: now.AddDate(0, 0, -2),

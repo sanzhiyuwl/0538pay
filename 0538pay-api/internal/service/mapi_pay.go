@@ -20,19 +20,16 @@ func (s *MapiService) PayCreate(ctx context.Context, params map[string]string) (
 	if ip := strings.TrimSpace(params["clientip"]); ip != "" {
 		params["_ip"] = ip
 	}
+	// V2 REST 入口标记（对齐 epay api.php define API_INIT）：订单 version=1，回调走平台私钥 RSA 签+timestamp。
+	params["_version"] = "1"
 	resp, err := s.pay.Submit(ctx, params)
 	if err != nil {
 		return nil, toMapiErr(err)
 	}
-	// pay_type: qrcode / redirect(jump) / html。pay_info: 二维码码串 或 跳转URL 或 HTML。
-	payType := resp.PayType
-	payInfo := resp.QRCode
-	if payInfo == "" {
-		payInfo = resp.PayURL
-	}
-	if payType == "" {
-		payType = "jump"
-	}
+	// pay_type 映射为 epay V2 契约（A-2，对齐 Payment::echoJson 9 种）。
+	// 内部渠道 PayType(qrcode/redirect/html/wap) → V2 契约(qrcode/jump/html/urlscheme/jsapi/app/scan…)。
+	// 渠道已返 V2 原生值(jsapi/app/scan/urlscheme/wxplugin/wxapp)则透传。
+	payType, payInfo := mapV2PayType(resp.PayType, resp.QRCode, resp.PayURL, resp.RawHTML)
 	out := map[string]string{
 		"code":      "0",
 		"trade_no":  resp.TradeNo,
@@ -40,6 +37,46 @@ func (s *MapiService) PayCreate(ctx context.Context, params map[string]string) (
 		"pay_info":  payInfo,
 	}
 	return out, nil
+}
+
+// mapV2PayType 把内部渠道 PayType + 载荷映射为 epay V2 pay_type + pay_info（A-2，对齐 Payment::echoJson）。
+// 内部值 qrcode/redirect/html/wap → V2 qrcode/jump/html/urlscheme；渠道已返 V2 原生值(jsapi/app/scan/
+// urlscheme/wxplugin/wxapp)则透传。pay_info 优先取 qrcode 码串，其次 HTML 载荷，再次跳转 URL。
+func mapV2PayType(internal, qrcode, payURL, rawHTML string) (payType, payInfo string) {
+	switch internal {
+	case "qrcode":
+		return "qrcode", firstNonEmpty(qrcode, payURL)
+	case "html":
+		return "html", firstNonEmpty(rawHTML, payURL)
+	case "redirect", "jump", "":
+		return "jump", firstNonEmpty(payURL, qrcode)
+	case "wap":
+		return "jump", firstNonEmpty(payURL, qrcode) // H5 网页跳转
+	case "urlscheme", "scheme":
+		return "urlscheme", firstNonEmpty(payURL, qrcode)
+	case "jsapi":
+		return "jsapi", firstNonEmpty(rawHTML, payURL)
+	case "app":
+		return "app", firstNonEmpty(rawHTML, payURL)
+	case "scan":
+		return "scan", firstNonEmpty(rawHTML, payURL)
+	case "wxplugin":
+		return "wxplugin", firstNonEmpty(rawHTML, payURL)
+	case "wxapp":
+		return "wxapp", firstNonEmpty(rawHTML, payURL)
+	default:
+		// 未知类型透传原值 + 合理载荷（向前兼容渠道新增类型）。
+		return internal, firstNonEmpty(qrcode, rawHTML, payURL)
+	}
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // PayQuery 查单（对齐 epay Pay::query）。入参 pid + (trade_no | out_trade_no)。
@@ -76,6 +113,10 @@ func (s *MapiService) PayQuery(m *model.Merchant, params map[string]string) (map
 func (s *MapiService) PayRefund(m *model.Merchant, params map[string]string) (map[string]string, error) {
 	if !s.cfg.Bool("user_refund") {
 		return nil, mapiErr("管理员未开启商户自助退款")
+	}
+	// per-merchant 退款开关（A-7，对齐 epay api.php:125 userrow['refund']==0）。
+	if m.Refund == 0 {
+		return nil, mapiErr("商户未开启订单退款API接口")
 	}
 	amountStr := strings.TrimSpace(params["money"])
 	amount, err := money.Parse(amountStr)
@@ -227,22 +268,30 @@ func (s *MapiService) refundResult(ro *model.RefundOrder) map[string]string {
 // - 冻结单(status=3)或商户直清：不扣(0)，冻结资金/直清不影响余额。
 // - refund_fee_type=1(商户承担手续费)：全额退，扣 realmoney 等比部分(此处扣退款额)。
 // - refund_fee_type=0(平台承担)：退回商户实际入账额，按退款额占实付比例折算 getmoney。
+// calcRefundReduce 计算退款需从商户余额扣回的金额 reducemoney，1:1 对齐 epay Order::refund 的四分支：
+//
+//	① status==3(已冻结) 或 通道 mode==1(商户直清) → 0（款项未入商户余额，无需扣回）
+//	② refund_fee_type==1(商户承担手续费) 且 全额退(money==realmoney) → realmoney
+//	③ refund_fee_type==0(平台承担) 且 (全额退 或 退款额≥商户实得getmoney) → getmoney
+//	④ 其余(部分退) → 按退款额 money 原额扣回
+//
+// 注意：不再做"按比例折算"，与 epay 一致——部分退按退款额扣、达 getmoney 阈值退 getmoney。
 func (s *MapiService) calcRefundReduce(o *model.Order, amount, real decimal.Decimal) decimal.Decimal {
 	if o.Status == 3 || s.channelDirect(o.Channel) {
 		return decimal.Zero
 	}
 	if s.cfg.Int("refund_fee_type", 0) == 1 {
-		// 商户承担手续费：按退款额扣（全额时即 realmoney）。
+		// 商户承担手续费：仅全额退时扣 realmoney，否则按退款额扣（对齐 epay ② + 兜底 ④）。
+		if amount.Equal(real) {
+			return real
+		}
 		return amount
 	}
-	// 平台承担：退回商户入账额。全额退→扣 getmoney；部分退→按比例折算。
-	if o.GetMoney.LessThanOrEqual(decimal.Zero) || real.LessThanOrEqual(decimal.Zero) {
-		return amount
-	}
-	if amount.GreaterThanOrEqual(real) {
+	// 平台承担：全额退 或 退款额≥getmoney → 扣 getmoney；否则按退款额扣（对齐 epay ③④）。
+	if amount.Equal(real) || amount.GreaterThanOrEqual(o.GetMoney) {
 		return o.GetMoney
 	}
-	return amount.Mul(o.GetMoney).Div(real).Round(2)
+	return amount
 }
 
 // channelDirect 判断通道是否商户直清(mode=1)。查不到通道视为非直清。

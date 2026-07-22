@@ -31,6 +31,7 @@ type Transfer struct {
 	Desc       string          `gorm:"size:80" json:"desc"`                              // 转账备注（≤32字）
 	Result     string          `gorm:"size:255" json:"result"`                           // 结果消息（失败原因/撤销说明）
 	Ext        string          `gorm:"type:text" json:"-"`                               // 扩展（微信确认收款 jumpurl 等）
+	API        int8            `gorm:"column:api;not null;default:0" json:"-"`           // 发起来源 0后台 1API（E-6，对齐 epay pre_transfer.api）
 }
 
 func (Transfer) TableName() string { return "pay_transfer" }

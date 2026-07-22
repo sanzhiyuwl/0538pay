@@ -112,6 +112,12 @@ func (r *BlacklistRepo) Delete(id uint) error {
 	return r.db.Where("id = ?", id).Delete(&model.Blacklist{}).Error
 }
 
+// CleanExpired 删除已过期(end_time 非空且早于 now)的黑名单（B-7，对齐 epay cron order 清理过期 blacklist）。
+func (r *BlacklistRepo) CleanExpired(now time.Time) (int64, error) {
+	res := r.db.Where("end_time IS NOT NULL AND end_time < ?", now).Delete(&model.Blacklist{})
+	return res.RowsAffected, res.Error
+}
+
 // BatchDelete 批量删除，返回删除条数。
 func (r *BlacklistRepo) BatchDelete(ids []uint) (int64, error) {
 	res := r.db.Where("id IN ?", ids).Delete(&model.Blacklist{})

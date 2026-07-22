@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { Search, RotateCcw } from 'lucide-vue-next'
+import { Search, RotateCcw, Download } from 'lucide-vue-next'
 import { Panel, Button, Select, Pagination } from '@/components/ui'
 import { searchColumns, calcRecordStats, type FundRecord } from '@/lib/mock/merchant/records'
 import { fetchMerchantRecords } from '@/lib/api/merchantCenter'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
-import { formatMoney } from '@/lib/utils'
+import { formatMoney, exportCsv } from '@/lib/utils'
 
 const route = useRoute()
 const toast = useToast()
@@ -61,6 +61,19 @@ function go(p: number) {
 watch(filters, () => { page.value = 1 }, { deep: true })
 
 const stats = computed(() => calcRecordStats(filtered.value))
+
+// ===== 导出（按当前筛选结果导出全部）=====
+function exportRecords() {
+  const rows = filtered.value
+  if (!rows.length) { toast.error('没有可导出的流水'); return }
+  const headers = ['时间', '操作类型', '收支', '变更金额', '变更前余额', '变更后余额', '关联订单号']
+  const data = rows.map((r) => [
+    r.date, r.type, r.action === 1 ? '收入' : '支出',
+    (r.action === 1 ? '+' : '-') + r.money, r.oldmoney, r.newmoney, r.trade_no,
+  ])
+  exportCsv(`资金明细_${new Date().toISOString().slice(0, 10)}`, headers, data)
+  toast.success(`已导出 ${rows.length} 条流水`)
+}
 </script>
 
 <template>
@@ -104,6 +117,9 @@ const stats = computed(() => calcRecordStats(filtered.value))
 
     <!-- 列表 -->
     <Panel title="流水明细" :subtitle="`${total} 条`">
+      <template #actions>
+        <Button variant="outline" size="sm" @click="exportRecords"><Download class="size-4" />导出</Button>
+      </template>
       <div class="overflow-x-auto">
         <table class="tbl w-full table-fixed">
           <thead>

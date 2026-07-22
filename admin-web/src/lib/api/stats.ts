@@ -28,6 +28,23 @@ export function fetchPayStat(params: StatParams = {}): Promise<StatResult> {
   return request<StatResult>('/admin/stat/pay', { query: { ...params } })
 }
 
+// ===== 支付用户统计（C-3，对齐 epay buyerStat）=====
+export interface BuyerStatRow {
+  user: string // 付款人标识（付款账号/IP/手机号）
+  count: number // 付款次数
+  amount: string // 累计金额
+  is_black: boolean // 是否黑名单
+}
+export interface BuyerStatParams {
+  method?: number // 0付款账号 1IP 2手机号
+  type?: number // 支付方式ID（0全部）
+  startday?: string
+  endday?: string
+}
+export function fetchBuyerStat(params: BuyerStatParams = {}): Promise<{ list: BuyerStatRow[] }> {
+  return request<{ list: BuyerStatRow[] }>('/admin/stat/buyer', { query: { ...params } })
+}
+
 // ===== 登录日志（只读）=====
 export interface LoginLog {
   id: number

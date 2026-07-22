@@ -43,8 +43,22 @@ func (s *PayService) Notify(ctx context.Context, tradeNo string, raw map[string]
 		return &NotifyResult{AckContent: nr.AckContent, Handled: false}, nil
 	}
 
-	// 3. 金额二次校验防篡改：回调金额需 == 订单金额（decimal 精确比较）
-	if !nr.Money.Equal(decimal.Zero) && !nr.Money.Equal(order.Money) {
+	// 2.5 买家(openid/buyer)风控（对齐 epay functions.php checkBlockUser）：
+	//     渠道回调拿到 buyer 后，命中 type=0 黑名单 → 拒付；pay_userlimit>0 时买家当日已付单数达上限 → 拒付。
+	//     仅对首次翻转生效（重复回调走下面的 BackfillCallbackFields 分支，不再校验）。
+	if buyer := raw["buyer"]; buyer != "" {
+		if err := s.checkBlockBuyer(buyer); err != nil {
+			return nil, err
+		}
+	}
+
+	// 3. 金额二次校验防篡改：回调金额需 == 实际待付额 realmoney（对齐 epay round(total)==round(realmoney)）。
+	//    realmoney 含随机微调/加费；为空时退回比 money（mock/内部单）。
+	expectMoney := order.Money
+	if order.RealMoney != nil && order.RealMoney.GreaterThan(decimal.Zero) {
+		expectMoney = *order.RealMoney
+	}
+	if !nr.Money.Equal(decimal.Zero) && !nr.Money.Equal(expectMoney) {
 		return nil, payErr("回调金额与订单金额不一致")
 	}
 
@@ -54,7 +68,9 @@ func (s *PayService) Notify(ctx context.Context, tradeNo string, raw map[string]
 		return nil, err
 	}
 	if !flipped {
-		// 重复回调 / 并发：订单已是终态，直接受理成功（幂等），不重复入账
+		// 重复回调 / 并发：订单已终态，不重复入账。但补写缺失的 api_trade_no/buyer/bill_trade_no
+		// （A-10，对齐 epay processOrder 的 elseif 补填分支）。
+		_ = s.orders.BackfillCallbackFields(tradeNo, nr.ChannelNo, raw["buyer"], raw["bill_trade_no"])
 		return &NotifyResult{AckContent: nr.AckContent, Handled: false}, nil
 	}
 
@@ -94,12 +110,23 @@ func (s *PayService) settle(ctx context.Context, tradeNo string) error {
 		return err
 	}
 
+	// 计算并落库平台利润 profitmoney（对齐 epay processOrder：reducemoney=realmoney-getmoney，
+	// profitmoney=reducemoney - realmoney*通道成本费率costrate/100）。供日报利润 + 邀请返现 type=2 口径用。
+	profitMoney := s.calcProfitMoney(order)
+	if profitMoney.GreaterThan(decimal.Zero) {
+		_ = s.orders.SetProfitMoney(order.TradeNo, profitMoney)
+	}
+
 	// 邀请返现：下单商户若有上级(upid)，按比例实时返现到上级余额（对齐 epay functions.php 结算钩子）。
 	// 失败不回滚入账（返现是附属激励），仅静默跳过。
 	if s.invite != nil {
 		getMoney := order.GetMoney
 		s.invite.SettleOnPaid(order.UID, order.Money, getMoney, order.TradeNo)
 	}
+
+	// daytop 单日限额累计（对齐 epay functions.php:654-663）：通道设了 daytop>0 时，
+	// 累计该通道今日已付 realmoney，达到 daytop → 置 daystatus=1 暂停该通道（次日 cron 重置）。
+	s.accrueChannelDaytop(order.Channel)
 
 	// 分账：命中规则的订单支付成功后按比例创建分账订单（待分账），对齐 epay。
 	// 失败不回滚入账（分账可后台补建/重试），仅记日志级别忽略。
@@ -113,6 +140,52 @@ func (s *PayService) settle(ctx context.Context, tradeNo string) error {
 
 	// 触发商户异步通知（A5）。失败不回滚入账，仅置重试标志，交由 cron 重试(阶段E)。
 	s.fireMerchantNotify(ctx, order.TradeNo)
+	return nil
+}
+
+// accrueChannelDaytop 累计通道当日已付 realmoney，达到 daytop 阈值则置 daystatus=1 暂停该通道。
+// 对齐 epay functions.php 的 daytop 累计逻辑（我方直接按订单表实时聚合，免缓存漂移）。
+// channelID<=0 或通道未设 daytop 时跳过；任何查询失败静默返回（不影响入账主流程）。
+func (s *PayService) accrueChannelDaytop(channelID int) {
+	if channelID <= 0 || s.channels == nil {
+		return
+	}
+	ch, err := s.channels.FindByID(uint(channelID))
+	if err != nil || ch == nil || ch.DayTop <= 0 || ch.DayStatus != 0 {
+		return
+	}
+	now := time.Now()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	sum, err := s.orders.SumTodayPaidRealMoneyByChannel(channelID, dayStart, dayEnd)
+	if err != nil {
+		return
+	}
+	if sum.GreaterThanOrEqual(decimal.NewFromInt(int64(ch.DayTop))) {
+		_ = s.channels.SetDayStatus(uint(channelID), 1)
+	}
+}
+
+// checkBlockBuyer 买家维度回调风控（对齐 epay checkBlockUser）：
+//  1. 命中 type=0(账号/openid) 黑名单 → 拒付；
+//  2. 全局 pay_userlimit>0 时，买家「今日」已付订单数(status>0) 达上限 → 拒付。
+// 依赖 blacklist / cfg 注入；未注入则跳过对应校验（向后兼容）。
+func (s *PayService) checkBlockBuyer(buyer string) error {
+	if s.blacklist != nil && s.blacklist.IsBlocked(0, buyer) {
+		return payErr("系统异常无法完成付款")
+	}
+	if s.cfg != nil {
+		limit := s.cfg.Int("pay_userlimit", 0)
+		if limit > 0 {
+			now := time.Now()
+			dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+			dayEnd := dayStart.AddDate(0, 0, 1)
+			cnt, err := s.orders.CountPaidByBuyerRange(buyer, dayStart, dayEnd)
+			if err == nil && cnt >= int64(limit) {
+				return payErr("你今天已无法再发起支付，请明天再试")
+			}
+		}
+	}
 	return nil
 }
 
@@ -138,7 +211,7 @@ func (s *PayService) fireMerchantNotify(ctx context.Context, tradeNo string) {
 	if err != nil {
 		return
 	}
-	params := buildCallbackParams(order, m)
+	params := s.buildCallbackParams(order, m)
 	if doNotify(ctx, appendQuery(order.NotifyURL, params)) {
 		_ = s.orders.SetNotifySuccess(tradeNo)
 		return

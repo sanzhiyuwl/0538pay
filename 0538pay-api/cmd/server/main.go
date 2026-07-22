@@ -78,6 +78,7 @@ func main() {
 	channelSvc := service.NewChannelService(channelRepo)
 	// 通道轮询组 / 子通道服务（repo 已在选通道分发器处创建，复用）。
 	paySvc := service.NewPayService(merchantRepo, orderRepo, accountRepo, channelRepo)
+	paySvc.SetConfigService(configSvc) // 注入配置：V2回调平台私钥RSA签名/全局金额限额/mode=1加费兜底/随机金额
 	// 选通道分发：用户组通道分配 / 轮询组 / 子通道 / 组级费率覆盖（对齐 epay getSubmitInfo）。
 	rollRepo := repository.NewRollRepo(db)
 	subChannelRepo := repository.NewSubChannelRepo(db)
@@ -89,19 +90,24 @@ func main() {
 	weworkSvc := service.NewWeworkService(repository.NewWeworkRepo(db))
 	merchantSvc.SetSubChannelRepo(subChannelRepo) // 删商户级联删子通道
 	channelSvc.SetSubChannelRepo(subChannelRepo)  // 删主通道级联删子通道
+	channelSvc.SetOrderRepo(orderRepo)            // 通道列表今昨收款/成功率实时聚合
 	orderSvc.SetWriteDeps(accountRepo, channelRepo, adminRepo, paySvc) // 订单写操作依赖
 	settleRepo := repository.NewSettleRepo(db)
 	settleSvc := service.NewSettleService(settleRepo, merchantRepo)
 	settleSvc.SetAdminRepo(adminRepo) // 删除退回需管理员支付密码二次校验
+	settleSvc.SetConfigService(configSvc) // C-4 银行导出取 transfer_desc 打款备注
 	recordRepo := repository.NewRecordRepo(db)
 	recordSvc := service.NewRecordService(recordRepo)
 	transferRepo := repository.NewTransferRepo(db)
 	transferSvc := service.NewTransferService(transferRepo, merchantRepo, adminRepo)
+	transferSvc.SetOrderRepo(orderRepo) // A-8：settle_type=1 代付可用余额扣当日已收 realmoney
 	profitRepo := repository.NewProfitRepo(db)
 	profitSvc := service.NewProfitService(profitRepo, channelRepo)
+	profitSvc.SetMerchantRepo(merchantRepo) // 分账规则管理校验绑定商户存在性（C-1）
 	paySvc.SetProfitService(profitSvc) // 注入分账：下单匹配规则 + 支付成功建分账单
 	riskSvc := service.NewRiskService(repository.NewRiskRepo(db))
-	blacklistSvc := service.NewBlacklistService(repository.NewBlacklistRepo(db))
+	blacklistRepo := repository.NewBlacklistRepo(db)
+	blacklistSvc := service.NewBlacklistService(blacklistRepo)
 	domainSvc := service.NewDomainService(repository.NewDomainRepo(db))
 	paySvc.SetRiskServices(riskSvc, blacklistSvc, domainSvc) // 注入下单拦截：黑名单/域名白名单/关键词风控
 	statSvc := service.NewStatService(repository.NewStatRepo(db), channelRepo)
@@ -120,6 +126,7 @@ func main() {
 	merchantCenterSvc.SetCertVerify(service.NewCertVerifyService(configSvc)) // 实名第三方核验
 	// 邀请返现：支付成功钩子返现到上级余额 + 统计（对齐 epay invite.php + functions.php）。
 	inviteRewardSvc := service.NewInviteRewardService(merchantRepo, accountRepo, recordRepo, configSvc)
+	inviteRewardSvc.SetGroupRepo(groupRepo) // 邀请返现读上级所在组的组级 invite_* 覆盖
 	paySvc.SetInviteReward(inviteRewardSvc)
 	// 商户中心其余自助流程：测试支付 + 聚合收款码 + 公开收款页（复用 CreateInternalOrder 走收单链）。
 	merchantSelfSvc := service.NewMerchantSelfService(
@@ -129,6 +136,7 @@ func main() {
 	messageSvc := service.NewMessageService(repository.NewMessageRepo(db))
 	// 后台仪表盘全平台聚合（对齐 epay admin/index.php + ajax getcount）。
 	dashboardSvc := service.NewDashboardService(repository.NewDashboardRepo(db), repository.NewDomainRepo(db), profitRepo)
+	dashboardSvc.SetAdminRepo(adminRepo) // 弱密码/默认密码安全告警
 	// 网站公告（对齐 epay gonggao.php）。
 	announceSvc := service.NewAnnounceService(repository.NewAnnounceRepo(db))
 	// 数据清理（对齐 epay clean.php）。
@@ -140,15 +148,19 @@ func main() {
 	merchantHandler.SetJWT(jm)
 
 	// 定时任务调度器（先建，供 cron 手动触发端点复用）。
+	regCodeRepo := repository.NewRegCodeRepo(db)
 	sch := scheduler.New(paySvc, settleSvc)
 	sch.SetProfit(profitSvc)      // 分账自动执行（对齐 epay cron do=profitsharing）
 	sch.SetRiskAuto(riskAutoSvc)  // 风控自动关停（对齐 epay cron do=check）
+	sch.SetMaintenanceRepos(regCodeRepo, blacklistRepo) // B-7 清理过期验证码/黑名单
+	sch.SetChannelRepo(channelRepo) // 单日限额 daystatus 每日重置（对齐 epay cron.php:152）
 	// V2 REST 接口族（mapi）：统一验签 + 回包 RSA 签名，复用 Pay/Transfer 核心。
 	refundOrderRepo := repository.NewRefundOrderRepo(db)
 	if err := configSvc.EnsurePlatformKeys(sign.GenerateRSAKeyPair); err != nil {
 		log.Fatalf("初始化平台 RSA 密钥失败: %v", err)
 	}
 	mapiSvc := service.NewMapiService(merchantRepo, orderRepo, refundOrderRepo, accountRepo, channelRepo, configSvc, paySvc, transferSvc)
+	apiV1Svc := service.NewApiV1Service(merchantRepo, orderRepo, settleRepo, configSvc, mapiSvc) // A-5 V1 兼容层
 
 	merchantAuthHandler := handler.NewMerchantAuthHandler(merchantAuthSvc)
 	merchantAuthHandler.SetRegService(merchantRegSvc, captchaSvc) // 注入自助流程 + 图形验证码
@@ -156,13 +168,14 @@ func main() {
 	oauthSvc := service.NewOAuthService(merchantRepo, configSvc, jm, merchantAuthSvc)
 	merchantAuthHandler.SetOAuthService(oauthSvc)
 	// 短信 OTP + 极验滑块（与图形验证码并存，凭证到位即真发/真校验）。
-	smsSvc := service.NewSmsService(repository.NewRegCodeRepo(db), configSvc)
+	smsSvc := service.NewSmsService(regCodeRepo, configSvc)
 	geetestSvc := service.NewGeetestService(configSvc)
 	merchantAuthHandler.SetSmsGeetest(smsSvc, geetestSvc)
 
 	deps := router.Deps{
 		JWT:            jm,
 		Auth:           handler.NewAuthHandler(authSvc),
+		Admin:          handler.NewAdminHandler(service.NewAdminService(adminRepo)),
 		Order:          handler.NewOrderHandler(orderSvc),
 		Merchant:       merchantHandler,
 		Group:          handler.NewGroupHandler(groupSvc),
@@ -191,6 +204,7 @@ func main() {
 			merchantSelfSvc, inviteRewardSvc, domainSvc, messageSvc, configSvc,
 		),
 		Mapi:      handler.NewMapiHandler(mapiSvc),
+		ApiV1:     handler.NewApiV1Handler(apiV1Svc),
 		Paypage:   handler.NewPaypageHandler(merchantSelfSvc),
 		Message:   handler.NewMessageHandler(messageSvc),
 		Dashboard: handler.NewDashboardHandler(dashboardSvc),

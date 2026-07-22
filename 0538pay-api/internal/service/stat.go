@@ -28,6 +28,32 @@ var statFieldByType = map[int]string{
 	3: "profit_money",  // 手续费利润
 }
 
+// BuyerStat 支付用户统计（C-3，对齐 epay buyerStat）。按 method 选付款人维度，范围内聚合次数/金额 + 黑名单标记。
+func (s *StatService) BuyerStat(q dto.BuyerStatQuery) ([]dto.BuyerStatRow, error) {
+	column := "buyer"
+	switch q.Method {
+	case 1:
+		column = "ip"
+	case 2:
+		column = "mobile"
+	}
+	start, end := statRange(q.StartDay, q.EndDay)
+	rows, err := s.stat.BuyerStat(column, q.Type, start, end)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]dto.BuyerStatRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, dto.BuyerStatRow{
+			User:    r.User,
+			Count:   r.OrderCount,
+			Amount:  r.Amount.StringFixed(2),
+			IsBlack: r.IsBlack,
+		})
+	}
+	return out, nil
+}
+
 // PayStat 按 method(type/channel) + 口径 type 聚合，产出交叉透视表。
 func (s *StatService) PayStat(q dto.StatQuery) (*dto.StatResult, error) {
 	byChannel := q.Method == "channel"

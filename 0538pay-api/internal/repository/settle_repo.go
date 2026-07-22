@@ -274,3 +274,15 @@ func (r *SettleRepo) ListByMerchant(uid uint, status *int, page, pageSize int) (
 	q.Status = status
 	return r.List(q)
 }
+
+// ListByBatch 取某批次内的结算记录（C-4 银行导出用）。types 非空则按结算方式过滤（1支付宝2微信…）。
+// 按 type,id 升序（对齐 epay download.php settle 各模板的排序）。
+func (r *SettleRepo) ListByBatch(batch string, types []int8) ([]model.SettleRecord, error) {
+	tx := r.db.Where("batch = ?", batch)
+	if len(types) > 0 {
+		tx = tx.Where("type IN ?", types)
+	}
+	var list []model.SettleRecord
+	err := tx.Order("type ASC, id ASC").Find(&list).Error
+	return list, err
+}

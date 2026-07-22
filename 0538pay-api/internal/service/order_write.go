@@ -8,7 +8,6 @@ import (
 	"github.com/0538pay/api/internal/dto"
 	"github.com/0538pay/api/internal/model"
 	"github.com/shopspring/decimal"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // OrderError 携带业务错误码与提示，handler 据此返回 code+msg。
@@ -340,17 +339,14 @@ func (s *OrderService) channelIsDirect(channelID int) bool {
 	return c.Mode == 1
 }
 
-// verifyAdminPwd 校验管理员登录密码（对齐 epay admin_paypwd 支付密码，此处复用登录密码 bcrypt）。
-func (s *OrderService) verifyAdminPwd(adminID uint, pwd string) error {
-	if s.admins == nil {
-		return odErr("管理员校验不可用")
+// verifyAdminPwd 校验管理员支付密码（对齐 epay admin_paypwd，独立于登录密码）。
+// adminID 保留以兼容调用签名，实际校验走全局支付密码。
+func (s *OrderService) verifyAdminPwd(_ uint, pwd string) error {
+	if pwd == "" {
+		return odErr("请输入支付密码")
 	}
-	a, err := s.admins.FindByID(adminID)
-	if err != nil {
-		return odErr("管理员不存在")
-	}
-	if bcrypt.CompareHashAndPassword([]byte(a.Password), []byte(pwd)) != nil {
-		return odErr("管理员密码不正确")
+	if err := verifyPayPwd(pwd); err != nil {
+		return odErr("支付密码不正确")
 	}
 	return nil
 }

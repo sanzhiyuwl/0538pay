@@ -6,6 +6,7 @@ import (
 
 	"github.com/0538pay/api/internal/repository"
 	"github.com/shopspring/decimal"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // ConfigService 系统配置读写（对齐 epay set.php + pre_config）。
@@ -48,11 +49,21 @@ var configDefaults = map[string]string{
 	// 保证金 / 实名
 	"user_deposit_min": "1000", // 保证金最低充值金额
 	"cert_money":       "0",    // 实名工本费(0免费)
+	"user_deposit":     "0",    // 是否启用保证金门槛(1开0关；对齐 epay user_deposit)
 	// 支付 pay
 	"pay_maxmoney": "50000",                // 最大支付金额
 	"pay_minmoney": "0.01",                 // 最小支付金额
 	"blockname":    "博彩|赌博|违禁|毒品|枪支", // 商品屏蔽关键词(|分隔)
 	"blockalert":   "温馨提醒该商品禁止出售",     // 屏蔽提示
+	"forceqq":      "0", // 强制填联系QQ才能收款(1开0关；对齐 epay forceqq)
+	"pay_iplimit":  "0", // 同IP当日成功单数上限(0不限；对齐 epay pay_iplimit)
+	"pay_userlimit": "0", // 单买家(openid/buyer)当日下单上限(0不限；对齐 epay pay_userlimit)
+	"payfee_lessthan": "0", // 最低手续费触发阈值(手续费低于此值时启用兜底,0关闭；对齐 epay payfee_lessthan)
+	"payfee_mincost":  "0", // 最低手续费金额(对齐 epay payfee_mincost)
+	"pay_payaddstart":  "0", // 随机增减金额触发起始金额(realmoney≥此值才微调,0关闭；对齐 epay pay_payaddstart)
+	"pay_payaddmin":    "0", // 随机增减最小值(元；对齐 epay pay_payaddmin)
+	"pay_payaddmax":    "0", // 随机增减最大值(元；对齐 epay pay_payaddmax)
+	"notifyordername":  "0", // 异步通知商品名强制为 product (1开/0关；对齐 epay notifyordername)
 	// 站点 site
 	"sitename": "0538pay 聚合支付平台",
 	"kfqq":     "",
@@ -68,6 +79,13 @@ var configDefaults = map[string]string{
 	"captcha_key":      "",
 	// 计划任务 cron
 	"cronkey": "",
+	// 管理员支付密码（对齐 epay admin_paypwd，用于转账/结算/API 退款二次校验，默认 123456）。
+	// 我方以 bcrypt 哈希存储（比 epay 明文安全）；空值语义=未设置，回退默认 123456。
+	"admin_paypwd": "",
+	// 系统内部签名密钥（对齐 epay syskey，用于 V1 api.php order 内部签名查单 md5(SYS_KEY.trade_no.SYS_KEY)）
+	"syskey": "",
+	// 结算/代付打款备注（对齐 epay transfer_desc，用于银行结算导出模板的"用途/备注"列）
+	"transfer_desc": "货款结算",
 	// IP 获取 / 代理 other
 	"ip_type":      "2", // 0 XFF/1 XRealIP/2 RemoteAddr
 	"proxy":        "0",
@@ -116,6 +134,10 @@ var configDefaults = map[string]string{
 	"check_sucrate_second": "600", // 统计窗口(秒)
 	"check_sucrate_count":  "20",  // 窗口内最少订单数(达到才判定，避免小样本误伤)
 	"check_sucrate_value":  "30",  // 成功率低于该值(%)则关停(写 pay_risk type=1)
+	"auto_check_channel":   "0",   // 通道成功率自动关停 0关/1开(B-5)
+	"check_channel_second": "600", // 通道统计窗口(秒)
+	"check_channel_count":  "20",  // 通道窗口内最少订单数
+	"check_channel_value":  "30",  // 通道成功率低于该值(%)则关停通道
 }
 
 // configGroups 各系统设置分组包含的键（白名单，前端按 group 读写）。
@@ -129,8 +151,11 @@ var configGroups = map[string][]string{
 	},
 	"pay": {
 		"pay_maxmoney", "pay_minmoney", "blockname", "blockalert", "refund_fee_type",
+		"payfee_lessthan", "payfee_mincost",
+		"pay_payaddstart", "pay_payaddmin", "pay_payaddmax", "notifyordername",
+		"cert_force", "forceqq", "pay_iplimit", "pay_userlimit",
 	},
-	"deposit": {"user_deposit_min", "cert_money"},
+	"deposit": {"user_deposit_min", "cert_money", "user_deposit"},
 	"site":    {"sitename", "kfqq", "reg_open"},
 	"reg": {
 		"reg_open", "user_review", "reg_input_settle", "reg_pay", "reg_pay_price",
@@ -168,6 +193,7 @@ var configGroups = map[string][]string{
 	"risk": {
 		"auto_check_notify", "check_notify_count",
 		"auto_check_sucrate", "check_sucrate_second", "check_sucrate_count", "check_sucrate_value",
+		"auto_check_channel", "check_channel_second", "check_channel_count", "check_channel_value",
 	},
 }
 
@@ -317,6 +343,65 @@ func (s *ConfigService) SaveGroup(group string, kv map[string]string) error {
 		return err
 	}
 	// 重载缓存 + 通知业务服务刷新常量
+	if err := s.Load(); err != nil {
+		return err
+	}
+	s.notify()
+	return nil
+}
+
+// ===== 管理员支付密码（对齐 epay admin_paypwd）=====
+//
+// 转账/结算/API 退款等资金操作的二次校验用「支付密码」，与登录密码相互独立。
+// epay 用 pre_config.admin_paypwd 明文存、默认 123456；我方沿用 config 存储位置，
+// 但以 bcrypt 哈希存放，且保留「未设置时回退默认 123456」的兼容语义，避免老数据锁死。
+const (
+	keyAdminPayPwd    = "admin_paypwd"
+	defaultAdminPayPwd = "123456" // 对齐 epay 出厂默认支付密码
+)
+
+// PayPwdIsDefault 返回当前支付密码是否仍为出厂默认值 123456（仪表盘安全告警用）。
+func (s *ConfigService) PayPwdIsDefault() bool {
+	return s.VerifyPayPwd(defaultAdminPayPwd) == nil
+}
+
+// VerifyPayPwd 校验支付密码。未设置（空值）时回退比对默认 123456，
+// 保证「补齐该功能前就存在的部署」在管理员改密前仍能用默认值通过校验。
+// 校验通过返回 nil，否则返回业务错误。
+func (s *ConfigService) VerifyPayPwd(pwd string) error {
+	stored := strings.TrimSpace(s.Str(keyAdminPayPwd))
+	if stored == "" {
+		// 尚未设置：回退默认值明文比对
+		if pwd == defaultAdminPayPwd {
+			return nil
+		}
+		return &ConfigError{Msg: "支付密码不正确"}
+	}
+	if bcrypt.CompareHashAndPassword([]byte(stored), []byte(pwd)) != nil {
+		return &ConfigError{Msg: "支付密码不正确"}
+	}
+	return nil
+}
+
+// ChangePayPwd 修改管理员支付密码：先校验旧支付密码（未设置时旧密码填默认 123456），
+// 新密码两次一致 + 长度≥6，bcrypt 存新哈希。对齐 epay set.php mod=paypwd_n。
+func (s *ConfigService) ChangePayPwd(oldPwd, newPwd, newPwd2 string) error {
+	if err := s.VerifyPayPwd(oldPwd); err != nil {
+		return &ConfigError{Msg: "原支付密码不正确"}
+	}
+	if len(newPwd) < 6 {
+		return &ConfigError{Msg: "新支付密码至少 6 位"}
+	}
+	if newPwd != newPwd2 {
+		return &ConfigError{Msg: "两次输入的新支付密码不一致"}
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPwd), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.SetMany(map[string]string{keyAdminPayPwd: string(hash)}); err != nil {
+		return err
+	}
 	if err := s.Load(); err != nil {
 		return err
 	}

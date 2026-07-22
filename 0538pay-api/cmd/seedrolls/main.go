@@ -58,16 +58,16 @@ func main() {
 		log.Printf("创建顺序轮询组 id=%d，成员通道 %d,%d", roll.ID, c1, c2)
 	}
 
-	// 2. 子通道：商户ID 1 在 mock 主通道下两个子通道（顺序调度验证）。
+	// 2. 子通道：商户ID 1000 在 mock 主通道下两个子通道（顺序调度验证）。
 	now := time.Now()
 	for i, name := range []string{"子通道甲", "子通道乙"} {
 		var exist model.SubChannel
-		if db.Where("uid = ? AND name = ?", 1, name).First(&exist).Error == nil {
+		if db.Where("uid = ? AND name = ?", 1000, name).First(&exist).Error == nil {
 			continue
 		}
 		ut := now.Add(time.Duration(i) * time.Minute) // 错开 usetime，保证顺序稳定
 		sc := model.SubChannel{
-			Channel: c1, UID: 1, Name: name, Status: 1,
+			Channel: c1, UID: 1000, Name: name, Status: 1,
 			Info: `{"remark":"` + name + `"}`, AddTime: now, UseTime: &ut,
 		}
 		if err := db.Create(&sc).Error; err != nil {

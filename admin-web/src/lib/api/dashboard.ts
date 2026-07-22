@@ -27,6 +27,12 @@ export interface DashRecentOrder {
   status: number
   time: string
 }
+export interface DashFeeProfit {
+  days: string[]
+  paytypes: string[]
+  income: Record<string, string[]>
+  profit: Record<string, string[]>
+}
 export interface AdminDashboard {
   overview: DashOverviewCard[]
   todo: DashTodo
@@ -37,6 +43,8 @@ export interface AdminDashboard {
   success_rate: string
   trend: DashTrend
   recent: DashRecentOrder[]
+  fee_profit: DashFeeProfit
+  alerts: string[]
 }
 
 export function fetchAdminDashboard(): Promise<AdminDashboard> {
