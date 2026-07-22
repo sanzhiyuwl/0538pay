@@ -500,9 +500,12 @@
            真跑全通过:密码/密钥登录、未登录拦截、redirect回跳、退出清态、scope隔离(merchant token 访问 admin 接口 403)。
   ⬜  极验滑动验证码   epay 有；我们商户登录页未做（代码核实无验证码组件，
                       极验仅出现在后台 RegSettings 的配置项，与登录页无关）
-  🎨  QQ 快捷登录/扫码  epay connect.php/qrlogin.php
-  🎨  微信快捷登录      epay wxlogin.php
-  🎨  支付宝快捷登录     epay oauth.php
+  🔨  QQ / 微信 / 支付宝快捷登录  epay connect.php/wxlogin.php/oauth.php → MerchantLogin + MerchantOAuthCallback.vue [代码就绪 2026-07-22]
+        —— OAuthService(pkg 无新增,标准库 HTTP)：AuthorizeURL 生成三方授权跳转(QQ graph.qq.com/微信 open.weixin/支付宝 openauth) +
+           Callback(code→openid：QQ token+me / 微信 sns/oauth2 / 支付宝 RSA2网关) → 已绑定登录/未绑定 need_bind + Bind(输账号密码绑 openid)。
+           openid 存 pay_merchant.qq_uid/wx_uid/alipay_uid(对齐 epay);不自动注册(对齐 epay);登录态用项目 JWT 不移植 RC4。
+           3公开接口 /merchant/oauth/:provider/url|callback + /oauth/bind。前端 MerchantLogin 快捷登录按钮→跳授权→回调页处理登录/绑定。
+           真跑:开关 gating + QQ 授权URL 生成正确。**code 换 openid 需真实 QQ/微信 appid+密钥**(支付宝还需应用私钥 RSA2 网关),待凭证端到端。
   ✅  注册(邀请码/审核/验证码)  epay reg.php → MerchantReg.vue [真接口 2026-07-22]
         —— POST /merchant/register:reg_open(0关/1开/2仅邀请)分支 + 图形验证码(自研,代替短信/邮箱OTP) + 邀请码校验核销(复用C5 invite Verify/MarkUsed) +
            user_review→pay字段(审核开 pay=2 待审,status恒1,对齐epay) + bcrypt密码(不移植epay md5,与现有登录一致) + 32位密钥 + 邮箱/手机格式与查重。
