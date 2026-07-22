@@ -11,6 +11,7 @@ import {
   renotifyOrder,
   deleteOrder,
   batchOrders,
+  exportOrders,
 } from '@/lib/api/orders'
 import { ApiError } from '@/lib/api/client'
 import {
@@ -367,6 +368,24 @@ function csvCell(v: string | number | null | undefined): string {
   if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
   return s
 }
+// 服务端全量导出：按当前列表筛选(字段/关键词/状态)从后端流式下载，不受已加载 ≤100 限制。
+const serverExporting = ref(false)
+async function serverExport() {
+  if (serverExporting.value) return
+  serverExporting.value = true
+  try {
+    await exportOrders({
+      column: filters.value.column,
+      keyword: filters.value.value || undefined,
+      status: filters.value.dstatus > -1 ? filters.value.dstatus : undefined,
+    })
+    toast.success('已导出全部订单（服务端）')
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : '导出失败')
+  } finally {
+    serverExporting.value = false
+  }
+}
 function submitExport() {
   const rows = filterForExport()
   if (rows.length === 0) {
@@ -623,14 +642,20 @@ function submitExport() {
           <Select v-model="exportForm.dstatus" :options="statusOptions" class="flex-1" />
         </div>
         <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          时间范围为必填。按当前条件预计导出
+          时间范围为必填。按当前条件（前端已加载数据）预计导出
           <b class="text-foreground tabular-nums">{{ exportCount }}</b> 条订单。
+        </p>
+        <p class="rounded bg-primary/[0.06] px-3 py-2 text-xs text-muted-foreground">
+          需导出全部数据（不受当前页 ≤100 限制）请用「服务端全量导出」，按列表筛选（字段/关键词/状态）从后端直接生成 CSV。
         </p>
       </div>
       <template #footer>
         <Button variant="outline" size="sm" @click="exportOpen = false">取消</Button>
+        <Button variant="outline" size="sm" :disabled="serverExporting" @click="serverExport">
+          <Download />服务端全量导出
+        </Button>
         <Button size="sm" :disabled="!exportForm.starttime || !exportForm.endtime" @click="submitExport">
-          <Download />导出 CSV
+          <Download />导出当前页 CSV
         </Button>
       </template>
     </Drawer>

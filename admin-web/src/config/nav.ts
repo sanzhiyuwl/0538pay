@@ -86,6 +86,7 @@ export const navMenu: NavNode[] = [
     children: [
       { title: '转账付款', to: '/admin/transfer' },
       { title: '付款记录', to: '/admin/transfer-records' },
+      { title: '转账设置', to: '/admin/transfer-settings' },
       { title: '账单中心', to: '/admin/billing', badge: 'New' },
     ],
   },

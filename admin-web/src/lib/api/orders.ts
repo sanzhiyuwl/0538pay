@@ -15,6 +15,29 @@ export function fetchOrders(params: OrderListParams = {}): Promise<PageResult<Or
   return request<PageResult<Order>>('/admin/orders', { query: { ...params } })
 }
 
+/**
+ * 服务端全量导出订单为 CSV（不受列表 ≤100 限制）。按当前列表筛选(column/keyword/status)。
+ * 直接以带鉴权头 fetch 后触发浏览器下载 Blob。
+ */
+export async function exportOrders(params: OrderListParams = {}): Promise<void> {
+  const token = localStorage.getItem('admin_token') || ''
+  const qs = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, String(v))
+  }
+  const res = await fetch(`/api/admin/orders/export?${qs.toString()}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new Error(`导出失败(${res.status})`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `订单导出_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 /** 裸改订单状态（0改未完成 / 1改已完成） */
 export function setOrderStatus(tradeNo: string, status: number): Promise<{ trade_no: string; status: number }> {
   return request(`/admin/orders/${tradeNo}/status`, { method: 'PUT', body: { status } })

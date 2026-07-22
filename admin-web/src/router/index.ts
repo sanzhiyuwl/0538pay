@@ -29,6 +29,7 @@ import PaySettings from '@/views/PaySettings.vue'
 import RegSettings from '@/views/RegSettings.vue'
 import RiskSettings from '@/views/RiskSettings.vue'
 import SettleSettings from '@/views/SettleSettings.vue'
+import TransferSettings from '@/views/TransferSettings.vue'
 import OAuthSettings from '@/views/OAuthSettings.vue'
 import NoticeSettings from '@/views/NoticeSettings.vue'
 import CertSettings from '@/views/CertSettings.vue'
@@ -155,6 +156,7 @@ const realPages: Record<string, any> = {
   '/admin/pay-settings': PaySettings,
   '/admin/risk-settings': RiskSettings,
   '/admin/settle-settings': SettleSettings,
+  '/admin/transfer-settings': TransferSettings,
   '/admin/oauth-settings': OAuthSettings,
   '/admin/notice-settings': NoticeSettings,
   '/admin/cert-settings': CertSettings,
