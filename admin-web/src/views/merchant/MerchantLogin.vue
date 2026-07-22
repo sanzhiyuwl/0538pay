@@ -7,6 +7,7 @@ import {
 import { useToast } from '@/composables/useToast'
 import { useMerchantAuthStore } from '@/stores/merchantAuth'
 import { ApiError } from '@/lib/api/client'
+import { fetchOAuthURL } from '@/lib/api/merchantAuth'
 
 const router = useRouter()
 const route = useRoute()
@@ -63,6 +64,18 @@ const socials = [
   { key: 'wx', label: '微信', short: '微', color: '#07c160' },
   { key: 'qq', label: 'QQ', short: 'Q', color: '#12b7f5' },
 ]
+
+// 快捷登录：取第三方授权 URL 后跳转；回调页(/m/oauth/:provider)处理 code 换登录态。
+async function startOAuth(provider: string, label: string) {
+  try {
+    const redirect = `${location.origin}/m/oauth/${provider}`
+    const state = Math.random().toString(36).slice(2)
+    const { url } = await fetchOAuthURL(provider, redirect, state)
+    location.href = url
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : `${label}登录未开启`)
+  }
+}
 </script>
 
 <template>
@@ -191,7 +204,7 @@ const socials = [
               type="button"
               class="sbtn"
               :title="`${s.label}登录`"
-              @click="toast.info(`${s.label}登录待接入`)"
+              @click="startOAuth(s.key, s.label)"
             >
               <span class="smark" :style="{ color: s.color }">{{ s.short }}</span>
             </button>

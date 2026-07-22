@@ -83,6 +83,7 @@ import Paypage from '@/views/site/Paypage.vue'
 import MerchantReg from '@/views/merchant/MerchantReg.vue'
 import MerchantFindpwd from '@/views/merchant/MerchantFindpwd.vue'
 import MerchantComplete from '@/views/merchant/MerchantComplete.vue'
+import MerchantOAuthCallback from '@/views/merchant/MerchantOAuthCallback.vue'
 import SiteLayout from '@/layouts/SiteLayout.vue'
 import SiteHome from '@/views/site/SiteHome.vue'
 import ClassicDocs from '@/views/site/templates/classic/ClassicDocs.vue'
@@ -275,6 +276,7 @@ const router = createRouter({
     { path: '/m/reg', name: 'm-reg', component: MerchantReg },
     { path: '/m/findpwd', name: 'm-findpwd', component: MerchantFindpwd },
     { path: '/m/complete', name: 'm-complete', component: MerchantComplete },
+    { path: '/m/oauth/:provider', name: 'm-oauth-callback', component: MerchantOAuthCallback },
     // 商户中心主区（套 MerchantLayout）
     {
       path: '/m',

@@ -4,7 +4,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { getMerchantToken, clearMerchantToken } from '@/lib/api/client'
+import { getMerchantToken, setMerchantToken, clearMerchantToken } from '@/lib/api/client'
 import {
   merchantLogin as apiMerchantLogin,
   fetchMerchantInfo,
@@ -40,6 +40,13 @@ export const useMerchantAuthStore = defineStore('merchantAuth', () => {
     persistInfo(data.info)
   }
 
+  // 直接注入已有登录态（快捷登录 OAuth 回调 / 后台 SSO 用）。
+  function setSession(tk: string, i: MerchantInfo) {
+    setMerchantToken(tk)
+    token.value = tk
+    persistInfo(i)
+  }
+
   // 刷新当前商户信息（工作台/资料变更后调用）
   async function refreshInfo() {
     const data = await fetchMerchantInfo()
@@ -53,5 +60,5 @@ export const useMerchantAuthStore = defineStore('merchantAuth', () => {
     persistInfo(null)
   }
 
-  return { token, info, isLoggedIn, login, refreshInfo, logout }
+  return { token, info, isLoggedIn, login, setSession, refreshInfo, logout }
 })

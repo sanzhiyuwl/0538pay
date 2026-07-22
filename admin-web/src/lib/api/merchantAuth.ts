@@ -101,3 +101,24 @@ export interface MerchantCompleteReq {
 export function merchantComplete(body: MerchantCompleteReq): Promise<{ uid: number }> {
   return request<{ uid: number }>('/merchant/complete', { method: 'POST', body })
 }
+
+// ===== 快捷登录 OAuth（QQ/微信/支付宝，对齐 epay connect/wxlogin/oauth）=====
+export interface OAuthResult {
+  token?: string
+  info?: MerchantInfo
+  need_bind: boolean
+  provider?: string
+  openid?: string
+}
+/** 取第三方授权跳转 URL */
+export function fetchOAuthURL(provider: string, redirect: string, state: string): Promise<{ url: string }> {
+  return request(`/merchant/oauth/${provider}/url`, { query: { redirect, state } })
+}
+/** 回调换 openid → 登录或 need_bind */
+export function oauthCallback(provider: string, code: string, redirect: string): Promise<OAuthResult> {
+  return request(`/merchant/oauth/${provider}/callback`, { method: 'POST', body: { code, redirect } })
+}
+/** 未绑定用户输入账号密码绑定 openid 并登录 */
+export function oauthBind(body: { provider: string; openid: string; account: string; password: string; type: number }): Promise<OAuthResult> {
+  return request('/merchant/oauth/bind', { method: 'POST', body })
+}
