@@ -47,6 +47,23 @@ func (m *Manager) Generate(uid uint, name, role, scope string) (string, error) {
 	return token.SignedString(m.secret)
 }
 
+// GenerateWithExpiry 签发指定有效期的 token（SSO 免密登录用短时效）。
+func (m *Manager) GenerateWithExpiry(uid uint, name, role, scope string, d time.Duration) (string, error) {
+	now := time.Now()
+	claims := Claims{
+		UID:   uid,
+		Name:  name,
+		Role:  role,
+		Scope: scope,
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(d)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(m.secret)
+}
+
 // Parse 校验并解析 token。
 func (m *Manager) Parse(tokenStr string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {

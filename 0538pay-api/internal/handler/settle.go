@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/0538pay/api/internal/dto"
+	"github.com/0538pay/api/internal/middleware"
 	"github.com/0538pay/api/internal/service"
 	"github.com/0538pay/api/pkg/resp"
 	"github.com/gin-gonic/gin"
@@ -107,6 +108,12 @@ func (h *SettleHandler) SetStatus(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
 		return
+	}
+	// 注入当前管理员 uid（删除退回需支付密码二次校验，不信任前端传参）。
+	if v, ok := c.Get(middleware.CtxUID); ok {
+		if uid, ok := v.(uint); ok {
+			req.AdminID = uid
+		}
 	}
 	if err := h.svc.SetStatus(id, req); err != nil {
 		failFromSettleErr(c, err)

@@ -11,6 +11,7 @@ import (
 	"github.com/0538pay/api/internal/model"
 	"github.com/0538pay/api/internal/repository"
 	"github.com/shopspring/decimal"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -73,10 +74,32 @@ func settleTypeName(t int8) string {
 type SettleService struct {
 	repo         *repository.SettleRepo
 	merchantRepo *repository.MerchantRepo
+	admins       *repository.AdminRepo // 支付密码二次校验（可空；SetAdminRepo 注入）
 }
 
 func NewSettleService(repo *repository.SettleRepo, merchantRepo *repository.MerchantRepo) *SettleService {
 	return &SettleService{repo: repo, merchantRepo: merchantRepo}
+}
+
+// SetAdminRepo 注入管理员仓储（删除退回需支付密码二次校验，对齐 epay admin_paypwd）。
+func (s *SettleService) SetAdminRepo(a *repository.AdminRepo) { s.admins = a }
+
+// verifyAdminPwd 校验管理员登录密码（作为支付密码二次校验，复用 bcrypt 登录密码）。
+func (s *SettleService) verifyAdminPwd(adminID uint, pwd string) error {
+	if s.admins == nil {
+		return stErr("支付密码校验不可用")
+	}
+	if pwd == "" {
+		return stErr("请输入管理员密码")
+	}
+	a, err := s.admins.FindByID(adminID)
+	if err != nil || a == nil {
+		return stErr("管理员不存在")
+	}
+	if bcrypt.CompareHashAndPassword([]byte(a.Password), []byte(pwd)) != nil {
+		return stErr("管理员密码不正确")
+	}
+	return nil
 }
 
 // SettleError 携带业务错误码与提示，handler 据此返回 code+msg。
@@ -189,7 +212,10 @@ func (s *SettleService) SetStatus(id uint, req dto.SettleStatusReq) error {
 	}
 
 	switch req.Status {
-	case 4: // 删除并退回余额
+	case 4: // 删除并退回余额（资金操作，需管理员支付密码二次校验）
+		if err := s.verifyAdminPwd(req.AdminID, req.Password); err != nil {
+			return err
+		}
 		_, err := s.repo.DeleteWithRefund(id, "结算失败退回")
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {

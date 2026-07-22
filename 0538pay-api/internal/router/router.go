@@ -85,6 +85,7 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.PUT("/merchants/:uid/group", d.Merchant.SetGroup)
 			authed.PUT("/merchants/:uid/status", d.Merchant.SetStatus)
 			authed.POST("/merchants/:uid/resetkey", d.Merchant.ResetKey)
+			authed.GET("/merchants/:uid/sso", d.Merchant.SSO) // 免密进入商户中心（短时 token）
 			authed.DELETE("/merchants/:uid", d.Merchant.Delete)
 
 			// 系统设置（config 域）

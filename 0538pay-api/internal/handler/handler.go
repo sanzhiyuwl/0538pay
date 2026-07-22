@@ -4,10 +4,12 @@ import (
 	"encoding/csv"
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/0538pay/api/internal/dto"
 	"github.com/0538pay/api/internal/middleware"
 	"github.com/0538pay/api/internal/service"
+	"github.com/0538pay/api/pkg/jwtauth"
 	"github.com/0538pay/api/pkg/resp"
 	"github.com/gin-gonic/gin"
 )
@@ -39,10 +41,40 @@ func (h *AuthHandler) Login(c *gin.Context) {
 // MerchantHandler 商户相关接口。
 type MerchantHandler struct {
 	svc *service.MerchantService
+	jwt *jwtauth.Manager // SSO 免密登录签发商户短时 token
 }
 
 func NewMerchantHandler(svc *service.MerchantService) *MerchantHandler {
 	return &MerchantHandler{svc: svc}
+}
+
+// SetJWT 注入 JWT 管理器（SSO 用），避免打断既有构造调用点。
+func (h *MerchantHandler) SetJWT(jm *jwtauth.Manager) { h.jwt = jm }
+
+// SSO GET /api/admin/merchants/:uid/sso 管理员代签商户短时 token，免密进入商户中心。
+// 高风险授权操作：仅后台管理员可调(路由挂 admin 鉴权)，token 时效 10 分钟，scope=merchant。
+func (h *MerchantHandler) SSO(c *gin.Context) {
+	uid, _ := strconv.Atoi(c.Param("uid"))
+	if uid <= 0 {
+		resp.Fail(c, 400, "商户号不合法")
+		return
+	}
+	name, err := h.svc.SSOCheck(uint(uid))
+	if err != nil {
+		failFromMerchantErr(c, err)
+		return
+	}
+	if h.jwt == nil {
+		resp.Fail(c, 1002, "SSO 未启用")
+		return
+	}
+	// 短时效 token（10 分钟），scope=merchant，前端跳商户中心携带免密登录。
+	token, err := h.jwt.GenerateWithExpiry(uint(uid), name, "merchant", "merchant", 10*time.Minute)
+	if err != nil {
+		resp.Fail(c, 1002, "签发失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"token": token, "uid": uid, "name": name})
 }
 
 // List GET /api/admin/merchants

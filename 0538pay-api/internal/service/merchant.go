@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strconv"
 	"strings"
 	"time"
 
@@ -321,6 +322,25 @@ func (s *MerchantService) ResetKey(uid uint) (string, error) {
 }
 
 // Delete 删除商户（对齐 epay delUser）。
+// SSOCheck 校验商户可被 SSO 免密登录（存在且未封禁），返回商户名（供 token name）。
+func (s *MerchantService) SSOCheck(uid uint) (string, error) {
+	m, err := s.repo.FindByUIDSafe(uid)
+	if err != nil {
+		return "", err
+	}
+	if m == nil {
+		return "", meErr("商户不存在")
+	}
+	if m.Status == 0 {
+		return "", meErr("该商户已被封禁，不能登录")
+	}
+	name := m.Username
+	if name == "" {
+		name = "商户" + strconv.FormatUint(uint64(uid), 10)
+	}
+	return name, nil
+}
+
 func (s *MerchantService) Delete(uid uint) error {
 	m, err := s.repo.FindByUIDSafe(uid)
 	if err != nil {

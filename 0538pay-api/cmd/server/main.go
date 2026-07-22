@@ -88,6 +88,7 @@ func main() {
 	orderSvc.SetWriteDeps(accountRepo, channelRepo, adminRepo, paySvc) // 订单写操作依赖
 	settleRepo := repository.NewSettleRepo(db)
 	settleSvc := service.NewSettleService(settleRepo, merchantRepo)
+	settleSvc.SetAdminRepo(adminRepo) // 删除退回需管理员支付密码二次校验
 	recordRepo := repository.NewRecordRepo(db)
 	recordSvc := service.NewRecordService(recordRepo)
 	transferRepo := repository.NewTransferRepo(db)
@@ -127,6 +128,9 @@ func main() {
 	announceSvc := service.NewAnnounceService(repository.NewAnnounceRepo(db))
 	// 数据清理（对齐 epay clean.php）。
 	cleanSvc := service.NewCleanService(db)
+	// 商户 handler 单列（SSO 需注入 JWT）。
+	merchantHandler := handler.NewMerchantHandler(merchantSvc)
+	merchantHandler.SetJWT(jm)
 	// V2 REST 接口族（mapi）：统一验签 + 回包 RSA 签名，复用 Pay/Transfer 核心。
 	refundOrderRepo := repository.NewRefundOrderRepo(db)
 	if err := configSvc.EnsurePlatformKeys(sign.GenerateRSAKeyPair); err != nil {
@@ -141,7 +145,7 @@ func main() {
 		JWT:            jm,
 		Auth:           handler.NewAuthHandler(authSvc),
 		Order:          handler.NewOrderHandler(orderSvc),
-		Merchant:       handler.NewMerchantHandler(merchantSvc),
+		Merchant:       merchantHandler,
 		Group:          handler.NewGroupHandler(groupSvc),
 		Config:         handler.NewConfigHandler(configSvc),
 		Channel:        handler.NewChannelHandler(channelSvc),

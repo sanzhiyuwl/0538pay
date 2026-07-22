@@ -391,8 +391,10 @@ func (q *SettleQuery) Normalize() {
 // Status: 0待结算 1已完成 2正在结算 3结算失败 4删除（删除时余额退回商户）。
 // Result: status=3 时可携带失败原因。
 type SettleStatusReq struct {
-	Status int8   `json:"status"`
-	Result string `json:"result"`
+	Status   int8   `json:"status"`
+	Result   string `json:"result"`
+	Password string `json:"password"` // 删除退回(status=4)需管理员密码二次校验(对齐 epay admin_paypwd)
+	AdminID  uint   `json:"-"`        // 从鉴权上下文注入，不信任前端
 }
 
 // CashierView 收银台中间页所需的公开订单信息（无敏感字段，无需鉴权）。
