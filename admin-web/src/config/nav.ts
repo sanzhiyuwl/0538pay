@@ -20,6 +20,7 @@ import {
   Gift,
   HelpCircle,
   Globe,
+  Mail,
 } from 'lucide-vue-next'
 
 export interface NavLeaf {
@@ -60,6 +61,8 @@ export const navMenu: NavNode[] = [
       { title: '支付统计', to: '/admin/merchant-stats' },
       { title: '支付用户统计', to: '/admin/buyer-stats' },
       { title: '授权域名', to: '/admin/domains' },
+      { title: '站内信下发', to: '/admin/messages' },
+      { title: '使用说明', to: '/admin/help-settings' },
     ],
   },
   {
@@ -199,6 +202,7 @@ export const merchantNav: NavNode[] = [
     children: [
       { title: '授权域名', to: '/m/domains' },
       { title: '聚合收款码', to: '/m/onecode' },
+      { title: '测试支付', to: '/m/test' },
       { title: '代付管理', to: '/m/transfer' },
     ],
   },
@@ -210,6 +214,7 @@ export const merchantNav: NavNode[] = [
       { title: '邀请返现', to: '/m/invite' },
     ],
   },
+  { title: '站内信', icon: Mail, to: '/m/messages' },
   { title: '使用说明', icon: HelpCircle, to: '/m/help' },
 ]
 

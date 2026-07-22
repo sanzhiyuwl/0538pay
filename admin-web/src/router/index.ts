@@ -44,6 +44,8 @@ import SiteContent from '@/views/SiteContent.vue'
 const Articles = () => import('@/views/Articles.vue')
 const DocsContent = () => import('@/views/DocsContent.vue')
 import Announcements from '@/views/Announcements.vue'
+import Messages from '@/views/Messages.vue'
+import HelpSettings from '@/views/HelpSettings.vue'
 import Logs from '@/views/Logs.vue'
 import Clean from '@/views/Clean.vue'
 import Admins from '@/views/Admins.vue'
@@ -74,6 +76,9 @@ import MerchantDeposit from '@/views/merchant/MerchantDeposit.vue'
 import MerchantGroupbuy from '@/views/merchant/MerchantGroupbuy.vue'
 import MerchantInvite from '@/views/merchant/MerchantInvite.vue'
 import MerchantHelp from '@/views/merchant/MerchantHelp.vue'
+import MerchantTest from '@/views/merchant/MerchantTest.vue'
+import MerchantMessages from '@/views/merchant/MerchantMessages.vue'
+import Paypage from '@/views/site/Paypage.vue'
 import MerchantReg from '@/views/merchant/MerchantReg.vue'
 import MerchantFindpwd from '@/views/merchant/MerchantFindpwd.vue'
 import MerchantComplete from '@/views/merchant/MerchantComplete.vue'
@@ -127,6 +132,8 @@ const realPages: Record<string, any> = {
   '/admin/invite-codes': InviteCodes,
   '/admin/buyer-stats': BuyerStats,
   '/admin/domains': Domains,
+  '/admin/messages': Messages,
+  '/admin/help-settings': HelpSettings,
   '/admin/channels': Channels,
   '/admin/pay-types': PayTypes,
   '/admin/plugins': Plugins,
@@ -208,6 +215,8 @@ const merchantPages: Record<string, any> = {
   '/m/groupbuy': MerchantGroupbuy,
   '/m/invite': MerchantInvite,
   '/m/help': MerchantHelp,
+  '/m/test': MerchantTest,
+  '/m/messages': MerchantMessages,
 }
 
 // 商户中心子路由（父 path=/m，children 用相对路径）
@@ -239,6 +248,8 @@ const router = createRouter({
     { path: '/payerr', name: 'payerr', component: ClassicPayerr },
     // 收银台中间页（mock 渠道，下单后 pay_url 跳转至此）
     { path: '/pay/mock/cashier/:trade_no', name: 'cashier-mock', component: CashierMock },
+    // 公开聚合收款页（扫码进入，输金额→选方式→走收单链）
+    { path: '/paypage', name: 'paypage', component: Paypage },
     // 后台登录页（独立，无侧栏）
     { path: '/login', name: 'login', component: Login },
     // 管理后台（运营端）

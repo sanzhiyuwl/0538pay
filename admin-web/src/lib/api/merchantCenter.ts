@@ -229,3 +229,112 @@ export function fetchCertInfo(): Promise<CertInfo> {
 export function submitCert(body: { certtype: number; certname: string; certno: string; certcorp: string }): Promise<{ ok: boolean }> {
   return request('/merchant/cert', { method: 'POST', body })
 }
+
+// ===== 测试支付（对齐 epay user/test.php）=====
+export interface PayTypeOption {
+  type: string
+  showname: string
+}
+export interface TestPayInfo {
+  open: boolean
+  min_money: string
+  max_money: string
+  types: PayTypeOption[]
+}
+export interface SubmitResp {
+  trade_no: string
+  out_trade_no: string
+  pay_type: string
+  pay_url?: string
+  qrcode?: string
+  money: string
+}
+export function fetchTestPayInfo(): Promise<TestPayInfo> {
+  return request<TestPayInfo>('/merchant/test')
+}
+export function submitTestPay(money: string, type: string): Promise<SubmitResp> {
+  return request<SubmitResp>('/merchant/test', { method: 'POST', body: { money, type } })
+}
+
+// ===== 聚合收款码（对齐 epay user/onecode.php）=====
+export interface OnecodeInfo {
+  open: boolean
+  pay_url: string
+  codename: string
+}
+export function fetchOnecodeInfo(): Promise<OnecodeInfo> {
+  return request<OnecodeInfo>('/merchant/onecode')
+}
+export function saveCodeName(codename: string): Promise<{ codename: string }> {
+  return request('/merchant/onecode/name', { method: 'POST', body: { codename } })
+}
+
+// ===== 邀请返现（对齐 epay user/invite.php）=====
+export interface InviteRewardInfo {
+  open: boolean
+  rate: string
+  order_type: number // 0按订单金额/1按手续费/2按利润
+  order_fee: boolean
+  link: string
+  code: string
+}
+export interface InviteRewardStat {
+  users: number
+  income_today: string
+  income_yesterday: string
+  income_total: string
+}
+export interface InvitedUser {
+  uid: number
+  addtime: string
+  status: number
+}
+export interface InviteData {
+  info: InviteRewardInfo
+  stat: InviteRewardStat
+  list: InvitedUser[]
+  total: number
+}
+export function fetchInvite(params: { page?: number; pageSize?: number } = {}): Promise<InviteData> {
+  return request<InviteData>('/merchant/invite', { query: { ...params } })
+}
+
+// ===== 授权域名自助（对齐 epay user/domain.php）=====
+export interface MerchantDomain {
+  id: number
+  uid: number
+  domain: string
+  status: number // 0待审核 1正常 2拒绝
+  addtime: string
+  endtime: string | null
+}
+export function fetchMerchantDomains(): Promise<{ list: MerchantDomain[] }> {
+  return request('/merchant/domains')
+}
+export function addMerchantDomain(domain: string): Promise<{ domain: string }> {
+  return request('/merchant/domains', { method: 'POST', body: { domain } })
+}
+export function deleteMerchantDomain(id: number): Promise<{ id: number }> {
+  return request(`/merchant/domains/${id}`, { method: 'DELETE' })
+}
+
+// ===== 使用说明（后台可编辑）=====
+export function fetchHelp(): Promise<{ content: string; sitename: string }> {
+  return request('/merchant/help')
+}
+
+// ===== 站内信（我方新增）=====
+export interface MerchantMessage {
+  id: number
+  uid: number
+  title: string
+  content: string
+  is_read: boolean
+  date: string
+}
+export function fetchMessages(params: { page?: number; pageSize?: number } = {}): Promise<{ list: MerchantMessage[]; total: number; unread: number }> {
+  return request('/merchant/messages', { query: { ...params } })
+}
+export function readMessage(id: number): Promise<{ id: number }> {
+  return request(`/merchant/messages/${id}/read`, { method: 'POST' })
+}
