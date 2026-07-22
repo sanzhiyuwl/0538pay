@@ -285,8 +285,10 @@
   ✅  结算批次列表  epay settle.php → GET /api/admin/settle/batches
   🎨  真实转账打款 / 批量转账（调支付宝/微信转账接口）—— 归代付域(C3)，本次未做
   🎨  结算打款文件导出（网商/支付宝批量模板）—— 归后续，本次未做
-  🎨  支付密码校验（结算/退款二次密码）—— 归后续
-        —— 计费规则(手续费率/门槛/封顶封底)现为 service 常量，待建 config 域迁移(见优化待办#5)。
+  ✅  支付密码校验（结算/退款二次密码）[真接口 2026-07-22]
+        —— 对齐 epay admin_paypwd(我方复用管理员登录密码 bcrypt 二次校验)。API退款(order_write)/后台代付(transfer)已有;
+           本次补结算删除退回(settle SetStatus status=4 资金退回)：SettleService.verifyAdminPwd + Settle.vue 删除弹窗加管理员密码输入。
+           真跑:无密码/错密码拒、非资金状态变更(status=2)不需密码。计费规则已迁 config 域(C8)。
 
 【商户管理】
   ✅  商户列表查询  epay ulist.php → Merchants.vue [真接口 GET /api/admin/merchants]
@@ -452,7 +454,10 @@
   ✅  文章管理        epay article.php → Articles.vue [真接口 2026-07-22,接官网 CMS 持久化]
         —— 复用官网 CMS 模式(pay_site_config key=articles,分类+文章整份 JSON)。articles store 加 hydrate()拉取 + 变更防抖推后端(仅admin token)。
            Articles.vue + 官网 ClassicNews/NewsSection onMounted hydrate。真跑:后台存 articles→公开读回一致。置顶/显隐/浏览量为前端字段。
-  🎨  单点登录(后台免密进商户中心)  epay sso.php [未做]
+  ✅  单点登录(后台免密进商户中心)  epay sso.php → Merchants.vue「进入商户端」[真接口 2026-07-22]
+        —— GET /api/admin/merchants/:uid/sso：管理员代签 scope=merchant 的短时(10min)JWT(GenerateWithExpiry) + SSOCheck(商户存在且未封禁)。
+           前端 Merchants.vue 行操作「进入商户端」→ setMerchantToken(短时token) + 新窗口开 /m。真跑:签发→商户端 /info 鉴权通过、封禁/不存在拒。
+           授权风险:限后台管理员(admin 鉴权路由)+短时效+scope 隔离。不移植 epay authcode cookie,用项目统一 JWT。
 
 【权限（我们扩展，epay 是单管理员）】
   ➖🎨  多管理员 Admins.vue / 角色 Roles.vue / 操作日志 OpLogs.vue
