@@ -3,8 +3,12 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Store } from 'lucide-vue-next'
 import { Button, Select } from '@/components/ui'
+import { merchantComplete } from '@/lib/api/merchantAuth'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
 const router = useRouter()
+const toast = useToast()
 
 // 完善信息（对齐 epay user/completeinfo.php），强制补全后进工作台
 const stypeOptions = [
@@ -24,10 +28,26 @@ const accountLabel = computed(() => {
     default: return '收款账号'
   }
 })
-const canSubmit = computed(() => form.value.account && form.value.username)
-function submit() {
+const canSubmit = computed(() => !!(form.value.account && form.value.username))
+const loading = ref(false)
+async function submit() {
   if (!canSubmit.value) return
-  router.push('/m')
+  loading.value = true
+  try {
+    await merchantComplete({
+      settle_id: Number(form.value.stype),
+      account: form.value.account.trim(),
+      username: form.value.username.trim(),
+      qq: form.value.qq.trim() || undefined,
+      url: form.value.url.trim() || undefined,
+    })
+    toast.success('资料已完善')
+    router.push('/m')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '提交失败')
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
@@ -65,7 +85,7 @@ function submit() {
             <input v-model="form.url" class="field-input flex-1" placeholder="选填，如 shop.abc.com" />
           </div>
           <div class="border-t border-border/60 pt-4">
-            <Button class="w-full" :disabled="!canSubmit" @click="submit">保存并进入商户中心</Button>
+            <Button class="w-full" :disabled="!canSubmit || loading" @click="submit">{{ loading ? '保存中…' : '保存并进入商户中心' }}</Button>
           </div>
         </div>
       </div>

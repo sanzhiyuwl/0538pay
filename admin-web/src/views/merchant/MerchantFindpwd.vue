@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Store, Lock, Mail, Smartphone, MessageSquareCode } from 'lucide-vue-next'
+import { Store, Mail, Smartphone, MessageSquareCode } from 'lucide-vue-next'
 import { Button, Select } from '@/components/ui'
+import { fetchCaptcha, merchantFindPwd } from '@/lib/api/merchantAuth'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
 const router = useRouter()
+const toast = useToast()
 
 const type = ref('email')
 const typeOptions = [
@@ -13,23 +17,47 @@ const typeOptions = [
 ]
 const form = ref({ account: '', code: '', pwd: '', pwd2: '' })
 
-const codeCountdown = ref(0)
-function sendCode() {
-  if (codeCountdown.value > 0) return
-  codeCountdown.value = 60
-  const t = setInterval(() => {
-    codeCountdown.value--
-    if (codeCountdown.value <= 0) clearInterval(t)
-  }, 1000)
+// 图形验证码
+const captchaToken = ref('')
+const captchaSvg = ref('')
+async function loadCaptcha() {
+  try {
+    const res = await fetchCaptcha()
+    captchaToken.value = res.token
+    captchaSvg.value = res.svg
+  } catch {
+    captchaSvg.value = ''
+  }
 }
+onMounted(loadCaptcha)
 
 const canSubmit = computed(() => {
   const f = form.value
-  return f.account && f.code && f.pwd && f.pwd === f.pwd2
+  return !!(f.account && f.code && f.pwd && f.pwd === f.pwd2)
 })
-function submit() {
-  if (!canSubmit.value) return
-  router.push('/m/login')
+const loading = ref(false)
+async function submit() {
+  if (!canSubmit.value) {
+    if (form.value.pwd && form.value.pwd !== form.value.pwd2) toast.error('两次输入的密码不一致')
+    return
+  }
+  loading.value = true
+  try {
+    await merchantFindPwd({
+      type: type.value,
+      account: form.value.account.trim(),
+      password: form.value.pwd,
+      captcha_token: captchaToken.value,
+      captcha: form.value.code.trim(),
+    })
+    toast.success('密码已重置，请用新密码登录')
+    router.push('/m/login')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '重置失败')
+    loadCaptcha()
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
@@ -53,9 +81,10 @@ function submit() {
           </div>
           <div class="af">
             <MessageSquareCode class="af-icon" />
-            <input v-model="form.code" placeholder="验证码" class="af-input pr-24" />
-            <button type="button" class="af-suffix" :disabled="codeCountdown > 0" @click="sendCode">
-              {{ codeCountdown > 0 ? `${codeCountdown}s` : '获取验证码' }}
+            <input v-model="form.code" placeholder="图形验证码" class="af-input pr-24" />
+            <button type="button" class="af-captcha" title="点击刷新" @click="loadCaptcha">
+              <span v-if="captchaSvg" v-html="captchaSvg"></span>
+              <span v-else class="text-xs text-muted-foreground px-3">加载中</span>
             </button>
           </div>
           <div class="af">
@@ -66,7 +95,7 @@ function submit() {
             <Lock class="af-icon" />
             <input v-model="form.pwd2" type="password" placeholder="确认新密码" class="af-input" />
           </div>
-          <Button class="w-full" :disabled="!canSubmit" @click="submit">重置密码</Button>
+          <Button class="w-full" :disabled="!canSubmit || loading" @click="submit">{{ loading ? '重置中…' : '重置密码' }}</Button>
         </form>
 
         <div class="mt-4 text-center text-sm text-muted-foreground">
@@ -85,4 +114,6 @@ function submit() {
 .af-input::placeholder { color: var(--muted-foreground); }
 .af-suffix { position: absolute; right: 0.5rem; font-size: 0.75rem; color: var(--primary); padding: 0 0.5rem; }
 .af-suffix:disabled { color: var(--muted-foreground); }
+.af-captcha { position: absolute; right: 0.5rem; height: 30px; display: flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; background: #f3f4f6; overflow: hidden; cursor: pointer; }
+.af-captcha :deep(svg) { display: block; height: 30px; width: 75px; }
 </style>

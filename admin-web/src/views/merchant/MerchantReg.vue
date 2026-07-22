@@ -9,11 +9,28 @@ import { useToast } from '@/composables/useToast'
 const router = useRouter()
 const toast = useToast()
 
+import { onMounted } from 'vue'
+import { fetchCaptcha, merchantRegister } from '@/lib/api/merchantAuth'
+import { ApiError } from '@/lib/api/client'
+
 const verifyType = ref<'phone' | 'email'>('phone')
-const regOpen = 2 // 平台 reg_open：1开放 2仅邀请（mock 仅邀请）
 
 const form = ref({ account: '', code: '', pwd: '', pwd2: '', invite: '', agree: false })
 const showPwd = ref(false)
+
+// 图形验证码（自研，代替短信/邮箱 OTP）
+const captchaToken = ref('')
+const captchaSvg = ref('')
+async function loadCaptcha() {
+  try {
+    const res = await fetchCaptcha()
+    captchaToken.value = res.token
+    captchaSvg.value = res.svg
+  } catch {
+    captchaSvg.value = ''
+  }
+}
+onMounted(loadCaptcha)
 
 const pwdScore = computed(() => {
   const p = form.value.pwd
@@ -26,25 +43,9 @@ const pwdScore = computed(() => {
 })
 const pwdLabel = computed(() => ['', '弱', '中', '强'][pwdScore.value])
 
-const codeCountdown = ref(0)
-function sendCode() {
-  if (!form.value.account.trim()) {
-    toast.error(verifyType.value === 'phone' ? '请先输入手机号' : '请先输入邮箱')
-    return
-  }
-  if (codeCountdown.value > 0) return
-  codeCountdown.value = 60
-  toast.success('验证码已发送')
-  const t = setInterval(() => {
-    codeCountdown.value--
-    if (codeCountdown.value <= 0) clearInterval(t)
-  }, 1000)
-}
-
 const canSubmit = computed(() => {
   const f = form.value
   if (!f.account || !f.code || !f.pwd || f.pwd !== f.pwd2 || !f.agree) return false
-  if (regOpen === 2 && !f.invite) return false
   return true
 })
 
@@ -55,10 +56,23 @@ async function submit() {
     return
   }
   loading.value = true
-  await new Promise((r) => setTimeout(r, 420))
-  loading.value = false
-  toast.success('注册成功，请登录')
-  router.push('/m/login')
+  try {
+    const res = await merchantRegister({
+      verifytype: verifyType.value === 'phone' ? 1 : 0,
+      account: form.value.account.trim(),
+      password: form.value.pwd,
+      invite: form.value.invite.trim() || undefined,
+      captcha_token: captchaToken.value,
+      captcha: form.value.code.trim(),
+    })
+    toast.success(res.msg || '注册成功，请登录')
+    router.push('/m/login')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '注册失败')
+    loadCaptcha() // 刷新验证码
+  } finally {
+    loading.value = false
+  }
 }
 
 const steps = [
@@ -121,12 +135,13 @@ const steps = [
             />
           </div>
 
-          <label class="fl">验证码</label>
+          <label class="fl">图形验证码</label>
           <div class="field">
             <MessageSquareCode class="f-icon" />
-            <input v-model="form.code" class="f-input has-suffix" placeholder="短信 / 邮件验证码" autocomplete="one-time-code" />
-            <button type="button" class="f-code" :disabled="codeCountdown > 0" @click="sendCode">
-              {{ codeCountdown > 0 ? `${codeCountdown}s` : '获取验证码' }}
+            <input v-model="form.code" class="f-input has-suffix" placeholder="请输入右侧图形验证码" autocomplete="off" />
+            <button type="button" class="f-captcha" title="点击刷新" @click="loadCaptcha">
+              <span v-if="captchaSvg" v-html="captchaSvg"></span>
+              <span v-else class="f-captcha-ph">加载中</span>
             </button>
           </div>
 
@@ -163,13 +178,11 @@ const steps = [
             />
           </div>
 
-          <template v-if="regOpen === 2">
-            <label class="fl">邀请码</label>
-            <div class="field">
-              <Ticket class="f-icon" />
-              <input v-model="form.invite" class="f-input" placeholder="必填，请向邀请人索取" autocomplete="off" />
-            </div>
-          </template>
+          <label class="fl">邀请码</label>
+          <div class="field">
+            <Ticket class="f-icon" />
+            <input v-model="form.invite" class="f-input" placeholder="仅邀请注册时必填，否则可留空" autocomplete="off" />
+          </div>
 
           <label class="agree-row">
             <input v-model="form.agree" type="checkbox" class="agree-box" />
@@ -543,6 +556,29 @@ const steps = [
 .f-code:disabled {
   color: var(--muted-foreground);
   cursor: default;
+}
+.f-captcha {
+  position: absolute;
+  right: 8px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f3f4f6;
+  overflow: hidden;
+  cursor: pointer;
+}
+.f-captcha :deep(svg) {
+  display: block;
+  height: 30px;
+  width: 75px;
+}
+.f-captcha-ph {
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--muted-foreground);
 }
 .pwd-meter {
   display: flex;

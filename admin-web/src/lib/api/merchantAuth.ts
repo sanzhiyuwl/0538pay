@@ -47,3 +47,57 @@ export async function merchantLogin(
 export function fetchMerchantInfo(): Promise<MerchantInfo> {
   return request<MerchantInfo>('/merchant/info')
 }
+
+// ===== 自助流程：图形验证码 / 注册 / 找回密码 / 完善资料 =====
+
+/** 图形验证码（返回 token + SVG 图，公开） */
+export interface CaptchaResp {
+  token: string
+  svg: string
+}
+export function fetchCaptcha(): Promise<CaptchaResp> {
+  return request<CaptchaResp>('/merchant/captcha')
+}
+
+/** 商户注册（公开）。verifytype: 0邮箱 1手机 */
+export interface MerchantRegReq {
+  verifytype: number
+  account: string
+  password: string
+  invite?: string
+  captcha_token: string
+  captcha: string
+}
+export interface MerchantRegResp {
+  uid: number
+  need_review: boolean
+  msg: string
+}
+export function merchantRegister(body: MerchantRegReq): Promise<MerchantRegResp> {
+  return request<MerchantRegResp>('/merchant/register', { method: 'POST', body })
+}
+
+/** 找回密码（公开）。type: email/phone */
+export interface MerchantFindPwdReq {
+  type: string
+  account: string
+  password: string
+  captcha_token: string
+  captcha: string
+}
+export function merchantFindPwd(body: MerchantFindPwdReq): Promise<{ msg: string }> {
+  return request<{ msg: string }>('/merchant/findpwd', { method: 'POST', body })
+}
+
+/** 完善资料（需登录） */
+export interface MerchantCompleteReq {
+  settle_id: number
+  account: string
+  username: string
+  qq?: string
+  url?: string
+  email?: string
+}
+export function merchantComplete(body: MerchantCompleteReq): Promise<{ uid: number }> {
+  return request<{ uid: number }>('/merchant/complete', { method: 'POST', body })
+}
