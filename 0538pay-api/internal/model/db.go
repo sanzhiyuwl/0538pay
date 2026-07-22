@@ -36,6 +36,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&Channel{},
 		&Roll{},
 		&SubChannel{},
+		&RefundOrder{},
 		&SettleRecord{},
 		&SettleBatch{},
 		&Transfer{},

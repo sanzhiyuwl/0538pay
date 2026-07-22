@@ -217,6 +217,39 @@ func (s *ConfigService) Bool(key string) bool {
 	return v == "1" || v == "true"
 }
 
+// 平台 RSA 密钥的配置键（对齐 epay $conf['private_key']/$conf['public_key']，用于 V2 mapi 回包签名）。
+const (
+	keySysRSAPrivate = "sys_rsa_private"
+	keySysRSAPublic  = "sys_rsa_public"
+)
+
+// PlatformPrivateKey 返回平台 RSA 私钥（V2 mapi 回包签名用）。缓存无则返回空串，
+// 由 EnsurePlatformKeys 负责首次生成。
+func (s *ConfigService) PlatformPrivateKey() string { return s.Str(keySysRSAPrivate) }
+
+// PlatformPublicKey 返回平台 RSA 公钥（下发给商户验回包签名）。
+func (s *ConfigService) PlatformPublicKey() string { return s.Str(keySysRSAPublic) }
+
+// EnsurePlatformKeys 保证平台 RSA 密钥对存在：缓存无则用 gen 生成并持久化。
+// gen 返回 (私钥 base64, 公钥 base64)，由调用方传入 sign.GenerateRSAKeyPair 避免服务层反向依赖 pkg/sign。
+// 启动时调一次，供 V2 mapi 回包签名与商户获取平台公钥。
+func (s *ConfigService) EnsurePlatformKeys(gen func() (string, string, error)) error {
+	if strings.TrimSpace(s.Str(keySysRSAPrivate)) != "" && strings.TrimSpace(s.Str(keySysRSAPublic)) != "" {
+		return nil
+	}
+	priv, pub, err := gen()
+	if err != nil {
+		return err
+	}
+	if err := s.repo.SetMany(map[string]string{
+		keySysRSAPrivate: priv,
+		keySysRSAPublic:  pub,
+	}); err != nil {
+		return err
+	}
+	return s.Load()
+}
+
 // GetGroup 读取某分组的配置项（前端设置页回填）。返回 key→当前值(含默认)。
 func (s *ConfigService) GetGroup(group string) (map[string]string, error) {
 	keys, ok := configGroups[group]

@@ -1,0 +1,282 @@
+package service
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/0538pay/api/internal/model"
+	"github.com/0538pay/api/pkg/money"
+	"github.com/shopspring/decimal"
+)
+
+// PayCreate 处理 V2 REST 下单（对齐 epay Pay::create）。
+// 复用 PayService.Submit 核心（验签在 Submit 内做，与老 submit 一致），
+// 返回 JSON 契约：code=0 + trade_no + pay_type + pay_info（+ 回包签名由 handler 调 signResponse）。
+// 注意：Submit 内部已做 pid/验签/风控/选通道/建单/dispatch，这里只做结果到 V2 契约的映射。
+func (s *MapiService) PayCreate(ctx context.Context, params map[string]string) (map[string]string, error) {
+	// clientip 映射到内部 _ip（Submit 用 _ip 做黑名单校验；mapi 显式传 clientip）。
+	if ip := strings.TrimSpace(params["clientip"]); ip != "" {
+		params["_ip"] = ip
+	}
+	resp, err := s.pay.Submit(ctx, params)
+	if err != nil {
+		return nil, toMapiErr(err)
+	}
+	// pay_type: qrcode / redirect(jump) / html。pay_info: 二维码码串 或 跳转URL 或 HTML。
+	payType := resp.PayType
+	payInfo := resp.QRCode
+	if payInfo == "" {
+		payInfo = resp.PayURL
+	}
+	if payType == "" {
+		payType = "jump"
+	}
+	out := map[string]string{
+		"code":      "0",
+		"trade_no":  resp.TradeNo,
+		"pay_type":  payType,
+		"pay_info":  payInfo,
+	}
+	return out, nil
+}
+
+// PayQuery 查单（对齐 epay Pay::query）。入参 pid + (trade_no | out_trade_no)。
+func (s *MapiService) PayQuery(m *model.Merchant, params map[string]string) (map[string]string, error) {
+	o, err := s.findMerchantOrder(m.UID, params)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{
+		"code":         "0",
+		"trade_no":     o.TradeNo,
+		"out_trade_no": o.OutTradeNo,
+		"api_trade_no": o.APITradeNo,
+		"type":         o.TypeName,
+		"pid":          uintToStr(o.UID),
+		"addtime":      o.AddTime.Format(timeLayout),
+		"name":         o.Name,
+		"money":        money.String(o.Money),
+		"param":        o.Param,
+		"buyer":        o.Buyer,
+		"clientip":     o.IP,
+		"status":       fmt.Sprintf("%d", o.Status),
+		"refundmoney":  money.String(o.RefundMoney),
+	}
+	if o.EndTime != nil {
+		out["endtime"] = o.EndTime.Format(timeLayout)
+	}
+	return pruneEmpty(out), nil
+}
+
+// PayRefund 退款（对齐 epay Pay::refund + Order::refund）。
+// 入参 pid + money + (trade_no|out_trade_no) + 可选 out_refund_no(长度>5 启用幂等)。
+// 复用退款金额校验与 reducemoney 语义；写 pay_refundorder；余额层退回，渠道原路退款待凭证。
+func (s *MapiService) PayRefund(m *model.Merchant, params map[string]string) (map[string]string, error) {
+	if !s.cfg.Bool("user_refund") {
+		return nil, mapiErr("管理员未开启商户自助退款")
+	}
+	amountStr := strings.TrimSpace(params["money"])
+	amount, err := money.Parse(amountStr)
+	if err != nil || amount.LessThanOrEqual(decimal.Zero) {
+		return nil, mapiErr("退款金额不合法")
+	}
+	o, err := s.findMerchantOrder(m.UID, params)
+	if err != nil {
+		return nil, err
+	}
+	outRefundNo := strings.TrimSpace(params["out_refund_no"])
+
+	// 幂等：out_refund_no 长度>5 时查已有退款单。成功直接返回原结果，处理中复用退款号。
+	if len(outRefundNo) > 5 {
+		if exist, e := s.refunds.FindByOutRefundNo(m.UID, outRefundNo); e == nil && exist != nil {
+			return s.refundResult(exist), nil
+		}
+	}
+
+	// 校验状态与可退金额（对齐 epay Order::refund 前置校验）。
+	if o.Status != 1 && o.Status != 2 && o.Status != 3 {
+		return nil, mapiErr("当前订单状态不可退款")
+	}
+	real := o.Money
+	if o.RealMoney != nil && o.RealMoney.GreaterThan(decimal.Zero) {
+		real = *o.RealMoney
+	}
+	if amount.GreaterThan(real) {
+		return nil, mapiErr("退款金额不能超过订单实付金额")
+	}
+	if o.RefundMoney.GreaterThan(decimal.Zero) {
+		if o.RefundMoney.GreaterThanOrEqual(real) {
+			return nil, mapiErr("该订单已全额退款")
+		}
+		if amount.GreaterThan(real.Sub(o.RefundMoney).Round(2)) {
+			return nil, mapiErr("退款金额超过剩余可退")
+		}
+	}
+
+	// reducemoney：平台承担手续费(refund_fee_type=0)退回商户入账额；商户承担(=1)全额退。
+	// 部分退款按退款额扣。冻结单/直清不扣。简化对齐 epay 主干四分支。
+	reduce := s.calcRefundReduce(o, amount, real)
+	if reduce.GreaterThan(m.Money) {
+		return nil, mapiErr("商户余额不足")
+	}
+
+	// 幂等改单：status→2 累加 refundmoney（条件 UPDATE 防并发重复）。
+	ok, err := s.orders.MarkRefundedPartial(o.TradeNo, amount)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, mapiErr("订单状态已变更，退款未执行")
+	}
+	// 扣商户余额（走流水，对齐 changeUserMoney）。reduce=0 时 ChangeUserMoney 自动跳过。
+	if err := s.accounts.ChangeUserMoney(m.UID, reduce, false, "订单退款", o.TradeNo); err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	ro := &model.RefundOrder{
+		RefundNo:    genTradeNo(now),
+		OutRefundNo: outRefundNo,
+		TradeNo:     o.TradeNo,
+		OutTradeNo:  o.OutTradeNo,
+		UID:         m.UID,
+		Money:       amount,
+		ReduceMoney: reduce,
+		Status:      1, // 余额层退款即时完成；渠道原路退款待凭证
+		AddTime:     now,
+		EndTime:     &now,
+	}
+	if err := s.refunds.Create(ro); err != nil {
+		return nil, err
+	}
+	out := s.refundResult(ro)
+	out["msg"] = "退款成功！退款金额¥" + money.String(amount)
+	return out, nil
+}
+
+// PayRefundQuery 退款查询（对齐 epay Pay::refundquery）。入参 pid + (refund_no|out_refund_no)。
+func (s *MapiService) PayRefundQuery(m *model.Merchant, params map[string]string) (map[string]string, error) {
+	if !s.cfg.Bool("user_refund") {
+		return nil, mapiErr("管理员未开启商户自助退款")
+	}
+	refundNo := strings.TrimSpace(params["refund_no"])
+	outRefundNo := strings.TrimSpace(params["out_refund_no"])
+	var ro *model.RefundOrder
+	var err error
+	if refundNo != "" {
+		ro, err = s.refunds.FindByRefundNo(m.UID, refundNo)
+	} else if outRefundNo != "" {
+		ro, err = s.refunds.FindByOutRefundNo(m.UID, outRefundNo)
+	} else {
+		return nil, mapiErrCode(-4, "退款单号不能为空")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if ro == nil {
+		return nil, mapiErr("退款记录不存在")
+	}
+	out := s.refundResult(ro)
+	out["addtime"] = ro.AddTime.Format(timeLayout)
+	if ro.EndTime != nil {
+		out["endtime"] = ro.EndTime.Format(timeLayout)
+	}
+	return out, nil
+}
+
+// findMerchantOrder 按 pid + (trade_no|out_trade_no) 查本商户订单。
+func (s *MapiService) findMerchantOrder(uid uint, params map[string]string) (*model.Order, error) {
+	tradeNo := strings.TrimSpace(params["trade_no"])
+	outTradeNo := strings.TrimSpace(params["out_trade_no"])
+	var o *model.Order
+	var err error
+	if tradeNo != "" {
+		o, err = s.orders.FindByTradeNoAndUID(tradeNo, uid)
+	} else if outTradeNo != "" {
+		o, err = s.orders.FindByOut(uid, outTradeNo)
+	} else {
+		return nil, mapiErrCode(-4, "订单号不能为空")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if o == nil {
+		return nil, mapiErr("订单号不存在")
+	}
+	return o, nil
+}
+
+// refundResult 退款单 → 返回契约（对齐 epay Order::refund 返回结构）。
+func (s *MapiService) refundResult(ro *model.RefundOrder) map[string]string {
+	return map[string]string{
+		"code":          "0",
+		"refund_no":     ro.RefundNo,
+		"out_refund_no": ro.OutRefundNo,
+		"trade_no":      ro.TradeNo,
+		"out_trade_no":  ro.OutTradeNo,
+		"uid":           uintToStr(ro.UID),
+		"money":         money.String(ro.Money),
+		"reducemoney":   money.String(ro.ReduceMoney),
+		"status":        fmt.Sprintf("%d", ro.Status),
+	}
+}
+
+// calcRefundReduce 计算退款扣商户余额金额（简化对齐 epay Order::refund reducemoney 四分支）。
+// - 冻结单(status=3)或商户直清：不扣(0)，冻结资金/直清不影响余额。
+// - refund_fee_type=1(商户承担手续费)：全额退，扣 realmoney 等比部分(此处扣退款额)。
+// - refund_fee_type=0(平台承担)：退回商户实际入账额，按退款额占实付比例折算 getmoney。
+func (s *MapiService) calcRefundReduce(o *model.Order, amount, real decimal.Decimal) decimal.Decimal {
+	if o.Status == 3 || s.channelDirect(o.Channel) {
+		return decimal.Zero
+	}
+	if s.cfg.Int("refund_fee_type", 0) == 1 {
+		// 商户承担手续费：按退款额扣（全额时即 realmoney）。
+		return amount
+	}
+	// 平台承担：退回商户入账额。全额退→扣 getmoney；部分退→按比例折算。
+	if o.GetMoney.LessThanOrEqual(decimal.Zero) || real.LessThanOrEqual(decimal.Zero) {
+		return amount
+	}
+	if amount.GreaterThanOrEqual(real) {
+		return o.GetMoney
+	}
+	return amount.Mul(o.GetMoney).Div(real).Round(2)
+}
+
+// channelDirect 判断通道是否商户直清(mode=1)。查不到通道视为非直清。
+func (s *MapiService) channelDirect(channelID int) bool {
+	if channelID <= 0 {
+		return false
+	}
+	c, err := s.channels.FindByID(uint(channelID))
+	if err != nil || c == nil {
+		return false
+	}
+	return c.Mode == 1
+}
+
+// pruneEmpty 剔除空值键（对齐 epay array_filter，避免回包含空字段影响签名/展示）。
+func pruneEmpty(m map[string]string) map[string]string {
+	for k, v := range m {
+		if k == "code" {
+			continue
+		}
+		if strings.TrimSpace(v) == "" {
+			delete(m, k)
+		}
+	}
+	return m
+}
+
+// toMapiErr 把 PayError 等内部错误归一为 MapiError（保留提示，码归 -1）。
+func toMapiErr(err error) error {
+	if me, ok := err.(*MapiError); ok {
+		return me
+	}
+	if pe, ok := err.(*PayError); ok {
+		return &MapiError{Code: -1, Msg: pe.Msg}
+	}
+	return &MapiError{Code: -1, Msg: err.Error()}
+}

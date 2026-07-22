@@ -166,7 +166,27 @@ func (s *TransferService) CreateByMerchant(uid uint, req dto.TransferCreateReq) 
 	if bcrypt.CompareHashAndPassword([]byte(m.Password), []byte(req.Password)) != nil {
 		return "", tfErr("登录密码不正确")
 	}
+	return s.createByMerchantCore(uid, req)
+}
 
+// CreateByMerchantSigned 供 mapi(V2 REST)发起代付：请求已由签名鉴权，不再校验登录密码。
+// 其余校验(结算开关/限额/余额/幂等)与 CreateByMerchant 完全一致。
+func (s *TransferService) CreateByMerchantSigned(uid uint, req dto.TransferCreateReq) (string, error) {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return "", err
+	}
+	if m == nil {
+		return "", tfErr("商户不存在")
+	}
+	if m.Settle != 1 {
+		return "", tfErr("结算功能未开启，无法发起代付")
+	}
+	return s.createByMerchantCore(uid, req)
+}
+
+// createByMerchantCore 商户代付核心（鉴权后共用：限额/费率/余额扣减/幂等）。
+func (s *TransferService) createByMerchantCore(uid uint, req dto.TransferCreateReq) (string, error) {
 	money, bizNo, err := s.validateCommon(req)
 	if err != nil {
 		return "", err

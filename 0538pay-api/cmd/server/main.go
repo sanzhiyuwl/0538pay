@@ -18,6 +18,7 @@ import (
 	"github.com/0538pay/api/internal/scheduler"
 	"github.com/0538pay/api/internal/service"
 	"github.com/0538pay/api/pkg/jwtauth"
+	"github.com/0538pay/api/pkg/sign"
 	"github.com/gin-gonic/gin"
 
 	// 支付渠道：匿名导入以触发各渠道 init() 自注册到 registry。
@@ -105,6 +106,12 @@ func main() {
 	merchantCenterSvc := service.NewMerchantCenterService(
 		merchantRepo, orderRepo, recordRepo, settleRepo, accountRepo, channelRepo, groupRepo, paySvc,
 	)
+	// V2 REST 接口族（mapi）：统一验签 + 回包 RSA 签名，复用 Pay/Transfer 核心。
+	refundOrderRepo := repository.NewRefundOrderRepo(db)
+	if err := configSvc.EnsurePlatformKeys(sign.GenerateRSAKeyPair); err != nil {
+		log.Fatalf("初始化平台 RSA 密钥失败: %v", err)
+	}
+	mapiSvc := service.NewMapiService(merchantRepo, orderRepo, refundOrderRepo, accountRepo, channelRepo, configSvc, paySvc, transferSvc)
 
 	deps := router.Deps{
 		JWT:            jm,
@@ -130,6 +137,7 @@ func main() {
 		SiteConfig:     handler.NewSiteConfigHandler(siteConfigSvc),
 		MerchantAuth:   handler.NewMerchantAuthHandler(merchantAuthSvc),
 		MerchantCenter: handler.NewMerchantCenterHandler(merchantCenterSvc, orderSvc, recordSvc, transferSvc),
+		Mapi:           handler.NewMapiHandler(mapiSvc),
 	}
 
 	// 4. 定时任务（阶段E）：商户通知重试 + 未支付对账 + 超时关单 + 自动结算。

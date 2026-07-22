@@ -33,6 +33,7 @@ type Deps struct {
 	SiteConfig     *handler.SiteConfigHandler
 	MerchantAuth   *handler.MerchantAuthHandler
 	MerchantCenter *handler.MerchantCenterHandler
+	Mapi           *handler.MapiHandler
 }
 
 // Setup 注册所有路由。
@@ -176,6 +177,14 @@ func Setup(r *gin.Engine, d Deps) {
 		// 第三方渠道回调（GET/POST 均支持，验签在渠道层）
 		pay.POST("/notify/:trade_no", d.Pay.Notify)
 		pay.GET("/notify/:trade_no", d.Pay.Notify)
+	}
+
+	// V2 REST 接口族（对齐 epay api.php?s= → ApiHelper 反射分发）。
+	// 公开(无 JWT)，靠 MD5/RSA 签名鉴权 + timestamp 防重放。路径 /api/mapi/:class/:action。
+	mapi := api.Group("/mapi")
+	{
+		mapi.POST("/:class/:action", d.Mapi.Dispatch)
+		mapi.GET("/:class/:action", d.Mapi.Dispatch)
 	}
 
 	// 官网 CMS 内容读取（公开，官网前端读）
