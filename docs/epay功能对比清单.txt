@@ -227,9 +227,15 @@
   🎨/✅  分账 profitsharing 自动执行 [真接口 2026-07-22]
         —— ProfitService.AutoExecute(扫 status=0 待分账单逐条提交扣款,复用 MarkSuccessWithDebit,余额不足跳过下轮再试) +
            scheduler profitTicker(每 5min)。对齐 epay cron do=profitsharing。真实渠道分账 API 待凭证(余额层已闭环)。
-  🎨/⬜  风控 check（触发规则自动关停商户/通道）—— epay 连续N单通知失败自动关支付权限，待补
-  🎨/⬜  投诉 complain 自动处理（冻结/回复/拉黑/退款）
-  🎨/⬜  cron 访问密钥保护
+  🎨/✅  风控 check（触发规则自动关停商户）[真接口 2026-07-22]
+        —— RiskAutoService(config group=risk 阈值热更新) + scheduler riskTicker(每10min)：
+           连续通知失败(近24h notify=-1 达 check_notify_count)→关停pay+写pay_risk type=2；
+           商户成功率(窗口内订单≥样本下限且成功率<check_sucrate_value)→关停pay+写pay_risk type=1。
+           真跑:触发 check→3商户按成功率关停(0%/66%/51%)+写风控记录+pay置0。通道成功率关停/投诉率(type3)见下。
+  ⬜/➖  投诉 complain 自动处理 —— epay 无 complain.php 实体,cron 内联调真实渠道(支付宝/微信)投诉工单API,依赖外部凭证,归B/C类不精仿
+  🎨/✅  cron 访问密钥保护 [真接口 2026-07-22]
+        —— 对外手动触发端点 GET/POST /api/cron/:task?key=xxx(notify/reconcile/order/settle/profitsharing/check)由 cronkey 校验：
+           cronkey 空则入口关闭(对齐 epay empty(cronkey) exit)、key 不符 403。内部 ticker 调度不受此限。真跑:空key关闭/错key拒/对key触发。
   —— 通知重试+对账已打通；自动结算/超时关单/分账/风控 待接后端阶段 E 续做。
 
 
@@ -391,7 +397,7 @@
         —— pay_blacklist 表(UNIQUE content+type,endtime过期NULL=永久) + 5接口(列表/统计/添加/删除/批量删除) +
            IsBlocked 接进收单链。真跑:添加IP/账号黑名单(查重拒绝)、统计准确、拉黑IP后下单被拦"系统异常无法完成付款"、删除恢复。
         —— 命中拦截对齐epay模糊报错(不明示被拉黑);维度仅IP+支付账号(epay同,不造设备指纹)。
-  🎨  风控检测配置(频率/人机验证)  epay set.php?mod=risk → RiskSettings.vue（归系统设置域）
+  ✅  风控检测配置(自动关停阈值)  epay set.php?mod=risk → RiskSettings.vue [真接口 config group=risk 2026-07-22，详见系统设置域]
 
 【分账】
   ✅  分账记录/发起/查询/回退/取消/改额  epay ps_order.php → ProfitSharing.vue [真接口]
@@ -416,7 +422,8 @@
        —— reg_open/user_review/reg_input_settle/reg_pay/reg_pay_price/captcha_open_login/captcha_version/captcha_id/key。
           布尔开关用字符串"0"/"1"经 computed 适配 Switch。注册流程消费(reg_open 等)待注册接口接入。
   ✅  支付相关配置 pay          → PaySettings.vue [真接口 config group=pay：金额上下限/屏蔽词/退款手续费策略]
-  🎨  风控检测 risk            → RiskSettings.vue（风控自动关停阈值键待接定时任务，见第三部分）
+  ✅  风控检测 risk            → RiskSettings.vue [真接口 config group=risk 2026-07-22]
+        —— auto_check_notify/check_notify_count/auto_check_sucrate/check_sucrate_second/count/value。保存即热更新,被 scheduler 风控自动关停消费(见第三部分)。
   ✅  结算规则 settle          → SettleSettings.vue [真接口 config group=settle：开关/周期/费率/门槛/封顶封底/次数]
   ✅  转账付款配置 transfer     → TransferSettings.vue [真接口 config group=transfer 2026-07-22]
                                rate/minmoney/maxmoney/maxlimit,后端已被代付逻辑消费,补独立设置页(财务管理组)。保存即生效。
