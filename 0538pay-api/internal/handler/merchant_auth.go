@@ -10,9 +10,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// MerchantAuthHandler 商户端登录 / 当前商户信息。
+// MerchantAuthHandler 商户端登录 / 当前商户信息 / 自助流程（注册/完善资料/找回密码）。
 type MerchantAuthHandler struct {
-	svc *service.MerchantAuthService
+	svc     *service.MerchantAuthService
+	reg     *service.MerchantRegService // 自助流程（可空，SetRegService 注入）
+	captcha *service.CaptchaService     // 图形验证码（可空）
 }
 
 func NewMerchantAuthHandler(svc *service.MerchantAuthService) *MerchantAuthHandler {
@@ -41,6 +43,71 @@ func (h *MerchantAuthHandler) Login(c *gin.Context) {
 		return
 	}
 	resp.OK(c, out)
+}
+
+// SetRegService 注入自助流程服务（注册/完善资料/找回密码）与图形验证码服务。
+func (h *MerchantAuthHandler) SetRegService(reg *service.MerchantRegService, captcha *service.CaptchaService) {
+	h.reg = reg
+	h.captcha = captcha
+}
+
+// Captcha GET /api/merchant/captcha 下发图形验证码（公开）。
+func (h *MerchantAuthHandler) Captcha(c *gin.Context) {
+	token, svg, err := h.captcha.Generate()
+	if err != nil {
+		resp.Fail(c, 1101, "验证码生成失败")
+		return
+	}
+	resp.OK(c, dto.CaptchaResp{Token: token, SVG: svg})
+}
+
+// Register POST /api/merchant/register 商户注册（公开）。
+func (h *MerchantAuthHandler) Register(c *gin.Context) {
+	var req dto.MerchantRegReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	out, err := h.reg.Register(req)
+	if err != nil {
+		failFromMerchantAuthErr(c, err)
+		return
+	}
+	resp.OK(c, out)
+}
+
+// FindPwd POST /api/merchant/findpwd 找回密码（公开）。
+func (h *MerchantAuthHandler) FindPwd(c *gin.Context) {
+	var req dto.MerchantFindPwdReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.reg.FindPwd(req); err != nil {
+		failFromMerchantAuthErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"msg": "密码已重置，请用新密码登录"})
+}
+
+// Complete POST /api/merchant/complete 完善资料（需登录）。
+func (h *MerchantAuthHandler) Complete(c *gin.Context) {
+	uid, _ := c.Get(middleware.CtxUID)
+	id, ok := uid.(uint)
+	if !ok || id == 0 {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var req dto.MerchantCompleteReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.reg.Complete(id, req); err != nil {
+		failFromMerchantAuthErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"uid": id})
 }
 
 // Info GET /api/merchant/info 当前登录商户信息

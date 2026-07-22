@@ -1148,3 +1148,48 @@ type WeworkSaveReq struct {
 type WeworkStatusReq struct {
 	Status int8 `json:"status"`
 }
+
+// ===== 商户自助流程（注册/完善资料/找回密码，对齐 epay user/reg|completeinfo|findpwd）=====
+
+// MerchantRegReq 注册入参。verifytype: 0=邮箱 1=手机（account 相应为邮箱/手机）。
+// captcha_token/captcha 为自研图形验证码（代替 epay 短信/邮箱 OTP）。
+type MerchantRegReq struct {
+	VerifyType   int8   `json:"verifytype"`   // 0邮箱 1手机
+	Account      string `json:"account" binding:"required"` // 邮箱或手机号
+	Password     string `json:"password" binding:"required"`
+	Invite       string `json:"invite"`       // 邀请码（reg_open=2 必填）
+	CaptchaToken string `json:"captcha_token"`
+	Captcha      string `json:"captcha"`
+}
+
+// MerchantRegResp 注册结果。NeedReview=true 表示待审核（pay=2）。
+type MerchantRegResp struct {
+	UID        uint   `json:"uid"`
+	NeedReview bool   `json:"need_review"`
+	Msg        string `json:"msg"`
+}
+
+// MerchantCompleteReq 完善资料入参（对齐 epay completeinfo）。
+type MerchantCompleteReq struct {
+	SettleID int    `json:"settle_id"` // 结算方式 1支付宝2微信3QQ4银行卡
+	Account  string `json:"account" binding:"required"`
+	Username string `json:"username" binding:"required"`
+	QQ       string `json:"qq"`
+	URL      string `json:"url"`
+	Email    string `json:"email"` // 手机注册模式可补邮箱
+}
+
+// MerchantFindPwdReq 找回密码入参。Type: email/phone（自选）。
+type MerchantFindPwdReq struct {
+	Type         string `json:"type"`    // email / phone
+	Account      string `json:"account" binding:"required"`
+	Password     string `json:"password" binding:"required"`
+	CaptchaToken string `json:"captcha_token"`
+	Captcha      string `json:"captcha"`
+}
+
+// CaptchaResp 图形验证码下发（token + SVG 图）。
+type CaptchaResp struct {
+	Token string `json:"token"`
+	SVG   string `json:"svg"`
+}

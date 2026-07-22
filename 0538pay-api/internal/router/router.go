@@ -219,12 +219,16 @@ func Setup(r *gin.Engine, d Deps) {
 	// 商户中心（阶段D）
 	merchant := api.Group("/merchant")
 	{
-		merchant.POST("/login", d.MerchantAuth.Login) // 无需鉴权
+		merchant.POST("/login", d.MerchantAuth.Login)         // 无需鉴权
+		merchant.GET("/captcha", d.MerchantAuth.Captcha)      // 图形验证码（公开）
+		merchant.POST("/register", d.MerchantAuth.Register)   // 注册（公开）
+		merchant.POST("/findpwd", d.MerchantAuth.FindPwd)     // 找回密码（公开）
 
 		mAuthed := merchant.Group("")
 		mAuthed.Use(middleware.Auth(d.JWT, "merchant"))
 		{
 			mAuthed.GET("/info", d.MerchantAuth.Info)
+			mAuthed.POST("/complete", d.MerchantAuth.Complete) // 完善资料（需登录）
 			// D2 查询与操作
 			mAuthed.GET("/dashboard", d.MerchantCenter.Dashboard)
 			mAuthed.GET("/orders", d.MerchantCenter.Orders)

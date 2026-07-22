@@ -106,6 +106,9 @@ func main() {
 	merchantAuthSvc := service.NewMerchantAuthService(merchantRepo, jm)
 	authSvc.SetLogService(logSvc)         // 后台登录写日志
 	merchantAuthSvc.SetLogService(logSvc) // 商户登录写日志
+	// 商户自助流程：图形验证码 + 注册/完善资料/找回密码（复用 invite 核销 + config reg 分组）。
+	captchaSvc := service.NewCaptchaService()
+	merchantRegSvc := service.NewMerchantRegService(merchantRepo, configSvc, inviteSvc, captchaSvc)
 	merchantCenterSvc := service.NewMerchantCenterService(
 		merchantRepo, orderRepo, recordRepo, settleRepo, accountRepo, channelRepo, groupRepo, paySvc,
 	)
@@ -115,6 +118,9 @@ func main() {
 		log.Fatalf("初始化平台 RSA 密钥失败: %v", err)
 	}
 	mapiSvc := service.NewMapiService(merchantRepo, orderRepo, refundOrderRepo, accountRepo, channelRepo, configSvc, paySvc, transferSvc)
+
+	merchantAuthHandler := handler.NewMerchantAuthHandler(merchantAuthSvc)
+	merchantAuthHandler.SetRegService(merchantRegSvc, captchaSvc) // 注入自助流程 + 图形验证码
 
 	deps := router.Deps{
 		JWT:            jm,
@@ -141,7 +147,7 @@ func main() {
 		Log:            handler.NewLogHandler(logSvc),
 		Invite:         handler.NewInviteHandler(inviteSvc),
 		SiteConfig:     handler.NewSiteConfigHandler(siteConfigSvc),
-		MerchantAuth:   handler.NewMerchantAuthHandler(merchantAuthSvc),
+		MerchantAuth:   merchantAuthHandler,
 		MerchantCenter: handler.NewMerchantCenterHandler(merchantCenterSvc, orderSvc, recordSvc, transferSvc),
 		Mapi:           handler.NewMapiHandler(mapiSvc),
 	}
