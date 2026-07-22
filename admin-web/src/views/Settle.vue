@@ -222,18 +222,24 @@ async function changeStatus(id: number, status: number) {
   }
 }
 
-// 删除并退回余额（二次确认）
+// 删除并退回余额（二次确认 + 管理员支付密码校验）
 const delTarget = ref<SettleRecord | null>(null)
+const delPassword = ref('')
 function askDelete(r: SettleRecord) {
   openMenu.value = null
+  delPassword.value = ''
   delTarget.value = r
 }
 async function confirmDelete() {
   const r = delTarget.value
   if (!r || busy.value) return
+  if (!delPassword.value) {
+    toast.error('请输入管理员密码')
+    return
+  }
   busy.value = true
   try {
-    await setSettleStatus(r.id, 4)
+    await setSettleStatus(r.id, 4, '', delPassword.value)
     toast.success(`已删除记录 #${r.id}，结算金额 ¥${r.money} 退回商户余额`)
     delTarget.value = null
     await reload()
@@ -582,6 +588,10 @@ function submitExport() {
         <b class="text-foreground tabular-nums">¥{{ delTarget?.money }}</b>
         将退回该商户余额，此操作不可恢复。
       </p>
+      <div class="mt-3 row-field">
+        <label class="lbl">管理员密码</label>
+        <input v-model="delPassword" type="password" placeholder="资金操作需二次校验" class="field-input flex-1" @keyup.enter="confirmDelete" />
+      </div>
       <template #footer>
         <Button variant="outline" size="sm" @click="delTarget = null">取消</Button>
         <Button variant="destructive" size="sm" :disabled="busy" @click="confirmDelete">删除并退回</Button>

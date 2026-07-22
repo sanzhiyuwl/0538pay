@@ -97,3 +97,8 @@ export function resetMerchantKey(uid: number): Promise<{ uid: number; key: strin
 export function deleteMerchant(uid: number): Promise<{ uid: number }> {
   return request<{ uid: number }>(`/admin/merchants/${uid}`, { method: 'DELETE' })
 }
+
+/** SSO 免密登录：管理员代签商户短时 token（用于「进入商户端」） */
+export function ssoMerchant(uid: number): Promise<{ token: string; uid: number; name: string }> {
+  return request(`/admin/merchants/${uid}/sso`)
+}

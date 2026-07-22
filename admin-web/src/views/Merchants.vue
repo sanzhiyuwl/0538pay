@@ -15,6 +15,7 @@ import {
   AlertCircle,
   Network,
   Plus,
+  LogIn,
 } from 'lucide-vue-next'
 import { Panel, Button, Select, Pagination, Drawer, Modal, Switch } from '@/components/ui'
 import {
@@ -33,9 +34,11 @@ import {
   setMerchantStatus,
   resetMerchantKey,
   deleteMerchant,
+  ssoMerchant,
   type MerchantCreateReq,
   type MerchantEditReq,
 } from '@/lib/api/merchants'
+import { setMerchantToken } from '@/lib/api/client'
 import { fetchGroups, type GroupView } from '@/lib/api/groups'
 import {
   fetchSubChannels,
@@ -437,6 +440,20 @@ async function confirmResetKey() {
   }
 }
 
+// ===== SSO 免密进入商户端 =====
+async function ssoInto(m: Merchant) {
+  openMenu.value = null
+  try {
+    const res = await ssoMerchant(m.uid)
+    // 写商户端 token（与后台 token 隔离），新窗口打开商户中心工作台。
+    setMerchantToken(res.token)
+    window.open('/m', '_blank')
+    toast.success(`已以商户 ${res.name} 身份登录商户端`)
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '进入商户端失败')
+  }
+}
+
 // ===== 删除商户 =====
 const delTarget = ref<Merchant | null>(null)
 const deleting = ref(false)
@@ -573,6 +590,9 @@ async function confirmDelete() {
                     </button>
                     <button class="menu-item" @click="openSubChannels(m)">
                       <Network class="size-4 shrink-0 opacity-70" /><span class="flex-1">子通道管理</span>
+                    </button>
+                    <button class="menu-item" @click="ssoInto(m)">
+                      <LogIn class="size-4 shrink-0 opacity-70" /><span class="flex-1">进入商户端</span>
                     </button>
                     <div class="menu-sep" />
                     <button class="menu-item" @click="toggle(m, 'user')">

@@ -46,9 +46,10 @@ export function setSettleStatus(
   id: number,
   status: number,
   result = '',
+  password = '',
 ): Promise<{ id: number; status: number }> {
   return request<{ id: number; status: number }>(`/admin/settles/${id}/status`, {
     method: 'PUT',
-    body: { status, result },
+    body: { status, result, password },
   })
 }
