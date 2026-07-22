@@ -1,28 +1,51 @@
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { Save, Plug } from 'lucide-vue-next'
 import { Panel, Button, Select, Switch } from '@/components/ui'
-import {
-  otherSettingTabs,
-  proxyConfig,
-  proxyTypeOptions,
-  ipConfig,
-  ipTypeOptions,
-} from '@/lib/mock/sysconfig'
+import { otherSettingTabs, proxyTypeOptions, ipTypeOptions } from '@/lib/mock/sysconfig'
+import { fetchConfig, saveConfig } from '@/lib/api/config'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
+const toast = useToast()
 const activeTab = ref('proxy')
+const saving = ref(false)
 
-// 中转代理
-const proxy = reactive({ ...proxyConfig })
+// proxy + iptype 合并为 config group=other（键名对齐 epay）
+const proxy = reactive({
+  proxy: '0', proxy_server: '', proxy_port: '', proxy_user: '', proxy_pwd: '', proxy_type: 'http',
+})
+const ip = reactive({ ip_type: '2' })
+
 const proxyOn = computed({
   get: () => proxy.proxy === '1',
   set: (v: boolean) => (proxy.proxy = v ? '1' : '0'),
 })
 
-// IP 获取方式
-const ip = reactive({ ...ipConfig })
+onMounted(async () => {
+  try {
+    const kv = await fetchConfig('other')
+    Object.assign(proxy, {
+      proxy: kv.proxy ?? '0', proxy_server: kv.proxy_server ?? '', proxy_port: kv.proxy_port ?? '',
+      proxy_user: kv.proxy_user ?? '', proxy_pwd: kv.proxy_pwd ?? '', proxy_type: kv.proxy_type || 'http',
+    })
+    ip.ip_type = kv.ip_type || '2'
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载失败')
+  }
+})
 
-function save() {}
+async function save() {
+  saving.value = true
+  try {
+    await saveConfig('other', { ...proxy, ...ip })
+    toast.success('设置已保存')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <template>
@@ -88,8 +111,8 @@ function save() {}
 
       <!-- 保存 -->
       <div class="mt-5 flex items-center gap-2 border-t border-border/60 pt-4">
-        <Button @click="save"><Save />保存设置</Button>
-        <Button v-if="activeTab === 'proxy' && proxyOn" variant="outline" @click="save"><Plug />测试连通性</Button>
+        <Button :disabled="saving" @click="save"><Save />保存设置</Button>
+        <Button v-if="activeTab === 'proxy' && proxyOn" variant="outline" disabled><Plug />测试连通性</Button>
       </div>
     </Panel>
   </div>

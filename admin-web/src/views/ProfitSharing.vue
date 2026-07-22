@@ -11,6 +11,7 @@ import {
 } from '@/lib/api/profitsharing'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
+import { shouldDropUp } from '@/composables/useRowMenu'
 import { formatMoney } from '@/lib/utils'
 
 const toast = useToast()
@@ -113,8 +114,11 @@ async function toggleStats() {
 
 // ===== 行操作菜单 =====
 const openMenu = ref<number | null>(null)
-function toggleMenu(id: number) {
-  openMenu.value = openMenu.value === id ? null : id
+const dropUp = ref(false)
+function toggleMenu(id: number, ev?: MouseEvent) {
+  if (openMenu.value === id) { openMenu.value = null; return }
+  openMenu.value = id
+  dropUp.value = shouldDropUp(ev)
 }
 function closeMenu() {
   openMenu.value = null
@@ -245,7 +249,7 @@ async function doConfirm() {
 
     <!-- 列表 -->
     <Panel title="分账列表" :subtitle="`${total} 条`">
-      <div class="overflow-x-auto">
+      <div>
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
@@ -259,7 +263,7 @@ async function doConfirm() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(o, si) in rows" :key="o.id">
+            <tr v-for="o in rows" :key="o.id">
               <td>
                 <div class="truncate font-medium text-primary">{{ o.trade_no }}</div>
                 <div class="truncate text-xs dim">{{ o.api_trade_no || '—' }}</div>
@@ -286,13 +290,13 @@ async function doConfirm() {
               </td>
               <td class="col-center">
                 <div v-if="psActions(o.status).length" class="relative inline-block">
-                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(o.id)">
+                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(o.id, $event)">
                     操作 <MoreHorizontal class="size-4" />
                   </Button>
                   <div
                     v-if="openMenu === o.id"
                     class="menu-panel absolute right-0 z-20 w-32"
-                    :class="si >= rows.length - 3 && rows.length > 3 ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
+                    :class="dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
                     @click.stop
                   >
                     <button

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, computed } from 'vue'
+import { reactive, computed, ref, onMounted } from 'vue'
 import { Save } from 'lucide-vue-next'
 import { Panel, Button, Select } from '@/components/ui'
 import {
@@ -8,14 +8,38 @@ import {
   alipayLoginOptions,
   wxLoginOptions,
 } from '@/lib/mock/sysconfig'
+import { fetchConfig, saveConfig } from '@/lib/api/config'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
+const toast = useToast()
 const cfg = reactive({ ...oauthConfig })
+const saving = ref(false)
 // QQ 互联需填 AppID/AppKey；聚合登录需填聚合参数
 const showQQApp = computed(() => cfg.login_qq === '1')
 const showAggregate = computed(
   () => cfg.login_qq === '3' || cfg.login_alipay === '-1' || cfg.login_wx === '-1',
 )
-function save() {}
+
+onMounted(async () => {
+  try {
+    Object.assign(cfg, await fetchConfig('oauth'))
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载失败')
+  }
+})
+
+async function save() {
+  saving.value = true
+  try {
+    await saveConfig('oauth', { ...cfg })
+    toast.success('快捷登录设置已保存')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <template>
@@ -49,7 +73,7 @@ function save() {}
         </p>
       </div>
       <div class="mt-5 border-t border-border/60 pt-4">
-        <Button @click="save"><Save />保存设置</Button>
+        <Button :disabled="saving" @click="save"><Save />保存设置</Button>
       </div>
     </Panel>
 
@@ -70,7 +94,7 @@ function save() {}
         </div>
       </div>
       <div class="mt-5 border-t border-border/60 pt-4">
-        <Button @click="save"><Save />保存设置</Button>
+        <Button :disabled="saving" @click="save"><Save />保存设置</Button>
       </div>
     </Panel>
   </div>

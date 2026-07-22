@@ -1,10 +1,23 @@
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { reactive, ref, onMounted } from 'vue'
 import { Save } from 'lucide-vue-next'
 import { Panel, Button, Switch } from '@/components/ui'
 import { noticeConfig } from '@/lib/mock/sysconfig'
+import { fetchConfig, saveConfig } from '@/lib/api/config'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
+const toast = useToast()
+const saving = ref(false)
 const cfg = reactive({ ...noticeConfig })
+
+onMounted(async () => {
+  try {
+    Object.assign(cfg, await fetchConfig('notice'))
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载失败')
+  }
+})
 // 用 0/1 字符串 与 Switch 的布尔值转换
 function bind(key: keyof typeof cfg) {
   return {
@@ -20,7 +33,17 @@ const domainOn = bind('msgconfig_domain')
 const orderOn = bind('msgconfig_order')
 const settleOn = bind('msgconfig_settle')
 const balanceOn = bind('msgconfig_balance')
-function save() {}
+async function save() {
+  saving.value = true
+  try {
+    await saveConfig('notice', { ...cfg })
+    toast.success('消息提醒设置已保存')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <template>
@@ -67,7 +90,7 @@ function save() {}
         <p class="text-xs text-muted-foreground">用户接收邮件除在此开启外，还需用户在用户中心手动开启才能收到。</p>
       </div>
       <div class="mt-5 border-t border-border/60 pt-4">
-        <Button @click="save"><Save />保存设置</Button>
+        <Button :disabled="saving" @click="save"><Save />保存设置</Button>
       </div>
     </Panel>
   </div>

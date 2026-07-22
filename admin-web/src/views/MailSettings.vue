@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, computed } from 'vue'
+import { reactive, computed, ref, onMounted } from 'vue'
 import { Save, Send } from 'lucide-vue-next'
 import { Panel, Button, Select } from '@/components/ui'
 import {
@@ -8,7 +8,12 @@ import {
   smsConfig,
   smsApiOptions,
 } from '@/lib/mock/sysconfig'
+import { fetchConfig, saveConfig } from '@/lib/api/config'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
+const toast = useToast()
+const saving = ref(false)
 const mail = reactive({ ...mailConfig })
 const sms = reactive({ ...smsConfig })
 // SMTP 与云推送字段互斥显隐
@@ -16,7 +21,28 @@ const isSmtp = computed(() => mail.mail_cloud === '0')
 // 企信通(0)无 AppId；ThinkAPI(3) 也无独立 AppId
 const showSmsAppId = computed(() => sms.sms_api !== '0' && sms.sms_api !== '3')
 const showSmsSign = computed(() => sms.sms_api !== '0')
-function save() {}
+
+onMounted(async () => {
+  try {
+    const kv = await fetchConfig('mail')
+    for (const k of Object.keys(mail) as (keyof typeof mail)[]) if (kv[k] !== undefined) mail[k] = kv[k]
+    for (const k of Object.keys(sms) as (keyof typeof sms)[]) if (kv[k] !== undefined) sms[k] = kv[k]
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载失败')
+  }
+})
+
+async function save() {
+  saving.value = true
+  try {
+    await saveConfig('mail', { ...mail, ...sms })
+    toast.success('邮箱短信设置已保存')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <template>
@@ -66,8 +92,8 @@ function save() {}
         </div>
       </div>
       <div class="mt-5 flex items-center gap-2 border-t border-border/60 pt-4">
-        <Button @click="save"><Save />保存设置</Button>
-        <Button variant="outline" @click="save"><Send />发送测试邮件</Button>
+        <Button :disabled="saving" @click="save"><Save />保存设置</Button>
+        <Button variant="outline" disabled><Send />发送测试邮件</Button>
       </div>
     </Panel>
 
@@ -108,7 +134,7 @@ function save() {}
         </div>
       </div>
       <div class="mt-5 border-t border-border/60 pt-4">
-        <Button @click="save"><Save />保存设置</Button>
+        <Button :disabled="saving" @click="save"><Save />保存设置</Button>
       </div>
     </Panel>
   </div>

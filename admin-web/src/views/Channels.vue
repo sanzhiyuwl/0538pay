@@ -34,6 +34,7 @@ import {
 } from '@/lib/api/channels'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
+import { shouldDropUp } from '@/composables/useRowMenu'
 import { formatMoney } from '@/lib/utils'
 
 const toast = useToast()
@@ -111,8 +112,11 @@ async function toggleStatus(id: number) {
 
 // ===== 行操作菜单 =====
 const openMenu = ref<number | null>(null)
-function toggleMenu(id: number) {
-  openMenu.value = openMenu.value === id ? null : id
+const dropUp = ref(false)
+function toggleMenu(id: number, ev?: MouseEvent) {
+  if (openMenu.value === id) { openMenu.value = null; return }
+  openMenu.value = id
+  dropUp.value = shouldDropUp(ev)
 }
 function closeMenu() {
   openMenu.value = null
@@ -430,7 +434,7 @@ async function saveConfig() {
 
     <!-- 列表 -->
     <Panel title="通道列表" :subtitle="`${total} 条`">
-      <div class="overflow-x-auto">
+      <div>
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
@@ -447,7 +451,7 @@ async function saveConfig() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(c, si) in pageRows" :key="c.id">
+            <tr v-for="c in pageRows" :key="c.id">
               <td class="font-medium tabular-nums">{{ c.id }}</td>
               <td class="truncate">{{ c.name }}</td>
               <td>
@@ -473,15 +477,13 @@ async function saveConfig() {
               </td>
               <td class="col-center">
                 <div class="relative inline-block">
-                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(c.id)">
+                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(c.id, $event)">
                     <MoreHorizontal class="size-4" />
                   </Button>
                   <div
                     v-if="openMenu === c.id"
                     class="menu-panel absolute right-0 z-20 w-32"
-                    :class="si >= pageRows.length - 3 && pageRows.length > 3
-                      ? 'bottom-full mb-1.5'
-                      : 'top-full mt-1.5'"
+                    :class="dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
                     @click.stop
                   >
                     <button class="menu-item" @click="openConfig(c)">

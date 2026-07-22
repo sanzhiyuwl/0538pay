@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, computed } from 'vue'
+import { reactive, computed, ref, onMounted } from 'vue'
 import { Save } from 'lucide-vue-next'
 import { Panel, Button, Select, Switch } from '@/components/ui'
 import {
@@ -7,8 +7,21 @@ import {
   certOpenOptions,
   certChannelOptions,
 } from '@/lib/mock/sysconfig'
+import { fetchConfig, saveConfig } from '@/lib/api/config'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
+const toast = useToast()
+const saving = ref(false)
 const cfg = reactive({ ...certConfig })
+
+onMounted(async () => {
+  try {
+    Object.assign(cfg, await fetchConfig('cert'))
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载失败')
+  }
+})
 // 各认证方式对应的参数分组显隐（对齐 set.php setform1~6）
 const isAlipay = computed(() => cfg.cert_open === '1' || cfg.cert_open === '3')
 const isPhone3 = computed(() => cfg.cert_open === '2')
@@ -23,7 +36,17 @@ const forceOn = computed({
   get: () => cfg.cert_force === '1',
   set: (v: boolean) => (cfg.cert_force = v ? '1' : '0'),
 })
-function save() {}
+async function save() {
+  saving.value = true
+  try {
+    await saveConfig('cert', { ...cfg })
+    toast.success('实名认证设置已保存')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <template>
@@ -86,7 +109,7 @@ function save() {}
         </template>
       </div>
       <div class="mt-5 border-t border-border/60 pt-4">
-        <Button @click="save"><Save />保存设置</Button>
+        <Button :disabled="saving" @click="save"><Save />保存设置</Button>
       </div>
     </Panel>
   </div>

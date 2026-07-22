@@ -8,6 +8,7 @@ import {
 } from '@/lib/api/risk'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
+import { shouldDropUp } from '@/composables/useRowMenu'
 
 const toast = useToast()
 
@@ -92,8 +93,11 @@ function toggleOne(id: number) {
 
 // ===== 行操作菜单 =====
 const openMenu = ref<number | null>(null)
-function toggleMenu(id: number) {
-  openMenu.value = openMenu.value === id ? null : id
+const dropUp = ref(false)
+function toggleMenu(id: number, ev?: MouseEvent) {
+  if (openMenu.value === id) { openMenu.value = null; return }
+  openMenu.value = id
+  dropUp.value = shouldDropUp(ev)
 }
 function closeMenu() {
   openMenu.value = null
@@ -229,7 +233,7 @@ async function submitAdd() {
         <Button variant="outline" size="sm" @click="doBatch(2)"><X />拒绝</Button>
         <Button variant="outline" size="sm" @click="doBatch(3)"><Trash2 />删除</Button>
       </template>
-      <div class="overflow-x-auto">
+      <div>
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
@@ -246,7 +250,7 @@ async function submitAdd() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(d, si) in rows" :key="d.id">
+            <tr v-for="d in rows" :key="d.id">
               <td class="col-center">
                 <input type="checkbox" :checked="selected.has(d.id)" @change="toggleOne(d.id)" />
               </td>
@@ -265,13 +269,13 @@ async function submitAdd() {
               </td>
               <td class="col-center">
                 <div class="relative inline-block">
-                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(d.id)">
+                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(d.id, $event)">
                     <MoreHorizontal class="size-4" />
                   </Button>
                   <div
                     v-if="openMenu === d.id"
                     class="menu-panel absolute right-0 z-20 w-32"
-                    :class="si >= rows.length - 3 && rows.length > 3 ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
+                    :class="dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
                     @click.stop
                   >
                     <button

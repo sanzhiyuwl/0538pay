@@ -2,6 +2,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { Plus, MoreHorizontal, Pencil, Trash2, KeyRound, Power } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, Drawer } from '@/components/ui'
+import { shouldDropUp } from '@/composables/useRowMenu'
 import {
   admins as allAdmins,
   roles as allRoles,
@@ -15,8 +16,11 @@ const roleOptions = computed(() => allRoles.map((r) => ({ value: r.id, label: r.
 
 // ===== 行操作菜单 =====
 const openMenu = ref<number | null>(null)
-function toggleMenu(id: number) {
-  openMenu.value = openMenu.value === id ? null : id
+const dropUp = ref(false)
+function toggleMenu(id: number, ev?: MouseEvent) {
+  if (openMenu.value === id) { openMenu.value = null; return }
+  openMenu.value = id
+  dropUp.value = shouldDropUp(ev)
 }
 function closeMenu() {
   openMenu.value = null
@@ -56,7 +60,7 @@ function saveAdmin() {
       <template #actions>
         <Button size="sm" @click="openAdminCreate"><Plus />新增管理员</Button>
       </template>
-      <div class="overflow-x-auto">
+      <div>
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
@@ -71,7 +75,7 @@ function saveAdmin() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(a, si) in admins" :key="a.id">
+            <tr v-for="a in admins" :key="a.id">
               <td class="tabular-nums dim">{{ a.id }}</td>
               <td class="font-mono text-[13px] font-medium">{{ a.username }}</td>
               <td>{{ a.nickname }}</td>
@@ -83,13 +87,13 @@ function saveAdmin() {
               </td>
               <td class="col-center">
                 <div class="relative inline-block">
-                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(a.id)">
+                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(a.id, $event)">
                     <MoreHorizontal class="size-4" />
                   </Button>
                   <div
                     v-if="openMenu === a.id"
                     class="menu-panel absolute right-0 z-20 w-32"
-                    :class="si >= admins.length - 3 && admins.length > 3 ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
+                    :class="dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
                     @click.stop
                   >
                     <button class="menu-item" @click="openAdminEdit(a)">

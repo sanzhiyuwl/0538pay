@@ -1,11 +1,24 @@
 <script setup lang="ts">
-import { reactive, ref, computed } from 'vue'
+import { reactive, ref, computed, onMounted } from 'vue'
 import { Save, Copy, Check } from 'lucide-vue-next'
 import { Panel, Button } from '@/components/ui'
-import { cronConfig, cronTasks } from '@/lib/mock/sysconfig'
+import { cronTasks } from '@/lib/mock/sysconfig'
+import { fetchConfig, saveConfig } from '@/lib/api/config'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
-const cfg = reactive({ ...cronConfig })
+const toast = useToast()
+const cfg = reactive({ cronkey: '' })
 const siteurl = 'https://0538pay.com/'
+const saving = ref(false)
+
+onMounted(async () => {
+  try {
+    Object.assign(cfg, await fetchConfig('cron'))
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载失败')
+  }
+})
 
 const taskUrls = computed(() =>
   cronTasks.map((t) => ({
@@ -25,7 +38,17 @@ async function copy(url: string) {
     // 原型：剪贴板不可用时静默
   }
 }
-function save() {}
+async function save() {
+  saving.value = true
+  try {
+    await saveConfig('cron', { ...cfg })
+    toast.success('计划任务密钥已保存')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <template>
@@ -38,7 +61,7 @@ function save() {}
         </div>
       </div>
       <div class="mt-5 border-t border-border/60 pt-4">
-        <Button @click="save"><Save />保存设置</Button>
+        <Button :disabled="saving" @click="save"><Save />保存设置</Button>
       </div>
     </Panel>
 

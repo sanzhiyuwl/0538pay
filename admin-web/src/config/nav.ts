@@ -102,6 +102,7 @@ export const navMenu: NavNode[] = [
       { title: '管理员', to: '/admin/admins' },
       { title: '角色管理', to: '/admin/roles' },
       { title: '操作日志', to: '/admin/oplogs' },
+      { title: '登录日志', to: '/admin/logs' },
     ],
   },
   {
@@ -112,21 +113,24 @@ export const navMenu: NavNode[] = [
       { title: '文章管理', to: '/admin/articles' },
       { title: '文档管理', to: '/admin/docs-content' },
       { title: '首页模板', to: '/admin/template-settings' },
+      { title: '网站公告', to: '/admin/announcements' },
     ],
   },
   {
     title: '系统设置',
     icon: Settings,
     children: [
+      // 站点基础
       { title: '网站设置', to: '/admin/settings' },
+      // 注册与登录鉴权
       { title: '注册登录', to: '/admin/reg-settings' },
       { title: '快捷登录', to: '/admin/oauth-settings' },
-      { title: '消息提醒', to: '/admin/notice-settings' },
       { title: '实名认证', to: '/admin/cert-settings' },
+      // 消息通知
+      { title: '消息提醒', to: '/admin/notice-settings' },
       { title: '邮箱短信', to: '/admin/mail-settings' },
+      // 运维
       { title: '计划任务', to: '/admin/cron-settings' },
-      { title: '网站公告', to: '/admin/announcements' },
-      { title: '登录日志', to: '/admin/logs' },
       { title: '数据清理', to: '/admin/clean' },
       { title: '其余设置', to: '/admin/other-settings' },
     ],

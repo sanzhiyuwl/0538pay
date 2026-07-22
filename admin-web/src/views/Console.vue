@@ -13,6 +13,7 @@ import {
   Server,
 } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, Drawer, Pagination } from '@/components/ui'
+import { shouldDropUp } from '@/composables/useRowMenu'
 import {
   sites as allSites,
   siteStatus,
@@ -140,8 +141,11 @@ function save() {
 
 // ===== 行操作菜单 =====
 const openMenu = ref<number | null>(null)
-function toggleMenu(id: number) {
-  openMenu.value = openMenu.value === id ? null : id
+const dropUp = ref(false)
+function toggleMenu(id: number, ev?: MouseEvent) {
+  if (openMenu.value === id) { openMenu.value = null; return }
+  openMenu.value = id
+  dropUp.value = shouldDropUp(ev)
 }
 function closeMenu() {
   openMenu.value = null
@@ -211,7 +215,7 @@ function toggleSiteStatus(s: Site) {
 
     <!-- 租户列表 -->
     <Panel title="租户列表" :subtitle="`${total} 个`">
-      <div class="overflow-x-auto">
+      <div>
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
@@ -226,7 +230,7 @@ function toggleSiteStatus(s: Site) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(s, si) in pageRows" :key="s.id">
+            <tr v-for="s in pageRows" :key="s.id">
               <td>
                 <div class="flex items-center gap-2">
                   <Server class="size-4 shrink-0 text-primary" />
@@ -270,15 +274,13 @@ function toggleSiteStatus(s: Site) {
               </td>
               <td class="col-center">
                 <div class="relative inline-block">
-                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(s.id)">
+                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(s.id, $event)">
                     <MoreHorizontal class="size-4" />
                   </Button>
                   <div
                     v-if="openMenu === s.id"
                     class="menu-panel absolute right-0 z-20 w-36"
-                    :class="si >= pageRows.length - 3 && pageRows.length > 3
-                      ? 'bottom-full mb-1.5'
-                      : 'top-full mt-1.5'"
+                    :class="dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
                     @click.stop
                   >
                     <button class="menu-item" @click="openEdit(s); openMenu = null">

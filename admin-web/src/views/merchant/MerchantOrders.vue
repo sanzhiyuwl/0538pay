@@ -13,6 +13,7 @@ import {
 import { fetchMerchantOrders, refundOrder, renotifyOrder } from '@/lib/api/merchantCenter'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
+import { shouldDropUp } from '@/composables/useRowMenu'
 import { formatMoney } from '@/lib/utils'
 
 const router = useRouter()
@@ -74,8 +75,11 @@ const stats = computed(() => calcStats(filtered.value))
 
 // ===== 行操作菜单 =====
 const openMenu = ref<string | null>(null)
-function toggleMenu(id: string) {
-  openMenu.value = openMenu.value === id ? null : id
+const dropUp = ref(false)
+function toggleMenu(id: string, ev?: MouseEvent) {
+  if (openMenu.value === id) { openMenu.value = null; return }
+  openMenu.value = id
+  dropUp.value = shouldDropUp(ev)
 }
 function closeMenu() {
   openMenu.value = null
@@ -214,7 +218,7 @@ async function submitRefund() {
 
     <!-- 列表 -->
     <Panel title="订单列表" :subtitle="`${total} 条`">
-      <div class="overflow-x-auto">
+      <div>
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
@@ -228,7 +232,7 @@ async function submitRefund() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(o, si) in pageRows" :key="o.trade_no">
+            <tr v-for="o in pageRows" :key="o.trade_no">
               <td>
                 <div class="truncate font-medium text-primary">{{ o.trade_no }}</div>
                 <div class="truncate text-xs dim">{{ o.out_trade_no }}</div>
@@ -260,13 +264,13 @@ async function submitRefund() {
               </td>
               <td class="col-center">
                 <div class="relative inline-block">
-                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(o.trade_no)">
+                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(o.trade_no, $event)">
                     操作 <MoreHorizontal class="size-4" />
                   </Button>
                   <div
                     v-if="openMenu === o.trade_no"
                     class="menu-panel absolute right-0 z-20 w-32"
-                    :class="si >= pageRows.length - 3 && pageRows.length > 3 ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
+                    :class="dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
                     @click.stop
                   >
                     <button

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Plus, MoreHorizontal, Pencil, Trash2, FlaskConical, MessageSquare, Smartphone } from 'lucide-vue-next'
 import { Panel, Button, Badge } from '@/components/ui'
+import { shouldDropUp } from '@/composables/useRowMenu'
 import { weixinApps, weixinType, calcWeixinStats } from '@/lib/mock/weixin'
 
 const list = weixinApps
@@ -14,8 +15,11 @@ const typeIcon: Record<number, any> = {
 
 // 行操作菜单
 const openMenu = ref<number | null>(null)
-function toggleMenu(id: number) {
-  openMenu.value = openMenu.value === id ? null : id
+const dropUp = ref(false)
+function toggleMenu(id: number, ev?: MouseEvent) {
+  if (openMenu.value === id) { openMenu.value = null; return }
+  openMenu.value = id
+  dropUp.value = shouldDropUp(ev)
 }
 function closeMenu() {
   openMenu.value = null
@@ -49,7 +53,7 @@ onUnmounted(() => window.removeEventListener('click', closeMenu))
 
     <!-- 列表 -->
     <Panel title="配置列表" :subtitle="`${list.length} 个`">
-      <div class="overflow-x-auto">
+      <div>
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
@@ -62,7 +66,7 @@ onUnmounted(() => window.removeEventListener('click', closeMenu))
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(w, si) in list" :key="w.id">
+            <tr v-for="w in list" :key="w.id">
               <td class="font-medium tabular-nums">{{ w.id }}</td>
               <td>
                 <Badge :variant="w.type === 1 ? 'success' : 'default'" class="inline-flex items-center gap-1">
@@ -75,15 +79,13 @@ onUnmounted(() => window.removeEventListener('click', closeMenu))
               <td class="font-mono text-xs dim">{{ w.appsecret }}</td>
               <td class="col-center">
                 <div class="relative inline-block">
-                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(w.id)">
+                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(w.id, $event)">
                     <MoreHorizontal class="size-4" />
                   </Button>
                   <div
                     v-if="openMenu === w.id"
                     class="menu-panel absolute right-0 z-20 w-32"
-                    :class="si >= list.length - 3 && list.length > 3
-                      ? 'bottom-full mb-1.5'
-                      : 'top-full mt-1.5'"
+                    :class="dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
                     @click.stop
                   >
                     <button class="menu-item" @click="openMenu = null">

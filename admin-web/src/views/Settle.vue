@@ -30,6 +30,7 @@ import {
 } from '@/lib/api/settle'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
+import { shouldDropUp } from '@/composables/useRowMenu'
 import { formatMoney } from '@/lib/utils'
 
 const toast = useToast()
@@ -155,8 +156,11 @@ watch(filters, () => {
 
 // ===== 行操作菜单 =====
 const openMenu = ref<number | null>(null)
-function toggleMenu(id: number) {
-  openMenu.value = openMenu.value === id ? null : id
+const dropUp = ref(false)
+function toggleMenu(id: number, ev?: MouseEvent) {
+  if (openMenu.value === id) { openMenu.value = null; return }
+  openMenu.value = id
+  dropUp.value = shouldDropUp(ev)
 }
 function closeMenu() {
   openMenu.value = null
@@ -472,7 +476,7 @@ function submitExport() {
         <Button variant="outline" size="sm" :disabled="busy" @click="bulkStatus(2)"><Clock />正在结算</Button>
         <Button variant="outline" size="sm" :disabled="busy" @click="bulkStatus(0)"><RotateCcw />待结算</Button>
       </template>
-      <div class="overflow-x-auto">
+      <div>
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
@@ -490,7 +494,7 @@ function submitExport() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(r, si) in pageRows" :key="r.id">
+            <tr v-for="r in pageRows" :key="r.id">
               <td class="col-center">
                 <input type="checkbox" :checked="selected.has(r.id)" @change="toggleOne(r.id)" />
               </td>
@@ -528,15 +532,13 @@ function submitExport() {
               </td>
               <td class="col-center">
                 <div class="relative inline-block">
-                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(r.id)">
+                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(r.id, $event)">
                     <MoreHorizontal class="size-4" />
                   </Button>
                   <div
                     v-if="openMenu === r.id"
                     class="menu-panel absolute right-0 z-20 w-36"
-                    :class="si >= pageRows.length - 3 && pageRows.length > 3
-                      ? 'bottom-full mb-1.5'
-                      : 'top-full mt-1.5'"
+                    :class="dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
                     @click.stop
                   >
                     <button class="menu-item" @click="changeStatus(r.id, 1)">

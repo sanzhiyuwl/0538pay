@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Plus, MoreHorizontal, Pencil, Trash2, ReceiptText, Monitor, Smartphone, MonitorSmartphone } from 'lucide-vue-next'
 import { Panel, Button, Switch } from '@/components/ui'
+import { shouldDropUp } from '@/composables/useRowMenu'
 import { payTypeList, deviceText, calcPayTypeStats } from '@/lib/mock/paytypes'
 import { formatMoney } from '@/lib/utils'
 
@@ -22,8 +23,11 @@ function toggleStatus(id: number) {
 
 // 行操作菜单
 const openMenu = ref<number | null>(null)
-function toggleMenu(id: number) {
-  openMenu.value = openMenu.value === id ? null : id
+const dropUp = ref(false)
+function toggleMenu(id: number, ev?: MouseEvent) {
+  if (openMenu.value === id) { openMenu.value = null; return }
+  openMenu.value = id
+  dropUp.value = shouldDropUp(ev)
 }
 function closeMenu() {
   openMenu.value = null
@@ -61,7 +65,7 @@ onUnmounted(() => window.removeEventListener('click', closeMenu))
 
     <!-- 列表 -->
     <Panel title="支付方式列表" :subtitle="`${types.length} 个`">
-      <div class="overflow-x-auto">
+      <div>
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
@@ -75,7 +79,7 @@ onUnmounted(() => window.removeEventListener('click', closeMenu))
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(t, si) in types" :key="t.id">
+            <tr v-for="t in types" :key="t.id">
               <td class="font-medium tabular-nums">{{ t.id }}</td>
               <td class="font-mono text-[13px] text-primary">{{ t.name }}</td>
               <td>
@@ -103,15 +107,13 @@ onUnmounted(() => window.removeEventListener('click', closeMenu))
               </td>
               <td class="col-center">
                 <div class="relative inline-block">
-                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(t.id)">
+                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(t.id, $event)">
                     <MoreHorizontal class="size-4" />
                   </Button>
                   <div
                     v-if="openMenu === t.id"
                     class="menu-panel absolute right-0 z-20 w-32"
-                    :class="si >= types.length - 3 && types.length > 3
-                      ? 'bottom-full mb-1.5'
-                      : 'top-full mt-1.5'"
+                    :class="dropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'"
                     @click.stop
                   >
                     <button class="menu-item" @click="openMenu = null">
