@@ -16,10 +16,52 @@ type MerchantAuthHandler struct {
 	reg     *service.MerchantRegService // 自助流程（可空，SetRegService 注入）
 	captcha *service.CaptchaService     // 图形验证码（可空）
 	oauth   *service.OAuthService       // 快捷登录（可空，SetOAuthService 注入）
+	sms     *service.SmsService         // 短信 OTP（可空）
+	geetest *service.GeetestService     // 极验（可空）
 }
 
 // SetOAuthService 注入快捷登录服务（QQ/微信/支付宝 OAuth）。
 func (h *MerchantAuthHandler) SetOAuthService(o *service.OAuthService) { h.oauth = o }
+
+// SetSmsGeetest 注入短信 OTP + 极验服务。
+func (h *MerchantAuthHandler) SetSmsGeetest(sms *service.SmsService, gt *service.GeetestService) {
+	h.sms = sms
+	h.geetest = gt
+}
+
+// SendSms POST /api/merchant/sms {scene,phone} 发送短信验证码（公开，频控在 service）。
+func (h *MerchantAuthHandler) SendSms(c *gin.Context) {
+	if h.sms == nil {
+		resp.Fail(c, 1101, "短信服务未启用")
+		return
+	}
+	var req struct {
+		Scene string `json:"scene"`
+		Phone string `json:"phone" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	scene := req.Scene
+	if scene == "" {
+		scene = "reg"
+	}
+	if err := h.sms.Send(c.Request.Context(), scene, req.Phone, c.ClientIP()); err != nil {
+		failFromMerchantAuthErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"sent": true})
+}
+
+// GeetestInit GET /api/merchant/geetest 极验初始化参数（公开）。
+func (h *MerchantAuthHandler) GeetestInit(c *gin.Context) {
+	if h.geetest == nil || !h.geetest.Enabled() {
+		resp.OK(c, gin.H{"enabled": false})
+		return
+	}
+	resp.OK(c, gin.H{"enabled": true, "params": h.geetest.InitParams()})
+}
 
 // OAuthURL GET /api/merchant/oauth/:provider/url?redirect=&state= 生成授权跳转 URL（公开）。
 func (h *MerchantAuthHandler) OAuthURL(c *gin.Context) {

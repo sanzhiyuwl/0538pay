@@ -25,8 +25,12 @@ type MerchantCenterService struct {
 	accounts  *repository.AccountRepo
 	channels  *repository.ChannelRepo
 	groups    *repository.GroupRepo
-	pay       *PayService // 复用商户通知重发
+	pay       *PayService        // 复用商户通知重发
+	certVerify *CertVerifyService // 实名第三方核验（可空；SetCertVerify 注入）
 }
+
+// SetCertVerify 注入实名第三方核验服务。
+func (s *MerchantCenterService) SetCertVerify(c *CertVerifyService) { s.certVerify = c }
 
 func NewMerchantCenterService(
 	merchants *repository.MerchantRepo,
@@ -162,7 +166,7 @@ func (s *MerchantCenterService) CertSubmit(uid uint, req dto.CertSubmitReq) erro
 	if certMoney.GreaterThan(decimal.Zero) && m.Money.LessThan(certMoney) {
 		return maErr("余额不足以支付实名认证工本费")
 	}
-	// 存审核中信息（cert=0），真实核验待第三方凭证
+	// 先存认证信息（cert 保持 0 审核中）。
 	fields := map[string]interface{}{
 		"cert_type": req.CertType,
 		"cert_name": name,
@@ -172,7 +176,28 @@ func (s *MerchantCenterService) CertSubmit(uid uint, req dto.CertSubmitReq) erro
 	if err := s.merchants.UpdateFields(uid, fields); err != nil {
 		return err
 	}
-	return maErr("实名信息已提交，第三方认证渠道待接入凭证，暂无法完成核验")
+
+	// 第三方核验（对齐 epay cert_open 分派）。同步方式(手机三要素)凭证到位即可真核；
+	// 异步/人脸方式返回待凭证提示。核验通过才 cert=1 + 扣工本费（对齐 epay 成功才扣）。
+	if s.certVerify == nil {
+		return maErr("实名核验服务未启用")
+	}
+	passed, verr := s.certVerify.Verify(context.Background(), name, no, m.Phone)
+	if verr != nil {
+		return verr // 待凭证/未通过，如实上抛（cert 仍为 0，信息已暂存）
+	}
+	if !passed {
+		return maErr("实名核验未通过，请核对姓名与证件信息")
+	}
+	// 核验通过：cert=1 + certtime，扣工本费。
+	now := time.Now()
+	if err := s.merchants.UpdateFields(uid, map[string]interface{}{"cert": 1, "cert_time": now}); err != nil {
+		return err
+	}
+	if certMoney.GreaterThan(decimal.Zero) {
+		_ = s.accounts.ChangeUserMoney(uid, certMoney, false, "实名认证", "")
+	}
+	return nil
 }
 
 // maskName 姓名脱敏（保留首字，其余打星）。

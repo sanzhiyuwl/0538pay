@@ -117,6 +117,7 @@ func main() {
 	merchantCenterSvc := service.NewMerchantCenterService(
 		merchantRepo, orderRepo, recordRepo, settleRepo, accountRepo, channelRepo, groupRepo, paySvc,
 	)
+	merchantCenterSvc.SetCertVerify(service.NewCertVerifyService(configSvc)) // 实名第三方核验
 	// 邀请返现：支付成功钩子返现到上级余额 + 统计（对齐 epay invite.php + functions.php）。
 	inviteRewardSvc := service.NewInviteRewardService(merchantRepo, accountRepo, recordRepo, configSvc)
 	paySvc.SetInviteReward(inviteRewardSvc)
@@ -154,6 +155,10 @@ func main() {
 	// 快捷登录 OAuth（QQ/微信/支付宝，复用密码/密钥登录做绑定校验）。
 	oauthSvc := service.NewOAuthService(merchantRepo, configSvc, jm, merchantAuthSvc)
 	merchantAuthHandler.SetOAuthService(oauthSvc)
+	// 短信 OTP + 极验滑块（与图形验证码并存，凭证到位即真发/真校验）。
+	smsSvc := service.NewSmsService(repository.NewRegCodeRepo(db), configSvc)
+	geetestSvc := service.NewGeetestService(configSvc)
+	merchantAuthHandler.SetSmsGeetest(smsSvc, geetestSvc)
 
 	deps := router.Deps{
 		JWT:            jm,

@@ -57,5 +57,6 @@ func AutoMigrate(db *gorm.DB) error {
 		&Message{},
 		&MessageRead{},
 		&Announce{},
+		&RegCode{},
 	)
 }

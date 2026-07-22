@@ -263,6 +263,9 @@ func Setup(r *gin.Engine, d Deps) {
 		merchant.GET("/oauth/:provider/url", d.MerchantAuth.OAuthURL)
 		merchant.POST("/oauth/:provider/callback", d.MerchantAuth.OAuthCallback)
 		merchant.POST("/oauth/bind", d.MerchantAuth.OAuthBind)
+		// 短信 OTP + 极验（公开；与图形验证码并存，前端二选一）
+		merchant.POST("/sms", d.MerchantAuth.SendSms)
+		merchant.GET("/geetest", d.MerchantAuth.GeetestInit)
 
 		mAuthed := merchant.Group("")
 		mAuthed.Use(middleware.Auth(d.JWT, "merchant"))
