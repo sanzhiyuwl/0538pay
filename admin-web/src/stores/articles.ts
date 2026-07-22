@@ -11,6 +11,8 @@ import {
   type Article,
   type ArticleCategory,
 } from '@/lib/mock/articles'
+import { fetchSiteConfig, saveSiteConfig } from '@/lib/api/siteConfig'
+import { getToken } from '@/lib/api/client'
 
 const STORAGE_KEY = 'site-articles'
 
@@ -100,6 +102,32 @@ export const useArticlesStore = defineStore('site-articles', () => {
     Object.fromEntries(categories.value.map((c) => [c.id, c.name])),
   )
 
+  // 后端同步（对齐 siteContent/siteDocs：hydrate 拉取 + 变更防抖推后端，仅 admin token 时推）。
+  let hydrated = false
+  async function hydrate() {
+    if (hydrated) return
+    hydrated = true
+    try {
+      const remote = await fetchSiteConfig<Persisted>('articles')
+      if (remote && Array.isArray(remote.categories) && Array.isArray(remote.articles)) {
+        categories.value = remote.categories
+        articles.value = remote.articles
+      }
+    } catch {
+      // 后端不可用时用本地缓存
+    }
+  }
+
+  let pushTimer: ReturnType<typeof setTimeout> | null = null
+  function pushBackend() {
+    // 仅在后台(admin token)时推后端，官网公开页只读不误写。
+    if (!getToken()) return
+    if (pushTimer) clearTimeout(pushTimer)
+    pushTimer = setTimeout(() => {
+      saveSiteConfig('articles', { categories: categories.value, articles: articles.value }).catch(() => {})
+    }, 800)
+  }
+
   watch(
     [categories, articles],
     () => {
@@ -107,6 +135,7 @@ export const useArticlesStore = defineStore('site-articles', () => {
         STORAGE_KEY,
         JSON.stringify({ categories: categories.value, articles: articles.value }),
       )
+      pushBackend()
     },
     { deep: true },
   )
@@ -114,6 +143,7 @@ export const useArticlesStore = defineStore('site-articles', () => {
   return {
     categories,
     articles,
+    hydrate,
     reset,
     addCategory,
     updateCategory,

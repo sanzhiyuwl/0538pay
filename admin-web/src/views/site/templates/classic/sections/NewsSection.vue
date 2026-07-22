@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Badge } from '@/components/ui'
 import type { SiteContent } from '@/lib/mock/site-content'
@@ -10,6 +10,7 @@ const router = useRouter()
 
 // 「最新动态」板块：按分类分列（头条 + 列表），来自文章 CMS
 const articlesStore = useArticlesStore()
+onMounted(() => articlesStore.hydrate())
 const newsColumns = computed(() =>
   articlesStore.publishedByCategory
     .filter((col) => col.list.length > 0)

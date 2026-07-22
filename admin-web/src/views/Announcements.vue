@@ -1,21 +1,58 @@
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, Pencil, Trash2, Megaphone } from 'lucide-vue-next'
 import { Panel, Button, Switch, Drawer } from '@/components/ui'
-import { announces as source, type Announce } from '@/lib/mock/settings'
+import {
+  fetchAnnounces, createAnnounce, updateAnnounce, setAnnounceStatus, deleteAnnounce,
+  type Announce,
+} from '@/lib/api/announces'
+import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
 
-const list = ref<Announce[]>([...source].sort((a, b) => a.sort - b.sort))
+const toast = useToast()
+const list = ref<Announce[]>([])
+const loading = ref(false)
+const busy = ref(false)
+
+async function load() {
+  loading.value = true
+  try {
+    const res = await fetchAnnounces()
+    list.value = res.list || []
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载公告失败')
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
 
 const stats = computed(() => ({
   total: list.value.length,
   shown: list.value.filter((a) => a.status === 1).length,
 }))
 
-function toggleStatus(a: Announce) {
-  a.status = a.status === 1 ? 0 : 1
+async function toggleStatus(a: Announce) {
+  const next = a.status === 1 ? 0 : 1
+  try {
+    await setAnnounceStatus(a.id, next)
+    a.status = next
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '操作失败')
+  }
 }
-function remove(id: number) {
-  list.value = list.value.filter((a) => a.id !== id)
+async function remove(id: number) {
+  if (busy.value) return
+  busy.value = true
+  try {
+    await deleteAnnounce(id)
+    toast.success('已删除')
+    await load()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '删除失败')
+  } finally {
+    busy.value = false
+  }
 }
 
 // ===== 添加 / 编辑抽屉 =====
@@ -33,8 +70,25 @@ function openEdit(a: Announce) {
   Object.assign(form, { content: a.content, color: a.color, sort: a.sort })
   drawerOpen.value = true
 }
-function save() {
-  drawerOpen.value = false
+async function save() {
+  if (busy.value) return
+  if (!form.content.trim()) return toast.error('请填写公告内容')
+  busy.value = true
+  try {
+    if (editingId.value) {
+      await updateAnnounce(editingId.value, { content: form.content, color: form.color, sort: form.sort })
+      toast.success('已保存')
+    } else {
+      await createAnnounce({ content: form.content, color: form.color, sort: form.sort })
+      toast.success('已发布')
+    }
+    drawerOpen.value = false
+    await load()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    busy.value = false
+  }
 }
 
 // 预设颜色

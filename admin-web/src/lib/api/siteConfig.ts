@@ -4,7 +4,7 @@
  */
 import { request } from './client'
 
-export type SiteConfigKey = 'content' | 'docs' | 'settings'
+export type SiteConfigKey = 'content' | 'docs' | 'settings' | 'articles'
 
 /** 读取某份 CMS 文档，返回解析后的对象；无记录或失败返回 null（调用方回退默认）。 */
 export async function fetchSiteConfig<T>(key: SiteConfigKey): Promise<T | null> {

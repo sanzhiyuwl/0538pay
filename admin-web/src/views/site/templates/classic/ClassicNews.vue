@@ -3,7 +3,7 @@
  * 官网文章详情页。/news/:id 读取文章正文（tiptap HTML）渲染。
  * 侧栏展示同分类的其它文章，便于跳转。
  */
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Eye, CalendarDays, ChevronRight } from 'lucide-vue-next'
 import { useArticlesStore } from '@/stores/articles'
@@ -11,6 +11,8 @@ import { useArticlesStore } from '@/stores/articles'
 const route = useRoute()
 const router = useRouter()
 const store = useArticlesStore()
+
+onMounted(() => store.hydrate())
 
 const id = computed(() => Number(route.params.id))
 const article = computed(() => store.getArticle(id.value))

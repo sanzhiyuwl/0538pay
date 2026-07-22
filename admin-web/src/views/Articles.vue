@@ -6,7 +6,7 @@
  * - 分类管理（Modal，增删改）
  * 数据经 useArticlesStore 持久化 → 官网首页板块 + 文章详情页实时联动。
  */
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import {
   Plus, Pencil, Trash2, FileText, Tags, Star, Eye,
 } from 'lucide-vue-next'
@@ -17,6 +17,8 @@ import type { Article, ArticleCategory } from '@/lib/mock/articles'
 
 const store = useArticlesStore()
 const toast = useToast()
+
+onMounted(() => store.hydrate())
 
 // ===== 概况 =====
 const stats = computed(() => ({
