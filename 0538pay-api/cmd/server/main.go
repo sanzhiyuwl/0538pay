@@ -125,6 +125,8 @@ func main() {
 	dashboardSvc := service.NewDashboardService(repository.NewDashboardRepo(db), repository.NewDomainRepo(db), profitRepo)
 	// 网站公告（对齐 epay gonggao.php）。
 	announceSvc := service.NewAnnounceService(repository.NewAnnounceRepo(db))
+	// 数据清理（对齐 epay clean.php）。
+	cleanSvc := service.NewCleanService(db)
 	// V2 REST 接口族（mapi）：统一验签 + 回包 RSA 签名，复用 Pay/Transfer 核心。
 	refundOrderRepo := repository.NewRefundOrderRepo(db)
 	if err := configSvc.EnsurePlatformKeys(sign.GenerateRSAKeyPair); err != nil {
@@ -170,6 +172,7 @@ func main() {
 		Message:   handler.NewMessageHandler(messageSvc),
 		Dashboard: handler.NewDashboardHandler(dashboardSvc),
 		Announce:  handler.NewAnnounceHandler(announceSvc),
+		Clean:     handler.NewCleanHandler(cleanSvc),
 	}
 
 	// 4. 定时任务（阶段E）：商户通知重试 + 未支付对账 + 超时关单 + 自动结算。

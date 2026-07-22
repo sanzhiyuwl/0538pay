@@ -41,6 +41,7 @@ type Deps struct {
 	Message        *handler.MessageHandler
 	Dashboard      *handler.DashboardHandler
 	Announce       *handler.AnnounceHandler
+	Clean          *handler.CleanHandler
 }
 
 // Setup 注册所有路由。
@@ -65,6 +66,7 @@ func Setup(r *gin.Engine, d Deps) {
 
 			// 订单管理（列表 + 写操作）
 			authed.GET("/orders", d.Order.List)
+			authed.GET("/orders/export", d.Order.Export) // 全量流式 CSV 导出
 			authed.POST("/orders/refund", d.Order.Refund)
 			authed.POST("/orders/batch", d.Order.Batch)
 			authed.PUT("/orders/:trade_no/status", d.Order.SetStatus)
@@ -195,6 +197,9 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.GET("/messages", d.Message.List)
 			authed.POST("/messages", d.Message.Send)
 			authed.DELETE("/messages/:id", d.Message.Delete)
+
+			// 数据清理（对齐 epay clean.php，高风险破坏性）
+			authed.POST("/clean", d.Clean.Clean)
 
 			// 网站公告（对齐 epay gonggao.php）
 			authed.GET("/announces", d.Announce.List)

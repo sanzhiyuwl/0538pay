@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/csv"
 	"errors"
 	"strconv"
 
@@ -1125,6 +1126,50 @@ func (h *OrderHandler) List(c *gin.Context) {
 		return
 	}
 	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// orderStatusText 订单状态中文（导出用）。
+var orderStatusText = map[int8]string{0: "待支付", 1: "已支付", 2: "已退款", 3: "已冻结", 4: "预授权"}
+
+// Export GET /api/admin/orders/export 按当前筛选条件流式导出全量订单 CSV（不受列表 ≤100 限制）。
+// 对齐 epay export.php + download.php：18 列，带 UTF-8 BOM 供 Excel 正确识别中文。
+func (h *OrderHandler) Export(c *gin.Context) {
+	var q dto.OrderQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	rows, err := h.svc.ExportRows(q)
+	if err != nil {
+		resp.Fail(c, 1002, "导出失败: "+err.Error())
+		return
+	}
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", `attachment; filename="orders.csv"`)
+	// UTF-8 BOM
+	c.Writer.Write([]byte{0xEF, 0xBB, 0xBF})
+	w := csv.NewWriter(c.Writer)
+	_ = w.Write([]string{
+		"系统订单号", "商户订单号", "接口订单号", "商户号", "商品名称", "订单金额", "实付金额",
+		"商户分成", "已退款", "手续费利润", "支付方式", "通道ID", "IP", "付款人", "创建时间", "完成时间", "状态",
+	})
+	for i := range rows {
+		o := &rows[i]
+		realMoney := ""
+		if o.RealMoney != nil {
+			realMoney = *o.RealMoney
+		}
+		endTime := ""
+		if o.EndTime != nil {
+			endTime = *o.EndTime
+		}
+		_ = w.Write([]string{
+			o.TradeNo, o.OutTradeNo, o.APITradeNo, strconv.FormatUint(uint64(o.UID), 10), o.Name,
+			o.Money, realMoney, o.GetMoney, o.RefundMoney, o.ProfitMoney, o.TypeShow,
+			strconv.Itoa(o.Channel), o.IP, o.Buyer, o.AddTime, endTime, orderStatusText[o.Status],
+		})
+	}
+	w.Flush()
 }
 
 // failFromOrderErr 透传 OrderError 的业务码。

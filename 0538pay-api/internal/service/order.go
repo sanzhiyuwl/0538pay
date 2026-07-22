@@ -45,6 +45,20 @@ func (s *OrderService) List(q dto.OrderQuery) ([]dto.OrderView, int64, error) {
 	return views, total, nil
 }
 
+// ExportRows 按当前筛选条件取全量订单（供后台流式 CSV 导出，不受列表分页 ≤100 限制）。
+// 上限 100000 条对齐 epay download.php。返回对外 View。
+func (s *OrderService) ExportRows(q dto.OrderQuery) ([]dto.OrderView, error) {
+	list, err := s.repo.ExportAll(q, 100000)
+	if err != nil {
+		return nil, err
+	}
+	views := make([]dto.OrderView, 0, len(list))
+	for i := range list {
+		views = append(views, toOrderView(&list[i]))
+	}
+	return views, nil
+}
+
 // ListByMerchant 商户端订单查询：强制限定当前商户 uid，防止越权查他人订单。
 func (s *OrderService) ListByMerchant(uid uint, q dto.OrderQuery) ([]dto.OrderView, int64, error) {
 	q.UID = &uid

@@ -839,3 +839,25 @@ func (r *OrderRepo) List(q dto.OrderQuery) ([]model.Order, int64, error) {
 	}
 	return list, total, nil
 }
+
+// ExportAll 按与 List 相同的过滤条件取全量订单（不分页，供后台流式导出）。
+// 限 limit 条上限（对齐 epay download.php limit 100000）防内存爆。UID 支持商户端限定。
+func (r *OrderRepo) ExportAll(q dto.OrderQuery, limit int) ([]model.Order, error) {
+	allowedCols := map[string]bool{
+		"trade_no": true, "out_trade_no": true, "api_trade_no": true,
+		"name": true, "money": true, "realmoney": true, "domain": true,
+	}
+	tx := r.db.Model(&model.Order{})
+	if q.UID != nil {
+		tx = tx.Where("uid = ?", *q.UID)
+	}
+	if q.Keyword != "" && allowedCols[q.Column] {
+		tx = tx.Where(q.Column+" LIKE ?", "%"+q.Keyword+"%")
+	}
+	if q.Status != nil {
+		tx = tx.Where("status = ?", *q.Status)
+	}
+	var list []model.Order
+	err := tx.Order("add_time DESC").Limit(limit).Find(&list).Error
+	return list, err
+}
