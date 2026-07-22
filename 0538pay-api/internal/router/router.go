@@ -259,6 +259,10 @@ func Setup(r *gin.Engine, d Deps) {
 		merchant.GET("/captcha", d.MerchantAuth.Captcha)      // 图形验证码（公开）
 		merchant.POST("/register", d.MerchantAuth.Register)   // 注册（公开）
 		merchant.POST("/findpwd", d.MerchantAuth.FindPwd)     // 找回密码（公开）
+		// 快捷登录 OAuth（公开）
+		merchant.GET("/oauth/:provider/url", d.MerchantAuth.OAuthURL)
+		merchant.POST("/oauth/:provider/callback", d.MerchantAuth.OAuthCallback)
+		merchant.POST("/oauth/bind", d.MerchantAuth.OAuthBind)
 
 		mAuthed := merchant.Group("")
 		mAuthed.Use(middleware.Auth(d.JWT, "merchant"))

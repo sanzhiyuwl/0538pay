@@ -40,6 +40,9 @@ type Merchant struct {
 	Password  string          `gorm:"size:255" json:"-"`                            // 登录密码哈希，不输出
 	CodeName  string          `gorm:"column:codename;size:64" json:"-"`             // 聚合收款码收款方名称（对齐 epay pre_user.codename）
 	OpenCode  int8            `gorm:"column:open_code;default:0" json:"-"`          // 单独开启聚合收款 0/1（对齐 epay pre_user.open_code）
+	QQUID     string          `gorm:"column:qq_uid;size:64;index" json:"-"`         // QQ 快捷登录 openid（对齐 epay pre_user.qq_uid）
+	WxUID     string          `gorm:"column:wx_uid;size:64;index" json:"-"`         // 微信快捷登录 openid（对齐 epay pre_user.wx_uid）
+	AlipayUID string          `gorm:"column:alipay_uid;size:64;index" json:"-"`     // 支付宝快捷登录 user_id（对齐 epay pre_user.alipay_uid）
 }
 
 func (Merchant) TableName() string { return "pay_merchant" }

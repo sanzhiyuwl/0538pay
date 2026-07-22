@@ -151,6 +151,9 @@ func main() {
 
 	merchantAuthHandler := handler.NewMerchantAuthHandler(merchantAuthSvc)
 	merchantAuthHandler.SetRegService(merchantRegSvc, captchaSvc) // 注入自助流程 + 图形验证码
+	// 快捷登录 OAuth（QQ/微信/支付宝，复用密码/密钥登录做绑定校验）。
+	oauthSvc := service.NewOAuthService(merchantRepo, configSvc, jm, merchantAuthSvc)
+	merchantAuthHandler.SetOAuthService(oauthSvc)
 
 	deps := router.Deps{
 		JWT:            jm,

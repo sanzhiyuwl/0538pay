@@ -207,6 +207,32 @@ func (r *MerchantRepo) FindSettleable(minMoney decimal.Decimal, limit int) ([]mo
 	return list, err
 }
 
+// FindByOAuth 按第三方 openid 查商户（快捷登录）。col 限 qq_uid/wx_uid/alipay_uid。未找到 (nil,nil)。
+func (r *MerchantRepo) FindByOAuth(col, openid string) (*model.Merchant, error) {
+	allowed := map[string]bool{"qq_uid": true, "wx_uid": true, "alipay_uid": true}
+	if !allowed[col] || openid == "" {
+		return nil, nil
+	}
+	var m model.Merchant
+	err := r.db.Where(col+" = ?", openid).First(&m).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// BindOAuth 把第三方 openid 绑定到指定商户（col 限 qq_uid/wx_uid/alipay_uid）。
+func (r *MerchantRepo) BindOAuth(uid uint, col, openid string) error {
+	allowed := map[string]bool{"qq_uid": true, "wx_uid": true, "alipay_uid": true}
+	if !allowed[col] {
+		return nil
+	}
+	return r.db.Model(&model.Merchant{}).Where("uid = ?", uid).Update(col, openid).Error
+}
+
 // CountByUpID 统计某商户名下已邀请的下级商户数（upid=uid）。对齐 epay 邀请人数统计。
 func (r *MerchantRepo) CountByUpID(uid uint) (int64, error) {
 	var n int64

@@ -1344,6 +1344,26 @@ type DashRecentOrder struct {
 
 // ---- 网站公告（对齐 epay pre_anounce）----
 
+// ---- 快捷登录 OAuth（对齐 epay connect/wxlogin/oauth）----
+
+// OAuthResult 快捷登录结果：已绑定则返回 token+info；未绑定返回 need_bind + openid。
+type OAuthResult struct {
+	Token    string        `json:"token,omitempty"`
+	Info     *MerchantInfo `json:"info,omitempty"`
+	NeedBind bool          `json:"need_bind"`
+	Provider string        `json:"provider,omitempty"`
+	OpenID   string        `json:"openid,omitempty"` // 未绑定时回传，前端绑定时带回
+}
+
+// OAuthBindReq 未绑定用户输入商户账号+密码绑定 openid。
+type OAuthBindReq struct {
+	Provider string `json:"provider" binding:"required"`
+	OpenID   string `json:"openid" binding:"required"`
+	Account  string `json:"account" binding:"required"`
+	Password string `json:"password"`
+	Type     int8   `json:"type"` // 复用 MerchantLoginReq 语义 0密钥/1密码
+}
+
 // AdminAnnounceView 公告对外响应（后台管理，含 sort/status/addtime）。
 type AdminAnnounceView struct {
 	ID      uint   `json:"id"`

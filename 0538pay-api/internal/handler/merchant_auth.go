@@ -15,6 +15,66 @@ type MerchantAuthHandler struct {
 	svc     *service.MerchantAuthService
 	reg     *service.MerchantRegService // 自助流程（可空，SetRegService 注入）
 	captcha *service.CaptchaService     // 图形验证码（可空）
+	oauth   *service.OAuthService       // 快捷登录（可空，SetOAuthService 注入）
+}
+
+// SetOAuthService 注入快捷登录服务（QQ/微信/支付宝 OAuth）。
+func (h *MerchantAuthHandler) SetOAuthService(o *service.OAuthService) { h.oauth = o }
+
+// OAuthURL GET /api/merchant/oauth/:provider/url?redirect=&state= 生成授权跳转 URL（公开）。
+func (h *MerchantAuthHandler) OAuthURL(c *gin.Context) {
+	if h.oauth == nil {
+		resp.Fail(c, 1101, "快捷登录未启用")
+		return
+	}
+	u, err := h.oauth.AuthorizeURL(c.Param("provider"), c.Query("redirect"), c.Query("state"))
+	if err != nil {
+		failFromMerchantAuthErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"url": u})
+}
+
+// OAuthCallback POST /api/merchant/oauth/:provider/callback {code,redirect} 回调换 openid → 登录或 need_bind（公开）。
+func (h *MerchantAuthHandler) OAuthCallback(c *gin.Context) {
+	if h.oauth == nil {
+		resp.Fail(c, 1101, "快捷登录未启用")
+		return
+	}
+	var req struct {
+		Code     string `json:"code" binding:"required"`
+		Redirect string `json:"redirect"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	out, err := h.oauth.Callback(c.Request.Context(), c.Param("provider"), req.Code, req.Redirect, c.ClientIP())
+	if err != nil {
+		failFromMerchantAuthErr(c, err)
+		return
+	}
+	resp.OK(c, out)
+}
+
+// OAuthBind POST /api/merchant/oauth/bind 未绑定用户输入账号密码绑定 openid 并登录（公开）。
+func (h *MerchantAuthHandler) OAuthBind(c *gin.Context) {
+	if h.oauth == nil {
+		resp.Fail(c, 1101, "快捷登录未启用")
+		return
+	}
+	var req dto.OAuthBindReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	out, err := h.oauth.Bind(req.Provider, req.OpenID,
+		dto.MerchantLoginReq{Type: req.Type, Account: req.Account, Password: req.Password}, c.ClientIP())
+	if err != nil {
+		failFromMerchantAuthErr(c, err)
+		return
+	}
+	resp.OK(c, out)
 }
 
 func NewMerchantAuthHandler(svc *service.MerchantAuthService) *MerchantAuthHandler {
