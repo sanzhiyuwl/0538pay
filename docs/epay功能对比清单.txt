@@ -465,9 +465,17 @@
   🎨  QQ 快捷登录/扫码  epay connect.php/qrlogin.php
   🎨  微信快捷登录      epay wxlogin.php
   🎨  支付宝快捷登录     epay oauth.php
-  🎨  注册(邀请码/须知/验证码)  epay reg.php → MerchantReg.vue
-  🎨  找回密码          epay findpwd.php → MerchantFindpwd.vue
-  🎨  强制完善资料       epay completeinfo.php → MerchantComplete.vue
+  ✅  注册(邀请码/审核/验证码)  epay reg.php → MerchantReg.vue [真接口 2026-07-22]
+        —— POST /merchant/register:reg_open(0关/1开/2仅邀请)分支 + 图形验证码(自研,代替短信/邮箱OTP) + 邀请码校验核销(复用C5 invite Verify/MarkUsed) +
+           user_review→pay字段(审核开 pay=2 待审,status恒1,对齐epay) + bcrypt密码(不移植epay md5,与现有登录一致) + 32位密钥 + 邮箱/手机格式与查重。
+           真跑:reg_open=1开放注册可登录、reg_open=2无码拒/带码成功+核销、错验证码/重复邮箱/纯数字密码全拒、user_review=1→need_review=true。
+        —— 图形验证码 GET /merchant/captcha(SVG+token,内存存储带5min过期,一次性防重放)。短信/邮箱 OTP + 极验待外部凭证(可后续增强)。
+  ✅  找回密码          epay findpwd.php → MerchantFindpwd.vue [真接口 2026-07-22]
+        —— POST /merchant/findpwd:账号存在校验(与注册相反,必须已注册) + 图形验证码守卫 + bcrypt 重置。真跑:新密码登录成功/旧密码被拒。
+           短信/邮箱 OTP 发送待凭证,本实现用图形验证码防刷。
+  ✅  强制完善资料       epay completeinfo.php → MerchantComplete.vue [真接口 2026-07-22]
+        —— POST /merchant/complete(需登录):结算方式(1支付宝2微信3QQ4银行卡)分类型校验账号 + 姓名/QQ/域名校验入库 + 已完善拒重复。
+           真跑:空资料商户完善成功、重复完善被拒。reg_input_settle 强制条件由前端引导(index 判 account/username 空)。微信 OpenId 扫码获取待凭证。
 
 【用户中心首页】(D2 2026-07-21 切真接口)
   ✅  工作台仪表盘(余额/订单/结算/今昨收入/费率表/曲线)  epay index.php → MerchantHome.vue [真接口]

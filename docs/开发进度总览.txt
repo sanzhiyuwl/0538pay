@@ -322,6 +322,15 @@
        —— 真跑:三表 CRUD/状态/删除护/唯一校验/删除级联 全通过。踩坑:GORM 默认 WID→w_id 列名,子表关联查询需显式 column:wid。
        —— 不做(如实标注):Plugins(epay 扫目录只读,我方=channel registry,概念差异)、GetToken(依赖真实微信/支付宝授权回调无法闭环)、WxkfSettings(纯config,可后续并入config域)。
 
+    ✅ C12 商户自助流程(注册/完善资料/找回密码)切真接口（2026-07-22）：商户中心自助流程从 mock 切真，A类缺口第一批。
+       —— 图形验证码(自研 CaptchaService,SVG+token 内存存储带5min过期一次性,代替 epay 短信/邮箱 OTP+极验) GET /merchant/captcha。
+       —— 注册 POST /merchant/register:reg_open(0关/1开/2仅邀请)分支 + 邀请码校验核销(复用C5 invite) + user_review→pay字段(审核态落pay,status恒1对齐epay) +
+          bcrypt密码(不移植epay md5两步哈希,与现有登录一致) + 32位密钥 + 邮箱/手机格式与查重 + 图形验证码。
+       —— 完善资料 POST /merchant/complete(需登录):结算方式分类型校验+姓名/QQ/域名+已完善拒重复。找回密码 POST /merchant/findpwd:账号存在+图形验证码+bcrypt重置。
+       —— MerchantRegService + CaptchaService + 3 路由 + MerchantReg/Complete/Findpwd.vue 全切真接口(图形验证码替换原OTP倒计时UI)。
+       —— 真跑全绿:reg_open三模式(开放注册可登录/邀请无码拒带码成功核销)、错验证码/重复邮箱/纯数字密码全拒、user_review=1待审核、完善资料空成功重复拒、找回密码新登旧拒。
+       —— 缺(待外部凭证):短信/邮箱 OTP 发送、极验滑块、微信 OpenId 扫码获取、reg_pay 付费注册(依赖支付通道)。
+
   ----------------------------------------------------------------
   阶段 D — 商户中心 /m 接后端
   ----------------------------------------------------------------
