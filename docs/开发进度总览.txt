@@ -314,6 +314,14 @@
           refund(reducemoney按比例)→refundquery→merchant/info统计→orders列表→transfer/submit(cost含手续费)/balance；错签-3、未知接口-5、退款幂等(重退返回同refund_no)全通过。
        —— 缺：transfer proof 真实回单 + 真实渠道打款待凭证(对齐 C3)；epay V1 api.php?act= GET 明文接口不造(已被 V2 取代)。
 
+    ✅ C11 支付接口配置页(支付方式/公众号小程序/企业微信)切真接口（2026-07-22）：后台「支付接口」剩余配置页从 mock 切真。
+       —— pay_type(支付方式,name/showname/device/status,无icon/sort对齐epay) CRUD+状态,删除护(系统自带id<4 + 被通道type引用拒删),name字母数字+name+device唯一。
+       —— pay_weixin(公众号/小程序,type/name/appid/appsecret明文,无状态开关) CRUD,name+appid唯一,appsecret脱敏+编辑留空不改。
+       —— pay_wework(企业微信,+子表 pay_wxkfaccount 客服账号 wid关联) CRUD+状态,删除级联删客服账号(事务),name+appid唯一。
+       —— PayTypes/Wechat/Wework.vue 全切真接口 + api 模块 paycfg.ts + seedpaytypes。测试/刷客服等依赖真实微信/企微凭证的按钮如实提示待凭证。
+       —— 真跑:三表 CRUD/状态/删除护/唯一校验/删除级联 全通过。踩坑:GORM 默认 WID→w_id 列名,子表关联查询需显式 column:wid。
+       —— 不做(如实标注):Plugins(epay 扫目录只读,我方=channel registry,概念差异)、GetToken(依赖真实微信/支付宝授权回调无法闭环)、WxkfSettings(纯config,可后续并入config域)。
+
   ----------------------------------------------------------------
   阶段 D — 商户中心 /m 接后端
   ----------------------------------------------------------------

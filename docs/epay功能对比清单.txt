@@ -336,11 +336,20 @@
 
 【支付接口】
   ✅  支付通道 CRUD/费率/成功率  epay pay_channel.php → Channels.vue [列表+写操作全真接口]
-  🎨  支付方式 启用/配置          epay pay_type.php → PayTypes.vue
+  ✅  支付方式 启用/配置          epay pay_type.php → PayTypes.vue [真接口 2026-07-22]
+        —— pay_type 表(name/showname/device/status,无icon/sort对齐epay) + CRUD+状态 + PayTypes.vue 全切真接口。
+           校验:name字母数字/name+device唯一/新增默认开启。删除护:系统自带 id<4 拒删 + 被通道(channel.type)引用拒删。
+           真跑:列表/增/dup拒/非法name拒/删系统自带拒/状态/删自定义 全通过。今日收款派生暂给0(接订单聚合后补)。seed cmd/seedpaytypes。
   🎨  支付插件列表                epay pay_plugin.php → Plugins.vue
   ✅  通道轮询规则                epay pay_roll.php → Rolls.vue [真接口 2026-07-22，详见上方渠道层级]
-  🎨  微信公众号/小程序账号        epay pay_weixin.php → Wechat.vue
-  🎨  企业微信账号                epay pay_wework.php → Wework.vue
+  ✅  微信公众号/小程序账号        epay pay_weixin.php → Wechat.vue [真接口 2026-07-22]
+        —— pay_weixin 表(type/name/appid/appsecret明文+access_token运行时,无状态开关对齐epay) + CRUD + Wechat.vue 全切真接口。
+           校验:name唯一/appid唯一;appsecret 脱敏展示,编辑留空不改。真跑:增/dup appid拒/改名/删 通过。
+           "测试"(换 access_token)依赖真实微信凭证,如实提示待凭证。删除护:epay 校验被 channel.appwxmp/appwxa 引用;我方 channel 无该字段,无引用可能。
+  ✅  企业微信账号                epay pay_wework.php → Wework.vue [真接口 2026-07-22]
+        —— pay_wework 表(name/appid企业ID/appsecret明文+状态) + 子表 pay_wxkfaccount(客服账号,wid关联) + CRUD+状态 + Wework.vue 全切真接口。
+           校验:name唯一/appid唯一;appsecret脱敏,编辑留空不改。删除级联删子表客服账号(事务)。真跑:增/dup name拒/状态/删级联 通过。
+           "刷新客服/测试"依赖真实企微凭证,如实提示待凭证;客服账号非手工CRUD(靠刷新从企微同步)。
   🎨  微信客服支付(H5跳转)         epay set_wxkf.php → WxkfSettings.vue
   🎨  获取用户标识(openid工具)     epay gettoken.php → GetToken.vue
   🎨  支付相关配置                epay set.php?mod=pay → PaySettings.vue
