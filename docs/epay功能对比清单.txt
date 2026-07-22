@@ -326,13 +326,18 @@
            下单白名单校验接进收单链(域名或*.主域名通配命中status=1才放行;商户无任何域名记录则视为未开启,放行)。
            后台添加免审status=1;真跑:添加精确+通配域名、非法域名拒绝、改状态刷新审核时间、批量、
            **白名单强制**:uid1配域名后未授权127.0.0.1被拦、已授权pay.shop1.com放行。
-        —— 缺:商户自助端添加(待审status=0,归商户中心);checkDomain更严格校验。
+        —— ✅ 商户自助端添加(待审status=0)已补(2026-07-22),见第五部分商户中心「授权域名管理」。checkDomain 更严格校验(通配符位置等)待后续。
   ✅  邀请码生成/列表/删除/清空  epay invitecode.php → InviteCodes.vue [真接口]
         —— pay_invitecode 表(code唯一/status/addtime/usetime/uid) + 5接口(列表/生成/删除/清空全部/清空已使用) +
            InviteService(生成8位crypto随机码,Verify注册校验,MarkUsed核销)。InviteCodes.vue 切真接口。
            真跑:生成5个随机码、删除、清空已使用。regcode(注册码)辨析:epay 的 pre_regcode 是短信/邮箱验证码OTP表,
            不是注册授权码,epay 无 regcode 管理页,故不做(精仿铁律)。注册核销 hook 待注册接口(reg_open=邀请模式)。
       —— 列表已真，其余全 mock。
+  ✅  站内信下发                epay 无此实体 → Messages.vue [真接口 2026-07-22,我方新增]
+        —— pay_message + pay_message_read 两表 + 3接口(列表/下发全体或定向/删除)。Messages.vue(下发抽屉:全体广播/指定商户 uid)。
+           商户端收件箱见第五部分。epay 的 MsgNotice 是对外推送(微信/短信/邮件)非站内信,我方新增此功能不算精仿缺口。
+  ✅  使用说明编辑              epay help.php(硬编码) → HelpSettings.vue [真接口 2026-07-22,后台可编辑超出 epay]
+        —— config help 分组(help_content HTML)。HelpSettings.vue(编辑+预览)存 config;商户端 MerchantHelp.vue 读取,见第五部分。
 
 【支付接口】
   ✅  支付通道 CRUD/费率/成功率  epay pay_channel.php → Channels.vue [列表+写操作全真接口]
@@ -527,7 +532,11 @@
            GET /merchant/groups + POST /groups/buy。时长:续期从原到期累加/新购从当前累加/expire=0永久。
            真跑:余额购白银¥30(余额-30/gid=2)、续期2月¥60(到期从07-17→08-17累加)、渠道支付待凭证提示、流水'购买会员'。
            seed见 cmd/seedgroups。
-  🎨  授权域名管理                epay domain.php → MerchantDomains.vue
+  ✅  授权域名管理                epay domain.php → MerchantDomains.vue [真接口 2026-07-22]
+        —— 商户自助端(uid scope):DomainService.MerchantList/MerchantAdd/MerchantDelete + 3接口
+           (GET/POST/DELETE /merchant/domains)。添加默认 status=0 待审核(对齐 epay 商户自助,区别于后台添加免审 status=1);
+           格式校验复用 validDomain(支持 *. 通配)+ 同 uid 去重;删除限本人 uid scope 防越权。MerchantDomains.vue 切真接口。
+           真跑:添加 shop.test.com→status=0 待审、非法域名拒、列表仅本人、删除本人。
   ⬜  交易投诉(complain_open)      epay complain.php → [我们未做,epay源码也缺此文件]
 
 【其他 / 增值】
@@ -536,11 +545,37 @@
   ✅  新增代付(支付宝/微信/银行卡)  epay transfer_add.php → MerchantTransfer 发起抽屉 [真接口]
         —— POST /merchant/transfer:校验登录密码/结算权限/单笔限额/同账号日次数上限→计费(rate 0.5%)→即时扣 cost。
            发起成功后刷新余额。真跑资金链路见上方后台代付条目(同一 TransferRepo)。
-  🎨  聚合收款码                 epay onecode.php → MerchantOnecode.vue
-  🎨  邀请返现(链接/比例/统计)     epay invite.php → MerchantInvite.vue
-  🎨  使用说明                    epay help.php → MerchantHelp.vue
-  🎨  站内信/通知抽屉             （我们扩展）
-  ⬜  测试支付(1元)              epay test.php → [未做]
+  ✅  聚合收款码                 epay onecode.php → MerchantOnecode.vue + 公开收款页 Paypage.vue [真接口 2026-07-22]
+        —— pay_merchant 加 codename(收款方名称)/open_code(单独开启) 字段(对齐 epay pre_user)。
+           GET /merchant/onecode(可用性+固定收款URL paypage?merchant=加密uid+收款方名称) + POST /merchant/onecode/name(保存名称)。
+           公开收款页(对齐 epay paypage/index.php,无需登录):GET /api/paypage/info(解密merchant→收款方+可选支付方式) +
+           POST /api/paypage/submit(输金额+选方式→CreateInternalOrder tid=0 走收单链→跳收银台)。前端 Paypage.vue(/paypage 公开路由,
+           输金额→选方式→跳 CashierMock)。MerchantOnecode.vue 切真接口 + qrcode 库渲染收款URL二维码+下载。
+           真跑:onecode 开关校验、收款URL生成、保存名称、paypage info/submit(money=5下单→收银台)。依赖全局 onecode 开关或商户 open_code。
+  ✅  邀请返现(链接/比例/统计)     epay invite.php → MerchantInvite.vue [真接口 2026-07-22]
+        —— config invite 分组(invite_open/invite_rate/invite_order_type 0金额/1手续费/2利润/invite_order_fee 是否超手续费封顶)。
+           邀请关系存 pay_merchant.upid(已有字段);注册 ?ref= 推广码(encodeInviteUID 异或混淆 uid 36进制)解出上级写 upid。
+           InviteRewardService.SettleOnPaid 挂支付成功钩子(pay_notify.settle):按比例实时返现到上级余额+写"邀请返现"流水(对齐 epay functions.php);
+           calcReward 三口径 + invite_order_fee=0 封顶不超手续费。GET /merchant/invite(推广链接+设置+统计+已邀请列表);
+           统计:CountByUpID 邀请人数 + SumInviteReward 今/昨/累计返现。MerchantInvite.vue 切真接口。
+           真跑端到端:invite_rate=10 + order_fee=1→uid2(upid=1)付100→uid1 余额+10、income_today=10.00、users=1;
+           order_fee=0 时返现封顶为手续费(mock 无费率→返0,对齐 epay"分成不超过手续费")。
+  ✅  使用说明                    epay help.php → MerchantHelp.vue [真接口 2026-07-22,后台可编辑超出 epay]
+        —— epay help.php 是硬编码静态页;我方做成后台可编辑:config help 分组(help_content HTML) + GET /merchant/help(content+sitename)。
+           后台 HelpSettings.vue(/admin/help-settings 编辑+预览) 存 config;MerchantHelp.vue 读后端,空则显示内置默认文案。
+           真跑:后台存 help_content→商户端渲染;空→默认文案。
+  ✅  站内信(收件箱/已读)         epay 无此实体 → Messages.vue(后台下发) + MerchantMessages.vue(商户收件箱) [真接口 2026-07-22,我方新增]
+        —— ★ epay 无站内信实体(MsgNotice 是对外推送微信/短信/邮件,非站内收件箱)。我方新增:pay_message(uid=0广播/定向,title/content/is_read)
+           + pay_message_read(广播信已读回执,每商户一条)。后台 3接口(列表/下发/删除,GET/POST/DELETE /admin/messages) +
+           商户 2接口(收件箱 GET /merchant/messages 含未读数、标记已读 POST /merchant/messages/:id/read)。
+           定向信改 is_read=1;广播信写回执表(幂等);未读数=定向未读+广播未回执。Messages.vue(全体/定向下发) + MerchantMessages.vue(收件箱展开即已读)。
+           真跑:广播+定向下发、收件箱 unread=2、标记已读→unread=1、删除。
+  ✅  测试支付(1元)              epay test.php → MerchantTest.vue [真接口 2026-07-22]
+        —— config test 分组(test_open 开关/test_pay_uid 固定测试收款商户,0=下到当前商户,对齐 epay)。
+           MerchantSelfService.TestPay 复用 PayService.CreateInternalOrder(tid=3 测试标记,对齐 epay test.php)走标准收单链;
+           金额上下限校验(pay_min/maxmoney);可选支付方式=有已开启且已实现渠道的支付方式(registry 过滤,避免 seed 里 alipay/wxpay 显示名下单失败)。
+           GET/POST /merchant/test。MerchantTest.vue(新建,输金额→选方式→跳收银台) + 导航「收款工具」组。
+           真跑:test_open 开关、mock 下单 money=1→收银台链接、金额校验。
 
 
 ================================================================

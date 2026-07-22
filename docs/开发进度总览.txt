@@ -331,6 +331,23 @@
        —— 真跑全绿:reg_open三模式(开放注册可登录/邀请无码拒带码成功核销)、错验证码/重复邮箱/纯数字密码全拒、user_review=1待审核、完善资料空成功重复拒、找回密码新登旧拒。
        —— 缺(待外部凭证):短信/邮箱 OTP 发送、极验滑块、微信 OpenId 扫码获取、reg_pay 付费注册(依赖支付通道)。
 
+    ✅ C13 商户中心其余自助流程(测试支付/聚合收款码/授权域名/邀请返现/使用说明/站内信)切真接口（2026-07-22）：A类缺口第二批，商户中心 mock 页收官。
+       —— 测试支付 test.php:config test 分组(test_open/test_pay_uid) + MerchantSelfService.TestPay 复用 CreateInternalOrder(tid=3)走收单链 +
+          金额上下限 + 可选支付方式按 registry 过滤。新建 MerchantTest.vue + 导航。
+       —— 授权域名 domain.php:DomainService 加 MerchantList/MerchantAdd(status=0待审)/MerchantDelete(uid scope) + 3接口。MerchantDomains.vue 切真。
+       —— 邀请返现 invite.php:config invite 分组(invite_open/invite_rate/invite_order_type/invite_order_fee) + pay_merchant.upid(注册 ?ref= 推广码解出上级) +
+          InviteRewardService.SettleOnPaid 挂支付成功钩子实时返现到上级余额+流水(三口径 calcReward,封顶不超手续费) + 统计(邀请人数/今昨累计返现)。MerchantInvite.vue 切真。
+       —— 聚合收款码 onecode.php:pay_merchant 加 codename/open_code + OnecodeInfo(固定收款URL+名称)/SaveCodeName + 公开收款页 Paypage.vue(/paypage,
+          GET /api/paypage/info + POST /api/paypage/submit→CreateInternalOrder 走收单链→跳收银台)。MerchantOnecode.vue 切真+qrcode 渲染。
+       —— 使用说明 help.php:后台可编辑(超出 epay 硬编码静态页)。config help 分组(help_content) + HelpSettings.vue(编辑预览) + MerchantHelp.vue 读后端(空则内置默认)。
+       —— 站内信(★epay 无此实体,我方新增):pay_message + pay_message_read 两表。后台 Messages.vue(全体广播/定向下发) + 商户 MerchantMessages.vue(收件箱+已读+未读数)。
+          epay 的 MsgNotice 是对外推送(微信/短信/邮件)非站内收件箱,故此为我方新增功能不计精仿缺口。
+       —— 后端:invite_reward.go/merchant_selfservice.go/message.go 三 service + message_repo.go + message.go model(2表) + merchant_center handler 追加 + selfservice.go handler(paypage/admin messages) +
+          路由(merchant 6组自助 + 公开 /paypage + admin /messages)。前端:merchantCenter.ts 追加 + paypage.ts + messages.ts + 5商户页切真+2新页 + Paypage公开页 + 后台2页 + 导航+路由。
+       —— 真跑全绿:测试支付 mock 下单→收银台、域名 status=0 待审+非法拒+uid隔离、邀请返现 upid付100→上级+10+流水+统计、
+          收款码 URL+名称+paypage info/submit、站内信广播+定向+收件箱 unread=2→已读 unread=1、使用说明后台存→商户读。go build✓ npm run build✓ dev 真跑各路由 200✓。
+       —— 缺(待外部凭证):测试支付/聚合收款真实渠道下单(mock 可闭环,同收单主链);checkDomain 更严格通配符校验(后续)。
+
   ----------------------------------------------------------------
   阶段 D — 商户中心 /m 接后端
   ----------------------------------------------------------------
