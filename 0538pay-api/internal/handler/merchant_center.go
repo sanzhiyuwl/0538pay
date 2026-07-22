@@ -11,12 +11,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// MerchantCenterHandler 商户中心业务接口（工作台/订单/流水/结算/提现/退款/代付）。
+// MerchantCenterHandler 商户中心业务接口（工作台/订单/流水/结算/提现/退款/代付/自助流程）。
 type MerchantCenterHandler struct {
 	svc         *service.MerchantCenterService
 	orderSvc    *service.OrderService
 	recSvc      *service.RecordService
 	transferSvc *service.TransferService
+	selfSvc     *service.MerchantSelfService
+	inviteSvc   *service.InviteRewardService
+	domainSvc   *service.DomainService
+	msgSvc      *service.MessageService
+	cfg         *service.ConfigService
 }
 
 func NewMerchantCenterHandler(
@@ -24,8 +29,33 @@ func NewMerchantCenterHandler(
 	orderSvc *service.OrderService,
 	recSvc *service.RecordService,
 	transferSvc *service.TransferService,
+	selfSvc *service.MerchantSelfService,
+	inviteSvc *service.InviteRewardService,
+	domainSvc *service.DomainService,
+	msgSvc *service.MessageService,
+	cfg *service.ConfigService,
 ) *MerchantCenterHandler {
-	return &MerchantCenterHandler{svc: svc, orderSvc: orderSvc, recSvc: recSvc, transferSvc: transferSvc}
+	return &MerchantCenterHandler{
+		svc: svc, orderSvc: orderSvc, recSvc: recSvc, transferSvc: transferSvc,
+		selfSvc: selfSvc, inviteSvc: inviteSvc, domainSvc: domainSvc, msgSvc: msgSvc, cfg: cfg,
+	}
+}
+
+// reqBaseURL 从请求推导站点基址（供推广链接/收款页 URL）。优先 X-Forwarded-Proto/Host。
+func reqBaseURL(c *gin.Context) string {
+	scheme := c.GetHeader("X-Forwarded-Proto")
+	if scheme == "" {
+		if c.Request.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	host := c.GetHeader("X-Forwarded-Host")
+	if host == "" {
+		host = c.Request.Host
+	}
+	return scheme + "://" + host
 }
 
 // currentUID 从鉴权上下文取当前商户号（middleware 注入，不信任前端传参）。
@@ -493,4 +523,216 @@ func (h *MerchantCenterHandler) Renotify(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"trade_no": req.TradeNo})
+}
+
+// ---- 测试支付（对齐 epay user/test.php）----
+
+// TestPayInfo GET /api/merchant/test 测试支付页信息
+func (h *MerchantCenterHandler) TestPayInfo(c *gin.Context) {
+	if _, ok := currentUID(c); !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	resp.OK(c, h.selfSvc.TestPayInfo())
+}
+
+// TestPay POST /api/merchant/test 测试支付下单（走收单链，返回收银台信息）
+func (h *MerchantCenterHandler) TestPay(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var req dto.TestPayReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	out, err := h.selfSvc.TestPay(uid, req)
+	if err != nil {
+		failMC(c, err)
+		return
+	}
+	resp.OK(c, out)
+}
+
+// ---- 聚合收款码（对齐 epay user/onecode.php）----
+
+// OnecodeInfo GET /api/merchant/onecode 聚合收款码信息
+func (h *MerchantCenterHandler) OnecodeInfo(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	out, err := h.selfSvc.OnecodeInfo(uid, reqBaseURL(c))
+	if err != nil {
+		failMC(c, err)
+		return
+	}
+	resp.OK(c, out)
+}
+
+// SaveCodeName POST /api/merchant/onecode/name 保存收款方名称
+func (h *MerchantCenterHandler) SaveCodeName(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var req dto.OnecodeNameReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.selfSvc.SaveCodeName(uid, req.CodeName); err != nil {
+		failMC(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"codename": req.CodeName})
+}
+
+// ---- 邀请返现（对齐 epay user/invite.php）----
+
+// InviteInfo GET /api/merchant/invite 返现设置 + 推广链接 + 统计 + 已邀请列表
+func (h *MerchantCenterHandler) InviteInfo(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	info := h.inviteSvc.Info(uid, reqBaseURL(c))
+	stat, err := h.inviteSvc.Stats(uid)
+	if err != nil {
+		failMC(c, err)
+		return
+	}
+	page, _ := strconv.Atoi(c.Query("page"))
+	pageSize, _ := strconv.Atoi(c.Query("pageSize"))
+	list, total, err := h.inviteSvc.List(uid, page, pageSize)
+	if err != nil {
+		failMC(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"info": info, "stat": stat, "list": list, "total": total})
+}
+
+// ---- 授权域名自助（对齐 epay user/domain.php）----
+
+// DomainList GET /api/merchant/domains 本人授权域名列表
+func (h *MerchantCenterHandler) DomainList(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	list, err := h.domainSvc.MerchantList(uid)
+	if err != nil {
+		resp.Fail(c, 1102, "查询失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"list": list})
+}
+
+// DomainAdd POST /api/merchant/domains 添加授权域名（待审 status=0）
+func (h *MerchantCenterHandler) DomainAdd(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var req struct {
+		Domain string `json:"domain" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.domainSvc.MerchantAdd(uid, req.Domain); err != nil {
+		failSelf(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"domain": req.Domain})
+}
+
+// DomainDelete DELETE /api/merchant/domains/:id 删除本人授权域名
+func (h *MerchantCenterHandler) DomainDelete(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	id, _ := strconv.Atoi(c.Param("id"))
+	if id <= 0 {
+		resp.Fail(c, 400, "参数错误")
+		return
+	}
+	if err := h.domainSvc.MerchantDelete(uid, uint(id)); err != nil {
+		failSelf(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+// ---- 使用说明（后台可编辑，读 config help_content）----
+
+// Help GET /api/merchant/help 使用说明正文
+func (h *MerchantCenterHandler) Help(c *gin.Context) {
+	if _, ok := currentUID(c); !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	resp.OK(c, gin.H{
+		"content":  h.cfg.Str("help_content"),
+		"sitename": h.cfg.Str("sitename"),
+	})
+}
+
+// ---- 站内信（我方新增）----
+
+// Messages GET /api/merchant/messages 收件箱（分页）
+func (h *MerchantCenterHandler) Messages(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	page, _ := strconv.Atoi(c.Query("page"))
+	pageSize, _ := strconv.Atoi(c.Query("pageSize"))
+	list, total, err := h.msgSvc.MerchantList(uid, page, pageSize)
+	if err != nil {
+		resp.Fail(c, 1102, "查询失败: "+err.Error())
+		return
+	}
+	unread, _ := h.msgSvc.UnreadCount(uid)
+	resp.OK(c, gin.H{"list": list, "total": total, "unread": unread})
+}
+
+// MessageRead POST /api/merchant/messages/:id/read 标记已读
+func (h *MerchantCenterHandler) MessageRead(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	id, _ := strconv.Atoi(c.Param("id"))
+	if id <= 0 {
+		resp.Fail(c, 400, "参数错误")
+		return
+	}
+	if err := h.msgSvc.MerchantRead(uid, uint(id)); err != nil {
+		resp.Fail(c, 1102, "操作失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
+// failSelf 处理 RiskError（域名服务用）与其它错误的统一返回。
+func failSelf(c *gin.Context, err error) {
+	var re *service.RiskError
+	if errors.As(err, &re) {
+		resp.Fail(c, 1102, re.Msg)
+		return
+	}
+	failMC(c, err)
 }

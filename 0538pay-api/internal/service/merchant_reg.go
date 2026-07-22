@@ -120,6 +120,16 @@ func (s *MerchantRegService) Register(req dto.MerchantRegReq) (*dto.MerchantRegR
 	if needReview {
 		pay = 2 // 待审核（对齐 epay：审核态落 pay 字段，status 恒 1）
 	}
+	// 邀请返现关系：推广码 ref 解出上级 uid（对齐 epay reg 从 ?invite= 解出 upid）。
+	// 上级须真实存在且非自身，否则 upid=0（无邀请关系）。
+	upid := 0
+	if ref := strings.TrimSpace(req.Ref); ref != "" {
+		if id := decodeInviteUID(ref); id > 0 {
+			if up, e := s.repo.FindByUID(id); e == nil && up != nil {
+				upid = int(id)
+			}
+		}
+	}
 	m := &model.Merchant{
 		GID:      0,
 		AppKey:   key,
@@ -131,6 +141,7 @@ func (s *MerchantRegService) Register(req dto.MerchantRegReq) (*dto.MerchantRegR
 		Status:   1, // 恒为 1（对齐 epay）
 		Pay:      pay,
 		Settle:   1,
+		UpID:     upid,
 		AddTime:  time.Now(),
 	}
 	if err := s.repo.Create(m); err != nil {

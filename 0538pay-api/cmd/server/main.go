@@ -112,6 +112,15 @@ func main() {
 	merchantCenterSvc := service.NewMerchantCenterService(
 		merchantRepo, orderRepo, recordRepo, settleRepo, accountRepo, channelRepo, groupRepo, paySvc,
 	)
+	// 邀请返现：支付成功钩子返现到上级余额 + 统计（对齐 epay invite.php + functions.php）。
+	inviteRewardSvc := service.NewInviteRewardService(merchantRepo, accountRepo, recordRepo, configSvc)
+	paySvc.SetInviteReward(inviteRewardSvc)
+	// 商户中心其余自助流程：测试支付 + 聚合收款码 + 公开收款页（复用 CreateInternalOrder 走收单链）。
+	merchantSelfSvc := service.NewMerchantSelfService(
+		merchantRepo, channelRepo, repository.NewPayTypeRepo(db), paySvc, configSvc,
+	)
+	// 站内信（我方新增，epay 无此实体）。
+	messageSvc := service.NewMessageService(repository.NewMessageRepo(db))
 	// V2 REST 接口族（mapi）：统一验签 + 回包 RSA 签名，复用 Pay/Transfer 核心。
 	refundOrderRepo := repository.NewRefundOrderRepo(db)
 	if err := configSvc.EnsurePlatformKeys(sign.GenerateRSAKeyPair); err != nil {
@@ -147,9 +156,14 @@ func main() {
 		Log:            handler.NewLogHandler(logSvc),
 		Invite:         handler.NewInviteHandler(inviteSvc),
 		SiteConfig:     handler.NewSiteConfigHandler(siteConfigSvc),
-		MerchantAuth:   merchantAuthHandler,
-		MerchantCenter: handler.NewMerchantCenterHandler(merchantCenterSvc, orderSvc, recordSvc, transferSvc),
-		Mapi:           handler.NewMapiHandler(mapiSvc),
+		MerchantAuth: merchantAuthHandler,
+		MerchantCenter: handler.NewMerchantCenterHandler(
+			merchantCenterSvc, orderSvc, recordSvc, transferSvc,
+			merchantSelfSvc, inviteRewardSvc, domainSvc, messageSvc, configSvc,
+		),
+		Mapi:    handler.NewMapiHandler(mapiSvc),
+		Paypage: handler.NewPaypageHandler(merchantSelfSvc),
+		Message: handler.NewMessageHandler(messageSvc),
 	}
 
 	// 4. 定时任务（阶段E）：商户通知重试 + 未支付对账 + 超时关单 + 自动结算。

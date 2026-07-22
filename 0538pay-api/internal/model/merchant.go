@@ -38,6 +38,8 @@ type Merchant struct {
 	Mode      int8            `gorm:"default:0" json:"mode"`                        // 手续费模式 0/1
 	Deposit   decimal.Decimal `gorm:"type:decimal(18,4);default:0" json:"-"`        // 保证金（原始）
 	Password  string          `gorm:"size:255" json:"-"`                            // 登录密码哈希，不输出
+	CodeName  string          `gorm:"column:codename;size:64" json:"-"`             // 聚合收款码收款方名称（对齐 epay pre_user.codename）
+	OpenCode  int8            `gorm:"column:open_code;default:0" json:"-"`          // 单独开启聚合收款 0/1（对齐 epay pre_user.open_code）
 }
 
 func (Merchant) TableName() string { return "pay_merchant" }

@@ -257,6 +257,47 @@ func (s *DomainService) HasAnyDomain(uid uint) bool {
 	return err == nil && n > 0
 }
 
+// ---- 商户自助端（对齐 epay user/domain.php，均限定 uid scope）----
+
+// MerchantList 商户自助查看本人授权域名（列表）。
+func (s *DomainService) MerchantList(uid uint) ([]dto.DomainView, error) {
+	q := dto.DomainQuery{UID: &uid, Page: 1, PageSize: 100}
+	views, _, err := s.List(q)
+	return views, err
+}
+
+// MerchantAdd 商户自助添加授权域名：格式校验 + 同 uid 去重 → 落库 status=0 待审核（对齐 epay）。
+func (s *DomainService) MerchantAdd(uid uint, rawDomain string) error {
+	domain := normalizeDomain(strings.TrimSpace(strings.ToLower(rawDomain)))
+	if !validDomain(domain) {
+		return rkErr("域名格式不正确")
+	}
+	exist, err := s.repo.Exist(uid, domain)
+	if err != nil {
+		return err
+	}
+	if exist {
+		return rkErr("该授权域名已存在")
+	}
+	now := time.Now()
+	// 商户自助添加默认待审(status=0)，EndTime 留空待管理员审核（对齐 epay 商户自助 status=0）。
+	return s.repo.Create(&model.Domain{
+		UID: uid, Domain: domain, Status: 0, AddTime: now,
+	})
+}
+
+// MerchantDelete 商户自助删除本人授权域名（限 uid scope，防越权）。
+func (s *DomainService) MerchantDelete(uid, id uint) error {
+	d, err := s.repo.FindByID(id)
+	if err != nil {
+		return err
+	}
+	if d == nil || d.UID != uid {
+		return rkErr("域名记录不存在")
+	}
+	return s.repo.Delete(id)
+}
+
 func toDomainView(d *model.Domain) dto.DomainView {
 	v := dto.DomainView{
 		ID: d.ID, UID: d.UID, Domain: d.Domain, Status: d.Status,

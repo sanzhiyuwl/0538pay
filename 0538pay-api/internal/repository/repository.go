@@ -207,6 +207,25 @@ func (r *MerchantRepo) FindSettleable(minMoney decimal.Decimal, limit int) ([]mo
 	return list, err
 }
 
+// CountByUpID 统计某商户名下已邀请的下级商户数（upid=uid）。对齐 epay 邀请人数统计。
+func (r *MerchantRepo) CountByUpID(uid uint) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.Merchant{}).Where("upid = ?", uid).Count(&n).Error
+	return n, err
+}
+
+// ListByUpID 分页列出某商户名下已邀请的下级商户（按注册时间倒序）。
+func (r *MerchantRepo) ListByUpID(uid uint, page, pageSize int) ([]model.Merchant, int64, error) {
+	tx := r.db.Model(&model.Merchant{}).Where("upid = ?", uid)
+	var total int64
+	if err := tx.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var list []model.Merchant
+	err := tx.Order("uid DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&list).Error
+	return list, total, err
+}
+
 // ChannelRepo 支付通道数据访问。
 type ChannelRepo struct{ db *gorm.DB }
 
@@ -550,6 +569,29 @@ func (r *RecordRepo) Stats(q dto.RecordQuery) (incMoney, decMoney decimal.Decima
 			decMoney, decCount = row.Sum, row.Cnt
 		}
 	}
+	return
+}
+
+// SumInviteReward 汇总某商户"邀请返现"流水：今日/昨日/累计。对齐 epay inviteStat。
+func (r *RecordRepo) SumInviteReward(uid uint) (today, yesterday, total decimal.Decimal, err error) {
+	sum := func(tx *gorm.DB) (decimal.Decimal, error) {
+		var v decimal.Decimal
+		e := tx.Model(&model.PayRecord{}).
+			Where("uid = ? AND type = ?", uid, "邀请返现").
+			Select("COALESCE(SUM(money),0)").Scan(&v).Error
+		return v, e
+	}
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	ydayStart := todayStart.AddDate(0, 0, -1)
+
+	if total, err = sum(r.db); err != nil {
+		return
+	}
+	if today, err = sum(r.db.Where("date >= ?", todayStart)); err != nil {
+		return
+	}
+	yesterday, err = sum(r.db.Where("date >= ? AND date < ?", ydayStart, todayStart))
 	return
 }
 

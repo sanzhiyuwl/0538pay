@@ -97,6 +97,18 @@ var configDefaults = map[string]string{
 	// 邮箱短信 mail（枚举默认）
 	"mail_cloud": "0",
 	"sms_api":    "0",
+	// 邀请返现 invite（对齐 epay set.php?mod=user 的邀请设置）
+	"invite_open":       "0", // 邀请返现总开关 0关/1开
+	"invite_rate":       "",  // 返现比例(%)，空=不返现
+	"invite_order_type": "0", // 0按订单金额 / 1按订单手续费 / 2按平台利润
+	"invite_order_fee":  "0", // 0返现不超过手续费(封顶) / 1允许超过
+	// 测试支付 test（对齐 epay test.php）
+	"test_open":    "0", // 测试支付页开关 0关/1开
+	"test_pay_uid": "0", // 测试收款商户 uid（0=下到当前商户）
+	// 聚合收款码 onecode（对齐 epay onecode.php）
+	"onecode": "0", // 聚合收款码全局开关 0关/1开
+	// 使用说明（我方做成后台可编辑；epay help.php 是硬编码静态页）
+	"help_content": "", // 商户使用说明正文（HTML/富文本），空则前端用内置默认文案
 }
 
 // configGroups 各系统设置分组包含的键（白名单，前端按 group 读写）。
@@ -138,6 +150,14 @@ var configGroups = map[string][]string{
 		"sms_api", "sms_appid", "sms_appkey", "sms_sign",
 		"sms_tpl_reg", "sms_tpl_find", "sms_tpl_edit", "sms_tpl_balance",
 	},
+	"invite": {
+		"invite_open", "invite_rate", "invite_order_type", "invite_order_fee",
+	},
+	"test": {
+		"test_open", "test_pay_uid",
+	},
+	"onecode": {"onecode"},
+	"help":    {"help_content"},
 }
 
 // Load 从 DB 全量加载配置进内存缓存（启动时调一次）。缺省键补默认值。

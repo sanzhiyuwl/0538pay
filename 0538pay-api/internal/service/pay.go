@@ -41,6 +41,7 @@ type PayService struct {
 	accounts  *repository.AccountRepo
 	channels  *repository.ChannelRepo
 	profit    *ProfitService    // 分账（可空；SetProfitService 注入，避免构造顺序耦合）
+	invite    *InviteRewardService // 邀请返现（可空；SetInviteReward 注入）
 	risk      *RiskService      // 风控关键词拦截（可空）
 	blacklist *BlacklistService // 黑名单拦截（可空）
 	domain    *DomainService    // 域名白名单校验（可空）
@@ -57,6 +58,9 @@ func (s *PayService) SetSelector(sel *ChannelSelector) { s.selector = sel }
 
 // SetProfitService 注入分账服务（下单匹配规则 + 支付成功建分账单）。nil 则不启用分账。
 func (s *PayService) SetProfitService(p *ProfitService) { s.profit = p }
+
+// SetInviteReward 注入邀请返现服务（支付成功后按比例返现到下单商户上级余额）。nil 则不启用。
+func (s *PayService) SetInviteReward(ir *InviteRewardService) { s.invite = ir }
 
 // SetRiskServices 注入风控/黑名单/域名服务（下单拦截校验）。任一为 nil 则跳过对应校验。
 func (s *PayService) SetRiskServices(r *RiskService, b *BlacklistService, d *DomainService) {

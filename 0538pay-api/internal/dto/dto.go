@@ -1157,7 +1157,8 @@ type MerchantRegReq struct {
 	VerifyType   int8   `json:"verifytype"`   // 0邮箱 1手机
 	Account      string `json:"account" binding:"required"` // 邮箱或手机号
 	Password     string `json:"password" binding:"required"`
-	Invite       string `json:"invite"`       // 邀请码（reg_open=2 必填）
+	Invite       string `json:"invite"`       // 注册授权码（reg_open=2 必填，对应 pay_invitecode）
+	Ref          string `json:"ref"`          // 邀请返现推广码（?invite= 解出上级 uid，对齐 epay upid）
 	CaptchaToken string `json:"captcha_token"`
 	Captcha      string `json:"captcha"`
 }
@@ -1192,4 +1193,100 @@ type MerchantFindPwdReq struct {
 type CaptchaResp struct {
 	Token string `json:"token"`
 	SVG   string `json:"svg"`
+}
+
+// ---- 邀请返现（对齐 epay user/invite.php）----
+
+// InviteRewardInfo 返现设置 + 推广链接。
+type InviteRewardInfo struct {
+	Open      bool   `json:"open"`       // 返现总开关
+	Rate      string `json:"rate"`       // 返现比例(%)
+	OrderType int    `json:"order_type"` // 0按订单金额/1按手续费/2按利润
+	OrderFee  bool   `json:"order_fee"`  // true=允许超过手续费
+	Link      string `json:"link"`       // 专属推广链接
+	Code      string `json:"code"`       // 邀请码
+}
+
+// InviteRewardStat 返现统计。
+type InviteRewardStat struct {
+	Users           int64  `json:"users"`            // 已邀请人数
+	IncomeToday     string `json:"income_today"`     // 今日返现
+	IncomeYesterday string `json:"income_yesterday"` // 昨日返现
+	IncomeTotal     string `json:"income_total"`     // 累计返现
+}
+
+// InvitedUserView 已邀请下级商户。
+type InvitedUserView struct {
+	UID     uint   `json:"uid"`
+	AddTime string `json:"addtime"`
+	Status  int8   `json:"status"`
+}
+
+// ---- 测试支付（对齐 epay user/test.php）----
+
+// TestPayReq 测试支付入参（金额 + 支付方式）。
+type TestPayReq struct {
+	Money string `json:"money" binding:"required"` // 支付金额（默认前端给 1）
+	Type  string `json:"type" binding:"required"`  // 支付方式 plugin/type 名
+}
+
+// TestPayInfoResp 测试支付页信息（开关 + 可选支付方式 + 金额上下限）。
+type TestPayInfoResp struct {
+	Open     bool              `json:"open"`
+	MinMoney string            `json:"min_money"`
+	MaxMoney string            `json:"max_money"`
+	Types    []PayTypeOption   `json:"types"` // 可选支付方式
+}
+
+// PayTypeOption 收银可选支付方式。
+type PayTypeOption struct {
+	Type     string `json:"type"`
+	ShowName string `json:"showname"`
+}
+
+// ---- 聚合收款码（对齐 epay user/onecode.php）----
+
+// OnecodeInfo 聚合收款码信息（收款 URL + 收款方名称 + 开关）。
+type OnecodeInfo struct {
+	Open     bool   `json:"open"`      // 是否可用（全局 onecode 开关 或 商户 open_code）
+	PayURL   string `json:"pay_url"`   // 固定收款页 URL
+	CodeName string `json:"codename"`  // 收款方名称
+}
+
+// OnecodeNameReq 保存收款方名称。
+type OnecodeNameReq struct {
+	CodeName string `json:"codename"`
+}
+
+// PaypageInfo 公开收款页信息（扫码后展示，不含敏感字段）。
+type PaypageInfo struct {
+	CodeName string          `json:"codename"` // 收款方名称
+	SiteName string          `json:"sitename"`
+	Types    []PayTypeOption `json:"types"` // 可选支付方式
+}
+
+// PaypageSubmitReq 收款页下单（输入金额 + 选支付方式）。
+type PaypageSubmitReq struct {
+	Merchant string `json:"merchant" binding:"required"` // 加密后的收款商户标识
+	Money    string `json:"money" binding:"required"`
+	Type     string `json:"type" binding:"required"`
+}
+
+// ---- 站内信（我方新增，epay 无此实体）----
+
+// MessageView 站内信对外响应。
+type MessageView struct {
+	ID      uint   `json:"id"`
+	UID     uint   `json:"uid"` // 0=全体广播
+	Title   string `json:"title"`
+	Content string `json:"content"`
+	IsRead  bool   `json:"is_read"`
+	Date    string `json:"date"`
+}
+
+// MessageSendReq 管理员下发站内信入参。UID=0 表示全体广播。
+type MessageSendReq struct {
+	UID     uint   `json:"uid"` // 0=全体广播
+	Title   string `json:"title" binding:"required"`
+	Content string `json:"content" binding:"required"`
 }

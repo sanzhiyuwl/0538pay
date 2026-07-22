@@ -37,6 +37,8 @@ type Deps struct {
 	MerchantAuth   *handler.MerchantAuthHandler
 	MerchantCenter *handler.MerchantCenterHandler
 	Mapi           *handler.MapiHandler
+	Paypage        *handler.PaypageHandler
+	Message        *handler.MessageHandler
 }
 
 // Setup 注册所有路由。
@@ -184,6 +186,11 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.DELETE("/invitecodes/:id", d.Invite.Delete)
 			authed.POST("/invitecodes/clear", d.Invite.Clear)
 
+			// 站内信下发（我方新增）
+			authed.GET("/messages", d.Message.List)
+			authed.POST("/messages", d.Message.Send)
+			authed.DELETE("/messages/:id", d.Message.Delete)
+
 			// 官网 CMS 内容保存（后台鉴权写）
 			authed.PUT("/site/config/:key", d.SiteConfig.Save)
 		}
@@ -257,7 +264,26 @@ func Setup(r *gin.Engine, d Deps) {
 			mAuthed.POST("/recharge", d.MerchantCenter.Recharge)
 			mAuthed.GET("/cert", d.MerchantCenter.CertInfo)
 			mAuthed.POST("/cert", d.MerchantCenter.CertSubmit)
+			// 自助流程：测试支付 / 聚合收款码 / 邀请返现 / 授权域名 / 使用说明 / 站内信
+			mAuthed.GET("/test", d.MerchantCenter.TestPayInfo)
+			mAuthed.POST("/test", d.MerchantCenter.TestPay)
+			mAuthed.GET("/onecode", d.MerchantCenter.OnecodeInfo)
+			mAuthed.POST("/onecode/name", d.MerchantCenter.SaveCodeName)
+			mAuthed.GET("/invite", d.MerchantCenter.InviteInfo)
+			mAuthed.GET("/domains", d.MerchantCenter.DomainList)
+			mAuthed.POST("/domains", d.MerchantCenter.DomainAdd)
+			mAuthed.DELETE("/domains/:id", d.MerchantCenter.DomainDelete)
+			mAuthed.GET("/help", d.MerchantCenter.Help)
+			mAuthed.GET("/messages", d.MerchantCenter.Messages)
+			mAuthed.POST("/messages/:id/read", d.MerchantCenter.MessageRead)
 		}
+	}
+
+	// 公开聚合收款页（对齐 epay paypage/index.php，无需登录，靠加密 merchant 标识）
+	paypage := api.Group("/paypage")
+	{
+		paypage.GET("/info", d.Paypage.Info)
+		paypage.POST("/submit", d.Paypage.Submit)
 	}
 
 	// console 分组后续补

@@ -54,5 +54,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&Group{},
 		&SiteConfig{},
 		&Config{},
+		&Message{},
+		&MessageRead{},
 	)
 }

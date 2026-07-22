@@ -94,6 +94,13 @@ func (s *PayService) settle(ctx context.Context, tradeNo string) error {
 		return err
 	}
 
+	// 邀请返现：下单商户若有上级(upid)，按比例实时返现到上级余额（对齐 epay functions.php 结算钩子）。
+	// 失败不回滚入账（返现是附属激励），仅静默跳过。
+	if s.invite != nil {
+		getMoney := order.GetMoney
+		s.invite.SettleOnPaid(order.UID, order.Money, getMoney, order.TradeNo)
+	}
+
 	// 分账：命中规则的订单支付成功后按比例创建分账订单（待分账），对齐 epay。
 	// 失败不回滚入账（分账可后台补建/重试），仅记日志级别忽略。
 	if s.profit != nil && order.Profits > 0 {
