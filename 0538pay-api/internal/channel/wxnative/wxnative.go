@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/0538pay/api/internal/channel"
+	"github.com/0538pay/api/internal/channel/wxbase"
 	"github.com/0538pay/api/pkg/wxpayv3"
 	"github.com/shopspring/decimal"
 )
@@ -299,6 +300,11 @@ type notifyResource struct {
 // raw 由 handler 注入原始 body 与 Wechatpay-* 头（见本包 Key* 常量）。
 func (Channel) Notify(_ context.Context, cfg channel.Config, raw map[string]string) (channel.NotifyResult, error) {
 	return parseNotify(cfg, raw)
+}
+
+// Refund 原路退款（/v3/refund/domestic/refunds），复用 wxbase。
+func (Channel) Refund(ctx context.Context, cfg channel.Config, req channel.RefundReq) (channel.RefundResp, error) {
+	return wxbase.Refund(ctx, cfg, req)
 }
 
 // parseNotify 纯函数：从 raw 取报文/头，验签 + 解密，返回结果（便于单测）。

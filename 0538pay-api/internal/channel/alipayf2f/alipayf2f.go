@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/0538pay/api/internal/channel"
+	"github.com/0538pay/api/internal/channel/alipaybase"
 	"github.com/0538pay/api/pkg/alipay"
 	"github.com/shopspring/decimal"
 )
@@ -256,6 +257,11 @@ func (Channel) Query(ctx context.Context, cfg channel.Config, tradeNo string) (b
 // Notify 表单型回调：RSA2 验签 + trade_status 判定。raw 为回调表单参数（含 sign）。
 func (Channel) Notify(_ context.Context, cfg channel.Config, raw map[string]string) (channel.NotifyResult, error) {
 	return parseNotify(cfg, raw)
+}
+
+// Refund 原路退款（alipay.trade.refund），复用 alipaybase。
+func (Channel) Refund(ctx context.Context, cfg channel.Config, req channel.RefundReq) (channel.RefundResp, error) {
+	return alipaybase.Refund(ctx, cfg, req)
 }
 
 // parseNotify 纯函数：验签(支付宝公钥) → 读 trade_status/out_trade_no/total_amount/trade_no。

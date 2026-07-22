@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -192,7 +193,7 @@ func (s *OrderService) Refund(adminID uint, req dto.OrderRefundReq) error {
 		}
 	}
 
-	// API 退款：校验管理员密码；真实渠道原路退款待凭证。
+	// API 退款：校验管理员密码；真实渠道原路退款。
 	if req.API {
 		if err := s.verifyAdminPwd(adminID, req.Password); err != nil {
 			return err
@@ -203,7 +204,16 @@ func (s *OrderService) Refund(adminID uint, req dto.OrderRefundReq) error {
 		if s.channelIsDirect(o.Channel) {
 			return odErr("商户直清通道不支持 API 退款")
 		}
-		// 真实渠道原路退款依赖第三方凭证，当前无法真调；余额层退款仍执行并累加 refundmoney。
+		// 真实渠道原路退款：渠道实现 Refunder 则调真实退款接口（需真实凭证，无凭证会报错）。
+		// mock 等无 Refunder 的渠道跳过，仅走余额层。
+		if s.pay != nil {
+			outRefundNo := "RF" + req.TradeNo
+			handled, rerr := s.pay.RefundViaChannel(context.Background(), o, money, outRefundNo)
+			if rerr != nil {
+				return odErr("渠道原路退款失败(可能待真实凭证): " + rerr.Error())
+			}
+			_ = handled // 渠道已受理；余额层退款继续（对齐 epay 渠道退款成功后扣商户余额）
+		}
 	}
 
 	// reducemoney 四分支（对齐 epay Order::refund）

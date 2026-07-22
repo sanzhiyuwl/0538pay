@@ -83,6 +83,12 @@ func signMessage(priv *rsa.PrivateKey, message string) (string, error) {
 	return base64.StdEncoding.EncodeToString(sig), nil
 }
 
+// SignMessage 用商户私钥对任意消息做 SHA256withRSA 签名并 base64（JSAPI/APP 拉起参数二次签名用）。
+// JSAPI paySign 签名串格式：appId\ntimeStamp\nnonceStr\nprefix+prepay_id\n。
+func SignMessage(priv *rsa.PrivateKey, message string) (string, error) {
+	return signMessage(priv, message)
+}
+
 // AuthParams 组装 Authorization 头所需的商户身份 + 请求信息。
 type AuthParams struct {
 	MchID      string          // 商户号

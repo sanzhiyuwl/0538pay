@@ -23,10 +23,14 @@ import (
 
 	// 支付渠道：匿名导入以触发各渠道 init() 自注册到 registry。
 	_ "github.com/0538pay/api/internal/channel/alipayf2f"
+	_ "github.com/0538pay/api/internal/channel/alipaypage"
+	_ "github.com/0538pay/api/internal/channel/alipaywap"
 	_ "github.com/0538pay/api/internal/channel/epay"
 	_ "github.com/0538pay/api/internal/channel/epayn"
 	_ "github.com/0538pay/api/internal/channel/mock"
 	_ "github.com/0538pay/api/internal/channel/wxnative"
+	_ "github.com/0538pay/api/internal/channel/wxjsapi"
+	_ "github.com/0538pay/api/internal/channel/wxh5"
 )
 
 func main() {

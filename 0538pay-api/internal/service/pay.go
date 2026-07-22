@@ -413,6 +413,37 @@ func (s *PayService) loadChannelConfig(channelID int) channel.Config {
 	return buildChannelConfig(c)
 }
 
+// RefundViaChannel 尝试通过渠道原路退款（对齐 epay Order::refund 的渠道退款）。
+// 返回 (是否已由渠道处理, error)。渠道未实现 Refunder 或插件不可用 → (false, nil)，由调用方走余额层。
+// 渠道退款失败 → (false, err)，调用方据此决定是否中止。
+func (s *PayService) RefundViaChannel(ctx context.Context, o *model.Order, money decimal.Decimal, outRefundNo string) (bool, error) {
+	ch, ok := channel.Get(o.Plugin)
+	if !ok {
+		return false, nil // mock 等无真实渠道，走余额层
+	}
+	refunder, ok := ch.(channel.Refunder)
+	if !ok {
+		return false, nil // 该渠道不支持原路退款
+	}
+	cfg := s.loadChannelConfig(o.Channel)
+	total := o.Money
+	if o.RealMoney != nil && o.RealMoney.GreaterThan(decimal.Zero) {
+		total = *o.RealMoney
+	}
+	_, err := refunder.Refund(ctx, cfg, channel.RefundReq{
+		TradeNo:     o.TradeNo,
+		ChannelNo:   o.APITradeNo,
+		OutRefundNo: outRefundNo,
+		Money:       money,
+		TotalMoney:  total,
+		Reason:      "订单退款",
+	})
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // GetCashier 返回收银台中间页所需的公开订单信息（无鉴权，仅安全字段）。
 func (s *PayService) GetCashier(tradeNo string) (*dto.CashierView, error) {
 	o, err := s.orders.FindByTradeNo(tradeNo)

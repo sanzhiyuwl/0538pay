@@ -80,6 +80,29 @@ type PaymentChannel interface {
 	Notify(ctx context.Context, cfg Config, raw map[string]string) (NotifyResult, error)
 }
 
+// RefundReq 统一退款入参。
+type RefundReq struct {
+	TradeNo     string          // 系统订单号（下单时的 out_trade_no）
+	ChannelNo   string          // 渠道支付流水号（支付宝 trade_no / 微信 transaction_id，可空则用 TradeNo）
+	OutRefundNo string          // 商户退款单号（幂等键）
+	Money       decimal.Decimal // 本次退款金额
+	TotalMoney  decimal.Decimal // 原订单总额（微信 APIv3 退款必填）
+	Reason      string          // 退款原因
+}
+
+// RefundResp 统一退款出参。
+type RefundResp struct {
+	RefundNo string          // 渠道退款单号
+	Money    decimal.Decimal // 实际退款金额
+	Success  bool            // 渠道是否受理成功
+}
+
+// Refunder 可选能力：支持原路退款的渠道额外实现此接口。
+// 收单主链退款时若渠道实现了它则调真实退款，否则仅走余额层（对齐 epay 有渠道退款/无则人工）。
+type Refunder interface {
+	Refund(ctx context.Context, cfg Config, req RefundReq) (RefundResp, error)
+}
+
 // registry 全局渠道注册表。
 var registry = map[string]PaymentChannel{}
 
