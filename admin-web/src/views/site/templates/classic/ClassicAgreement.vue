@@ -1,9 +1,17 @@
 <script setup lang="ts">
-const sections = [
+import { onMounted, computed } from 'vue'
+import { useSiteStore } from '@/stores/site'
+
+// 服务协议：站点名从网站设置 CMS 读取（后台可改，官网实时联动）。
+const site = useSiteStore()
+onMounted(() => site.hydrate())
+const brand = computed(() => site.config.sitename || '0538Pay')
+
+const sections = computed(() => [
   {
     title: '一、服务说明',
     body: [
-      '0538Pay（以下简称"本平台"）为商户提供聚合支付技术服务，包括但不限于多渠道收款、订单管理、结算提现、开放 API 等功能。',
+      `${brand.value}（以下简称"本平台"）为商户提供聚合支付技术服务，包括但不限于多渠道收款、订单管理、结算提现、开放 API 等功能。`,
       '商户在使用本平台服务前，应完整阅读并同意本协议全部条款。一旦注册或使用，即视为已充分理解并接受本协议。',
     ],
   },
@@ -48,7 +56,7 @@ const sections = [
       '本平台有权根据业务需要修订本协议，修订后的协议将在平台公示。商户继续使用即视为接受变更。',
     ],
   },
-]
+])
 </script>
 
 <template>

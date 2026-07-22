@@ -1,5 +1,11 @@
 <script setup lang="ts">
+import { onMounted, computed } from 'vue'
 import { Building2, Target, Mail, Phone, MessageSquare, MapPin } from 'lucide-vue-next'
+import { useSiteStore } from '@/stores/site'
+
+// 关于我们：公司名/联系方式从网站设置 CMS 读取（后台可改，官网实时联动）。
+const site = useSiteStore()
+onMounted(() => site.hydrate())
 
 const stats = [
   { value: '2016', label: '成立年份' },
@@ -8,12 +14,12 @@ const stats = [
   { value: '7×24h', label: '技术支持' },
 ]
 
-const contacts = [
+const contacts = computed(() => [
   { icon: MapPin, label: '公司地址', value: '山东省泰安市高新区数智大厦' },
   { icon: Phone, label: '联系电话', value: '0538-8888888' },
-  { icon: Mail, label: '邮箱', value: 'service@0538pay.com' },
-  { icon: MessageSquare, label: '客服 QQ', value: '800820538' },
-]
+  { icon: Mail, label: '邮箱', value: site.config.email || 'service@0538pay.com' },
+  { icon: MessageSquare, label: '客服 QQ', value: site.config.qq || '800820538' },
+])
 </script>
 
 <template>
