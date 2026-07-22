@@ -39,13 +39,13 @@ export const typeOptions = [
 export const pluginsByType: Record<number, { name: string; showname: string }[]> = {
   1: [
     { name: 'alipayf2f', showname: '支付宝当面付扫码' },
-    { name: 'alipay', showname: '支付宝网页/APP' },
-    { name: 'epusdt', showname: '支付宝个人码' },
+    { name: 'alipaypage', showname: '支付宝电脑网站' },
+    { name: 'alipaywap', showname: '支付宝手机网站(H5)' },
   ],
   2: [
     { name: 'wxnative', showname: '微信 Native 扫码' },
-    { name: 'wxpayf2f', showname: '微信服务商' },
-    { name: 'wxmini', showname: '微信小程序' },
+    { name: 'wxjsapi', showname: '微信 JSAPI/小程序' },
+    { name: 'wxh5', showname: '微信 H5' },
   ],
   3: [{ name: 'qqpay', showname: 'QQ钱包官方' }],
   4: [
@@ -87,6 +87,13 @@ export const pluginConfigFields: Record<string, ConfigField[]> = {
     { key: 'notify_url', label: '回调基址', placeholder: 'https://你的域名/api/pay/notify', required: true, hint: '系统会自动拼接 /系统订单号 作为微信回调地址' },
   ],
 }
+
+// 支付宝网页/H5 与当面付同源（同一开放平台密钥），共用 alipayf2f 的字段预设。
+pluginConfigFields.alipaypage = pluginConfigFields.alipayf2f
+pluginConfigFields.alipaywap = pluginConfigFields.alipayf2f
+// 微信 JSAPI/H5 与 Native 同源（同一 APIv3 商户凭证），共用 wxnative 的字段预设。
+pluginConfigFields.wxjsapi = pluginConfigFields.wxnative
+pluginConfigFields.wxh5 = pluginConfigFields.wxnative
 
 const typeMeta: Record<number, { name: string; showname: string }> = {
   1: { name: 'alipay', showname: '支付宝' },
