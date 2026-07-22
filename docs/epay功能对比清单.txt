@@ -127,9 +127,24 @@
            前端：新增/编辑抽屉(type↔plugin 联动)、复制、删除确认(Modal)、状态开关调真接口(失败回滚)、
            密钥配置抽屉(通用 key-value JSON 编辑)。真跑验证：增/改/删/状态/密钥 + 各校验分支全通过。
            缺：密钥表单按插件定制(留 B 阶段)、订单/测试支付两个行操作(占位)。
-  🎨/⬜  子通道 subchannel（商户自定义）
-  🎨/⬜  轮询组 roll（3 种模式：顺序/加权随机/固定优先）
-  🎨/⬜  用户组通道分配（channel=0关/-1随机/-2子通道/正整数固定，组级覆盖费率）
+  ✅  子通道 subchannel（商户自定义）[真接口 2026-07-22]
+        —— pay_subchannel 表(channel父通道/uid商户/name/status/info自定义参数JSON/usetime调度时间；epay apply_id进件渠道我方无进件系统故不移植)。
+           SubChannelService CRUD + 后台商户维度接口(?uid= 指定商户) + Merchants.vue「子通道管理」抽屉(列表/新增/编辑/开关/删)。
+           下单 -2 分支：该商户该支付方式下按 usetime 升序(最久未用优先)取第一个可用子通道，命中后回写 usetime=NOW()(顺序调度，对齐 epay getSubmitInfo -2)。
+           删商户/删主通道级联删子通道(补 C6 缺口)。真跑：subA→subB→subA usetime 顺序轮转、usetime 回写、跨商户隔离(仅本商户子通道)全通过。
+           缺：主通道 config 里 [占位]变量替换用子通道 info(SubInfo 已随选通道返回，dispatch 注入渠道 Config 待真实渠道消费)。
+  ✅  轮询组 roll（3 种模式：顺序/加权随机/固定优先）[真接口 2026-07-22]
+        —— pay_roll 表(type支付方式/name/kind轮询方式/info通道串/status/idx顺序游标；idx 规避 SQL 保留字 index)。
+           info 串对齐 epay：kind=1 权重随机存"cid:w,cid:w"、其它存"cid,cid"。RollService CRUD + GET/POST/PUT/DELETE /api/admin/rolls + Rolls.vue 全 CRUD。
+           getChannelFromRoll 1:1 移植：先按金额 paymin/paymax 过滤组内启用通道，再按 kind 选——0顺序(idx游标对过滤后列表取模+命中回写)/1权重随机(mt_rand权重线性命中)/2首个启用。
+           真跑：顺序轮询 3+次 1→10→1→10 精确轮转 + idx 持久化；权重/首个启用算法单测覆盖。
+  ✅  用户组通道分配（channel=0关/-1随机/-2子通道/正整数固定，组级覆盖费率）[真接口 2026-07-22]
+        —— pay_group.info 改为 epay 格式 {typeid:{type,channel,rate}} 分配图(替换旧的松散 [{label,rate}] 展示串；旧格式解析为 nil→走无组随机，向后兼容)。
+           GET/PUT /api/admin/groups/:gid/assigns + Groups.vue 通道分配编辑器(每种支付方式一行：关闭/随机/子通道/固定通道/轮询组 + 费率覆盖)。
+           ChannelSelector.Select 1:1 移植 epay getSubmitInfo：gid 查组 info(缺失回退默认组 gid=0)→按 type 取分配→四分支分发。
+           组级费率覆盖：info.rate 非空优先、空则用命中通道 rate。接进 PayService.Submit(resolveChannel/resolveTypeID，plugin名旧路径向后兼容)。
+           默认组 gid=0(epay 语义)靠 seedrolls 开 NO_AUTO_VALUE_ON_ZERO 强制插入(GORM/MySQL 均把 0 主键当自增)。
+           真跑四分支全绿：0关闭→拒绝、-1随机→命中启用通道、-2子通道→顺序调度、正整数固定→channel=10+rate1.5覆盖、正整数roll→顺序轮转+rate2.0覆盖。
 
 【51 个真实渠道插件（epay 全集，我们按 P0/P1/P2 分级逐步做）】
   P0 主流直连（阶段 B 目标 3~5 家）：
@@ -214,15 +229,30 @@
   🎨  仪表盘统计（订单数/商户数/余额/结算/成功率/收入统计表）
       epay index.php → 我们 Dashboard.vue [mock]
 
-【订单管理】
+【订单管理】(订单写操作 2026-07-22 后端切真接口)
   ✅  订单列表查询（筛选/分页）  epay order.php → Orders.vue [真接口 GET /api/admin/orders]
-  🎨  订单详情 / 子订单
-  🎨  API退款 / 手动退款
-  🎨  冻结 / 解冻订单
-  🎨  重新通知 / 补单
-  🎨  删除订单 / 批量操作
-  🎨  退款金额/退款订单统计
-      —— 列表已真，写操作(退款/冻结/补单)全 mock。
+  🎨  订单详情 / 子订单  —— 列表行已展示核心字段，独立详情页/合单子订单未做
+  ✅  API退款 / 手动退款  epay refund/apirefund → POST /api/admin/orders/refund [真接口]
+      —— 对齐 epay Order::refund：status∈[1,2,3] 可退、money≤realmoney、未超剩余可退(支持部分退款累加 refundmoney)。
+         扣商户余额 reducemoney 四分支 1:1 还原：冻结单/直清=0、(手续费不退且全额)=realmoney、
+         (手续费退且全额或≥分成)=getmoney、部分=退款额。手动退款只扣余额不调渠道；API退款需管理员密码(替代 epay
+         admin_paypwd)+渠道支持，真实渠道原路退款待凭证(余额层照走)。changeUserMoney type=订单退款+trade_no 幂等防重。
+         退款前 GET /orders/:trade_no/refund-info 查可退金额。真跑:手动退款 status→2/refundmoney=50/扣 getmoney、
+         API退款错密码拒。
+  ✅  冻结 / 解冻订单  epay Order::freeze/unfreeze → POST /api/admin/orders/:trade_no/freeze|unfreeze [真接口]
+      —— 冻结 status1→3 扣商户 getmoney；解冻 status3→1 加回 getmoney。前置校验状态 + 通道非直清(mode!=1)。
+         条件 UPDATE 幂等。真跑:冻结扣 4→解冻加回 4(净零，流水"订单冻结/订单解冻"对称)、非 status1 冻结拒。
+  ✅  重新通知 / 补单  epay notify/fillorder → POST /api/admin/orders/:trade_no/notify|fill [真接口]
+      —— 重新通知:仅已支付+有 notify_url，复用 PayService.ResendNotify。补单:仅 status==0→置已付+入账+分账+通知
+         (复用支付成功链路 settle，区别于"改已完成"的裸改状态)。真跑:补单 status0→1 落"订单收入"流水、再补拒。
+  ✅  改未完成 / 改已完成  epay setStatus → PUT /api/admin/orders/:trade_no/status [真接口]
+      —— 裸改 status 0/1，不触发资金/入账(对齐 epay setStatus，与补单区分)。真跑改状态双向通过。
+  ✅  删除订单 / 批量操作  epay setStatus=5 / operation → DELETE /orders/:trade_no + POST /orders/batch [真接口]
+      —— 删除物理删无级联(对齐 epay)。批量 action 0改未完成/1改已完成/2冻结/3解冻/4删除，逐条处理返回成功数。
+         真跑:删除成功+删不存在拒、批量改已完成 affected=2。
+  🎨  退款金额/退款订单统计  —— 订单统计概况(总额/已付/未付/已退/利润)前端已算；独立退款统计报表未做
+  ⬜  预授权资金支付/解冻、直付通结算(status=4/settle)  —— 依赖支付宝真实渠道凭证，我们不产生此类订单，前端如实提示"待凭证"
+      —— 列表 + 退款/冻结解冻/补单/重新通知/改状态/删除/批量 全部切真接口；仅预授权类与独立详情页待续。
 
 【结算管理】(C2 结算域 2026-07-21 后端切真接口)
   ✅  结算列表（账号/姓名/商户号/方式/状态/批次筛选）  epay slist.php → Settle.vue [真接口]
@@ -242,11 +272,29 @@
 
 【商户管理】
   ✅  商户列表查询  epay ulist.php → Merchants.vue [真接口 GET /api/admin/merchants]
-  🎨  添加 / 编辑商户  epay uset.php
-  🎨  余额充值 / 扣除
-  🎨  查看/重置商户密钥、生成 RSA
-  🎨  用户组列表/新增/删除  epay glist/gedit.php → Groups.vue
-  🎨  用户组购买价配置       epay group.php
+       —— groupname 改由 JOIN 用户组表实时派生(不再硬编码);列表读时到期用户组惰性降级(endtime过期→gid=0)。
+  ✅  添加 / 编辑商户  epay uset.php → Merchants.vue 抽屉 [真接口 2026-07-21]
+       —— POST /api/admin/merchants(添加):手机/邮箱不能同时空且各自唯一,后端随机32位hex密钥,密码可选bcrypt,返回uid+key。
+          PUT /api/admin/merchants/:uid(编辑):money 直接覆盖(管理员强改旁路,不走流水,对齐epay editUser);密码非空则改;编辑不查重。
+          真跑:创建(dup邮箱拒/手机邮箱都空拒)、编辑(money=555.55覆盖/mode/status生效)全通过。
+  ✅  余额充值 / 扣除  epay recharge → POST /api/admin/merchants/:uid/recharge [真接口]
+       —— 走 changeUserMoney(事务+行锁+流水):action=0加款'后台加款'/1扣款'后台扣款';扣款超余额自动截断到余额。
+          真跑:+100加款→流水,扣款300截断为100→余额0,两条流水(action1/2)精确落库。
+  ✅  重置商户密钥  epay resetKey → POST /api/admin/merchants/:uid/resetkey [真接口]
+       —— 随机32位hex,原密钥立即失效。真跑重置返回新key。生成RSA/keytype 属V2(商户端 MerchantApi 已实现,后台不再重复)。
+  ✅  改用户组+有效期  epay setUserGroup → PUT /api/admin/merchants/:uid/group [真接口]
+       —— gid+endtime(空=永久NULL)。真跑改gid=3+到期2027-01-01生效。
+  ✅  权限/状态切换(封禁/支付/结算)  epay setUser → PUT /api/admin/merchants/:uid/status [真接口]
+       —— field=user(status)/pay/settle 分派,对齐epay setUser type分派。真跑关闭支付权限生效。
+  ✅  删除商户  epay delUser → DELETE /api/admin/merchants/:uid [真接口]
+       —— 真跑删除成功。级联删 subchannel 已补(2026-07-22 通道体系增强，MerchantService.Delete→DeleteByMerchant)。
+  ✅  用户组列表/新增/编辑/删除  epay glist/gedit.php → Groups.vue [真接口 2026-07-21]
+       —— pay_group 扩 config/settings/visible 字段。GET /api/admin/groups(全量+派生费率+该组商户数) +
+          POST(新增,组名唯一) + PUT/:gid(编辑,组名唯一排除自身) + DELETE/:gid(删除,gid=0不可删,级联该组商户回落默认组)。
+          info/config 均校验合法JSON。真跑:创建/dup名拒/坏JSON拒/编辑/删除/删gid=0拒/删组级联降级(商户gid→0) 全通过。
+  ✅  用户组上/下架  epay group.php changebuy → PUT /api/admin/groups/:gid/buy [真接口]
+       —— isbuy 1上架/0下架。真跑切换生效。
+       —— 缺:购买价批量保存页(group.php saveGroupPrice,现售价/有效期/排序已并入编辑抽屉);全局购买总开关归系统设置域。
   ✅  资金明细流水            epay record.php → Records.vue [真接口]
         —— 复用 RecordRepo(共用 recordFilters) + GET /api/admin/records(uid/类型/column+value模糊/时间范围+分页)
            + GET /api/admin/records/stats(当前筛选条件下增/减金额+笔数,对齐 record_stats)。
@@ -277,7 +325,7 @@
   ✅  支付通道 CRUD/费率/成功率  epay pay_channel.php → Channels.vue [列表+写操作全真接口]
   🎨  支付方式 启用/配置          epay pay_type.php → PayTypes.vue
   🎨  支付插件列表                epay pay_plugin.php → Plugins.vue
-  🎨  通道轮询规则                epay pay_roll.php → Rolls.vue
+  ✅  通道轮询规则                epay pay_roll.php → Rolls.vue [真接口 2026-07-22，详见上方渠道层级]
   🎨  微信公众号/小程序账号        epay pay_weixin.php → Wechat.vue
   🎨  企业微信账号                epay pay_wework.php → Wework.vue
   🎨  微信客服支付(H5跳转)         epay set_wxkf.php → WxkfSettings.vue
@@ -322,24 +370,36 @@
            editmoney 20→15.5;未扣款单cancel余额不变(Debited标志正确门控退款)。真实渠道分账API待凭证(同下单)。
         —— 缺:分账接收方规则管理 UI(前端无此页,epay 商户端本身也未实装分账,如实标注不造);批量操作;第二接收人profits2(epay也未启用)。
 
-【系统设置（epay set.php 16 个 mod）】
+【系统设置（epay set.php 16 个 mod）】(config 域 2026-07-22 建成)
+  —— ★ config 域已建：pay_config KV 表(对齐 epay pre_config,键名对齐 set.php 表单 name) + ConfigService
+     (内存缓存全量配置 + 类型化 getter Dec/Int/Bool/Str + 默认值 + 分组白名单 GetGroup/SaveGroup) +
+     GET/PUT /api/admin/config/:group。保存后 OnChange→ApplyConfig 实时刷新各 service 缓存常量(无需重启)。
+     收口了原散在 service 的硬编码常量(优化待办#5 已解)：结算 settle_rate/money/fee_min/fee_max/type/maxlimit、
+     代付 transfer_rate/minmoney/maxmoney/maxlimit、退款 refund_fee_type、保证金 user_deposit_min、实名 cert_money、
+     支付 pay_maxmoney/minmoney、屏蔽词 blockname/blockalert。真跑:改 settle_rate=1.2 即时流入商户 apply-info。
   ✅  网站信息配置 site        → Settings.vue [真接口,存 pay_site_config key=settings]
-  🎨  注册相关(开放/审核/付费)  set?mod=site → RegSettings.vue
-  🎨  支付相关配置 pay          → PaySettings.vue（见支付接口）
-  🎨  风控检测 risk            → RiskSettings.vue（见风控）
-  🎨  结算规则 settle          → SettleSettings.vue（见结算）
-  🎨  转账付款配置 transfer     → (Transfer相关)
-  🎨  快捷登录 oauth(QQ/微信/支付宝)  → OAuthSettings.vue
-  🎨  消息提醒 notice(公众号/邮件)    → NoticeSettings.vue
-  🎨  实名认证 certificate(支付宝/腾讯云/阿里云OCR)  → CertSettings.vue
-  🎨  邮箱与短信 mail(SMTP/短信模板)  → MailSettings.vue
-  🎨  网站公告 gonggao          → Announcements.vue
-  🎨  首页模板 template          → TemplateSettings.vue
+  ✅  注册相关(开放/审核/付费/验证码)  set?mod=reg → RegSettings.vue [真接口 config group=reg]
+       —— reg_open/user_review/reg_input_settle/reg_pay/reg_pay_price/captcha_open_login/captcha_version/captcha_id/key。
+          布尔开关用字符串"0"/"1"经 computed 适配 Switch。注册流程消费(reg_open 等)待注册接口接入。
+  ✅  支付相关配置 pay          → PaySettings.vue [真接口 config group=pay：金额上下限/屏蔽词/退款手续费策略]
+  🎨  风控检测 risk            → RiskSettings.vue（风控自动关停阈值键待接定时任务，见第三部分）
+  ✅  结算规则 settle          → SettleSettings.vue [真接口 config group=settle：开关/周期/费率/门槛/封顶封底/次数]
+  🔨  转账付款配置 transfer     → 后端 config group=transfer 已就绪(rate/minmoney/maxmoney/maxlimit 已被代付逻辑消费)，
+                               独立设置页前端未做(epay 有 mod=transfer，我们代付发起走 Transfer.vue，配置页待补)
+  ✅  快捷登录 oauth(QQ/微信/支付宝)  → OAuthSettings.vue [真接口 config group=oauth，第三方凭证纯存取]
+  ✅  消息提醒 notice(公众号/邮件)    → NoticeSettings.vue [真接口 config group=notice，模板ID+邮件开关]
+  ✅  实名认证 certificate(支付宝/腾讯云/阿里云OCR)  → CertSettings.vue [真接口 config group=cert，含 cert_money]
+  ✅  邮箱与短信 mail(SMTP/短信模板)  → MailSettings.vue [真接口 config group=mail，mail_*+sms_* 合并存取]
+  🎨  网站公告 gonggao          → Announcements.vue（已移入官网管理组导航）
+  🎨  首页模板 template          → TemplateSettings.vue（官网管理组）
   🎨  网站LOGO upimg            → (Settings内)
-  🎨  IP获取方式 iptype          → (OtherSettings)
-  🎨  计划任务 cron             → CronSettings.vue（后端见第三部分）
-  🎨  中转代理 proxy            → OtherSettings.vue
-  🎨  管理员账号/支付密码 account → (Settings/权限)
+  ✅  IP获取方式 iptype          → OtherSettings.vue [真接口 config group=other(iptype+proxy 合并)]
+  ✅  计划任务 cron             → CronSettings.vue [真接口 config group=cron：cronkey]（后端调度见第三部分）
+  ✅  中转代理 proxy            → OtherSettings.vue [真接口 config group=other]
+  🎨  管理员账号/支付密码 account → (Settings/权限)（密码走 bcrypt sys_admin，不入 config 明文，不抄 epay）
+  —— 导航归属优化(2026-07-22)：登录日志移入「权限管理」(与操作日志并列),网站公告移入「官网管理」;
+     系统设置内按 站点基础/注册登录鉴权/消息通知/运维 语义排序。第三方凭证类(oauth/notice/cert/mail/proxy)
+     为纯 KV 存取(无可真跑业务闭环,配置被真实功能消费待各自渠道凭证)。
 
 【其他功能】
   🎨  导出订单        epay export.php+download.php → Orders.vue 导出抽屉[前端真导出]

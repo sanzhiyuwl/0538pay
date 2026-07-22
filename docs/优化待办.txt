@@ -43,15 +43,16 @@
     影响面：中，需后端新增导出接口 + 前端改下载方式。归入阶段 C（后台业务域切真接口）。
     发现：2026-07-21 订单导出功能补全时。
 
-[ ] 5. 结算计费配置迁移到 config 域
-    现象：结算手续费率/最低结算额/封顶封底(settle_rate=0.5% / settle_money=30 /
-          settle_fee_min=0.1 / settle_fee_max=20) 目前作为 internal/service/settle.go 的包级常量固化。
-    原因：epay 这些值在 pre_config 键值表可后台配置，我们还没建 config 域。
-    建议：建 config 域(键值表 + 后台"结算规则"设置页接真接口 SettleSettings.vue)后，
-          把这些常量迁移为可配置项；自动结算周期(D+0/D+1)、预留余额 remain_money、
-          每日结算次数上限等也一并纳入。
-    影响面：中，需新建 config 域。settle 计费逻辑已隔离在 calcFee，迁移只换取值来源。
-    发现：2026-07-21 结算域(C2)开发时。
+[x] 5. 结算计费配置迁移到 config 域 —— ✅ 已解决(2026-07-22, C8)
+    现象：结算手续费率/最低结算额/封顶封底等作为 service 包级常量固化。
+    解决：建成 config 域(pay_config KV 表 + ConfigService 内存缓存 + 类型化 getter + 分组白名单 +
+          GET/PUT /admin/config/:group)。收口了 settle_rate/money/fee_min/fee_max/type/maxlimit、
+          transfer_rate/minmoney/maxmoney/maxlimit、refund_fee_type、user_deposit_min、cert_money、
+          blockname/blockalert 等常量：改 var + reloadXxx，启动 Load + 保存后 OnChange→ApplyConfig 实时刷新(无需重启)。
+          SettleSettings.vue/PaySettings.vue 已切真接口。详见 [[c8-config-domain-done]]。
+    残留(不阻塞)：transfer/deposit/cert 独立设置页前端未做(后端键已就绪并被消费)；
+          remain_money 预留余额、其余 mod(oauth/notice/mail/template/cron/proxy) 纯 UI 待后续按需接。
+    发现：2026-07-21 结算域(C2)；解决：2026-07-22 系统设置(C8)。
 
 [ ] 6. 列表接口分页 page 回显为 0（既有技术债，全域统一）
     现象：admin 各列表 handler 调 svc.List(q) 传值，Normalize() 在 service 内改的是副本，

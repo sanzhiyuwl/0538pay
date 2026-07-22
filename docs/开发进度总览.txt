@@ -248,6 +248,63 @@
     ★★★ C 阶段（C1 通道 / C2 结算+流水 / C3 代付+分账 / C4 风控+黑名单+域名 / C5 统计+日志+邀请码）全部切真接口完成！
        后台业务域横向铺开收官，绝大多数后台页面已从 mock 切到真接口。下一步可选 D3 增值项 / V2 协议 / 官网CMS接后端。
 
+    ✅ C6 商户管理 + 用户组管理 写操作（2026-07-21）：后台业务写操作切真接口第一批。
+       —— 商户写操作：添加(手机/邮箱唯一+至少一项,随机32位密钥,可选bcrypt密码) + 编辑(money直接覆盖不走流水,对齐
+          epay editUser 管理员强改) + 余额充值/扣除(走 changeUserMoney 事务+行锁+流水,扣款超余额自动截断) +
+          改用户组+有效期(空=永久) + 权限状态切换(封禁/支付/结算,field 分派对齐 setUser) + 重置密钥 + 删除。
+          7 接口挂 admin 分组 + MerchantService 扩写方法(MerchantError 业务码) + MerchantRepo(Create/Delete/查重/组降级/组内计数)。
+       —— 用户组 CRUD：pay_group 扩 config/settings/visible 字段。列表(派生费率+该组商户数) + 新增/编辑(组名唯一,
+          info/config 校验合法JSON) + 上下架 + 删除(gid=0不可删,级联该组商户回落默认组)。5 接口 + GroupService(GroupError)。
+       —— Merchants.vue/Groups.vue 全切真接口(抽屉表单+充值/改组/重置/删除确认弹窗)；商户列表 groupname 改 JOIN 派生 +
+          到期用户组惰性降级。真跑全绿：商户 增/改/充扣(截断+流水)/改组/权限/密钥/删,各校验分支(dup邮箱/都空/坏JSON/删gid=0)，
+          用户组 CRUD/上下架/删组级联降级(商户gid→0) 全部通过。
+       —— 缺:group.php 购买价批量保存页(售价/有效期/排序已并入编辑抽屉);删商户级联 subchannel(待通道体系增强)。
+
+    ✅ C7 订单管理写操作（2026-07-22）：后台业务写操作第二批。
+       —— 退款(手动/API原路)：对齐 epay Order::refund，status∈[1,2,3] 可退、money≤realmoney、部分退款累加 refundmoney，
+          扣余额 reducemoney 四分支 1:1(冻结单/直清=0 / 手续费不退全额=realmoney / 手续费退且全额或≥分成=getmoney / 部分=退款额)，
+          changeUserMoney type=订单退款 幂等；手动退款不调渠道，API退款需管理员密码+渠道原路退款待凭证。
+       —— 冻结/解冻(1↔3 扣/加 getmoney 走流水)、改未完成/改已完成(裸改状态不入账)、手动补单(status0→1 复用 settle 入账+分账+通知)、
+          重新通知(复用 ResendNotify)、删除(物理删)、批量(改状态/冻/解/删逐条)。
+       —— OrderService 扩写方法(SetWriteDeps 注入 account/channel/admin/pay，OrderError 业务码) + OrderRepo(SetStatus/
+          SetStatusFrom/Delete/MarkRefundedPartial/FillOrder) + PayService.SettleOnFill。10 接口挂 admin 分组。
+       —— Orders.vue 全切真接口：行操作按状态动态菜单接真调用 + 退款弹窗(查可退金额)+ 操作确认弹窗 + 批量勾选/操作条。
+          真跑全绿：冻结/解冻净零对称、手动退款 status→2 扣分成、API退款错密码拒、补单入账落流水、批量 affected=2、删除+边界拒。
+       —— 缺:预授权资金支付/解冻+直付通结算(status=4/settle，依赖支付宝真实渠道凭证)、独立订单详情页/退款统计报表。
+
+    ✅ C8 系统设置 config 域（2026-07-22）：建 config KV 域 + 收口硬编码常量（解优化待办#5）。
+       —— pay_config KV 表(对齐 epay pre_config，键名对齐 set.php 表单 name) + ConfigRepo(All/SetMany upsert) +
+          ConfigService(内存缓存全量 + 类型化 getter Dec/Int/Bool/Str + configDefaults 默认值 + configGroups 分组白名单 +
+          GetGroup/SaveGroup)。启动 Load 进缓存；保存后 Load 重建 + OnChange→service.ApplyConfig 实时刷新业务常量(无需重启)。
+       —— 收口原散在 5 个 service 的硬编码常量为可配置：settle.go(settle_rate/money/fee_min/fee_max/type/maxlimit)、
+          transfer.go(transfer_rate 空则复用 settle_rate/minmoney/maxmoney/maxlimit)、order_write.go(refund_fee_type)、
+          merchant_center.go(user_deposit_min/cert_money)、pay.go(blockname 屏蔽词/blockalert)。常量改 var + reloadXxx 函数。
+       —— GET/PUT /api/admin/config/:group + config api 模块 + SettleSettings.vue/PaySettings.vue 切真接口。
+          真跑：get/save/白名单过滤(外来键忽略)/未知分组拒/持久化，改 settle_rate=1.2 即时流入商户 apply-info(reload 链验证)。
+       —— 管理员密码/支付密码 epay 明文存 config，我们不抄(admin 密码走 bcrypt sys_admin)。
+
+    ✅ C8b 剩余系统设置页切真接口 + 导航归属优化（2026-07-22）：
+       —— config 域扩展分组 reg/oauth/notice/cert/mail/cron/other(iptype+proxy)，configDefaults 补枚举开关默认("0")避免前端下拉空选。
+       —— 前端切真接口：RegSettings(reg,布尔开关字符串适配)/OAuthSettings(oauth)/NoticeSettings(notice)/CertSettings(cert)/
+          MailSettings(mail,mail_*+sms_*合并)/CronSettings(cron)/OtherSettings(other)。各页 onMounted 拉取 + 保存推后端。
+       —— 导航归属优化(nav.ts)：登录日志→权限管理组(与操作日志并列),网站公告→官网管理组;系统设置内按站点基础/注册登录鉴权/
+          消息通知/运维语义排序。真跑:reg get/save/持久化(reg_open 1→2/reg_pay→1)、oauth/cert/other/mail 各组读写、枚举默认返回"0"。
+       —— 第三方凭证类(oauth/notice/cert/mail/proxy)为纯 KV 存取(无可真跑业务闭环,被真实功能消费待各自渠道凭证)。
+          缺:transfer 独立设置页(后端键已就绪被代付消费)、template/logo/account 页、注册流程消费 reg_* 待注册接口。
+
+    ✅ C9 通道体系增强 子通道/轮询组/用户组通道分配（2026-07-22）：收单主链选通道从「按 plugin 名定位单一通道」升级为 1:1 对齐 epay 的分层分发。
+       —— 三张新表：pay_roll(轮询组,kind 0顺序/1权重随机/2首个启用,info通道串,idx顺序游标) + pay_subchannel(子通道,商户维度,usetime顺序调度;
+          epay apply_id 进件渠道我方无进件系统故不移植) + pay_group.info 改为 epay 格式 {typeid:{type,channel,rate}} 分配图。
+       —— ChannelSelector(selectchannel.go/selecthelper.go) 1:1 移植 epay includes/lib/Channel.php 的 getSubmitInfo + getChannelFromRoll：
+          按商户 gid 查组 info(缺失回退默认组 gid=0)→按支付方式 type 取分配→四分支：0关闭/-1随机(array_rand等概率)/-2子通道(usetime升序顺序调度+回写)/
+          正整数(type=roll 是轮询组ID经 getChannelFromRoll 解析,否则固定通道ID)。金额 paymin/paymax 过滤、组级费率覆盖(info.rate非空优先)。
+          接进 PayService.Submit(resolveChannel/resolveTypeID，旧 plugin 名路径向后兼容阶段A/B mock/epay)。三种轮询算法 + 解析函数单测 8 绿。
+       —— CRUD：RollService/SubChannelService/GroupService.SaveAssigns + handlers + 路由(rolls/subchannels/groups/:gid/assigns)；
+          删商户/删主通道级联删子通道(补 C6 缺口)。前端 Rolls.vue 全 CRUD、Groups.vue 通道分配编辑器、Merchants.vue 子通道管理抽屉全切真接口。
+       —— 真跑全绿(选通道四分支/轮询三算法/子通道调度)：顺序轮询 1→10→1→10 精确轮转+idx持久化、固定通道 channel=10+rate1.5覆盖、
+          -1随机命中、-2子通道 subA→subB→subA usetime调度、0关闭正确拒绝、组级费率 2.00% 经 roll 路径生效。
+          缺：子通道 [占位]参数替换注入渠道 Config(SubInfo 已随选通道返回,待真实渠道消费)、daystatus 单日超限暂停(我方无该字段)。
+
   ----------------------------------------------------------------
   阶段 D — 商户中心 /m 接后端
   ----------------------------------------------------------------

@@ -6,6 +6,7 @@ admin-web/node_modules/
 dist/
 dist-ssr/
 admin-web/dist/
+/0538pay-api/0538pay-api.exe~
 
 # Logs
 logs/
