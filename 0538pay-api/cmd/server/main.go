@@ -128,9 +128,16 @@ func main() {
 	announceSvc := service.NewAnnounceService(repository.NewAnnounceRepo(db))
 	// 数据清理（对齐 epay clean.php）。
 	cleanSvc := service.NewCleanService(db)
+	// 风控自动关停（对齐 epay cron do=check）。
+	riskAutoSvc := service.NewRiskAutoService(repository.NewRiskAutoRepo(db), configSvc)
 	// 商户 handler 单列（SSO 需注入 JWT）。
 	merchantHandler := handler.NewMerchantHandler(merchantSvc)
 	merchantHandler.SetJWT(jm)
+
+	// 定时任务调度器（先建，供 cron 手动触发端点复用）。
+	sch := scheduler.New(paySvc, settleSvc)
+	sch.SetProfit(profitSvc)      // 分账自动执行（对齐 epay cron do=profitsharing）
+	sch.SetRiskAuto(riskAutoSvc)  // 风控自动关停（对齐 epay cron do=check）
 	// V2 REST 接口族（mapi）：统一验签 + 回包 RSA 签名，复用 Pay/Transfer 核心。
 	refundOrderRepo := repository.NewRefundOrderRepo(db)
 	if err := configSvc.EnsurePlatformKeys(sign.GenerateRSAKeyPair); err != nil {
@@ -177,11 +184,10 @@ func main() {
 		Dashboard: handler.NewDashboardHandler(dashboardSvc),
 		Announce:  handler.NewAnnounceHandler(announceSvc),
 		Clean:     handler.NewCleanHandler(cleanSvc),
+		Cron:      handler.NewCronHandler(sch, configSvc),
 	}
 
-	// 4. 定时任务（阶段E）：商户通知重试 + 未支付对账 + 超时关单 + 自动结算。
-	sch := scheduler.New(paySvc, settleSvc)
-	sch.SetProfit(profitSvc) // 分账自动执行（对齐 epay cron do=profitsharing）
+	// 4. 定时任务（阶段E）：通知重试 + 对账 + 超时关单 + 自动结算 + 分账 + 风控。
 	sch.Start()
 
 	// 5. 路由 + 启动（HTTP 起独立协程，主协程等信号做优雅停机）。

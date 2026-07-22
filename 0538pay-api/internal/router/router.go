@@ -42,6 +42,7 @@ type Deps struct {
 	Dashboard      *handler.DashboardHandler
 	Announce       *handler.AnnounceHandler
 	Clean          *handler.CleanHandler
+	Cron           *handler.CronHandler
 }
 
 // Setup 注册所有路由。
@@ -233,6 +234,15 @@ func Setup(r *gin.Engine, d Deps) {
 	{
 		mapi.POST("/:class/:action", d.Mapi.Dispatch)
 		mapi.GET("/:class/:action", d.Mapi.Dispatch)
+	}
+
+	// 对外手动触发计划任务（对齐 epay cron.php，由 cronkey 校验，无 JWT）
+	if d.Cron != nil {
+		cron := api.Group("/cron")
+		{
+			cron.GET("/:task", d.Cron.Run)
+			cron.POST("/:task", d.Cron.Run)
+		}
 	}
 
 	// 官网 CMS 内容读取（公开，官网前端读）

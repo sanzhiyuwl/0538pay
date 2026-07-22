@@ -109,6 +109,13 @@ var configDefaults = map[string]string{
 	"onecode": "0", // 聚合收款码全局开关 0关/1开
 	// 使用说明（我方做成后台可编辑；epay help.php 是硬编码静态页）
 	"help_content": "", // 商户使用说明正文（HTML/富文本），空则前端用内置默认文案
+	// 风控自动关停 risk（对齐 epay set.php?mod=risk + cron do=check）
+	"auto_check_notify":  "0",  // 连续通知失败自动关停商户支付 0关/1开
+	"check_notify_count": "10", // 连续通知失败达该次数则关停(写 pay_risk type=2)
+	"auto_check_sucrate": "0",  // 商户成功率自动关停 0关/1开
+	"check_sucrate_second": "600", // 统计窗口(秒)
+	"check_sucrate_count":  "20",  // 窗口内最少订单数(达到才判定，避免小样本误伤)
+	"check_sucrate_value":  "30",  // 成功率低于该值(%)则关停(写 pay_risk type=1)
 }
 
 // configGroups 各系统设置分组包含的键（白名单，前端按 group 读写）。
@@ -158,6 +165,10 @@ var configGroups = map[string][]string{
 	},
 	"onecode": {"onecode"},
 	"help":    {"help_content"},
+	"risk": {
+		"auto_check_notify", "check_notify_count",
+		"auto_check_sucrate", "check_sucrate_second", "check_sucrate_count", "check_sucrate_value",
+	},
 }
 
 // Load 从 DB 全量加载配置进内存缓存（启动时调一次）。缺省键补默认值。

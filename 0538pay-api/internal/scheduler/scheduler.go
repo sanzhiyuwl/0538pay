@@ -16,11 +16,12 @@ import (
 
 // Scheduler 定时任务调度器。
 type Scheduler struct {
-	pay    *service.PayService
-	settle *service.SettleService
-	profit *service.ProfitService // 分账自动执行（可空）
-	cancel context.CancelFunc
-	done   chan struct{}
+	pay      *service.PayService
+	settle   *service.SettleService
+	profit   *service.ProfitService   // 分账自动执行（可空）
+	riskAuto *service.RiskAutoService // 风控自动关停（可空）
+	cancel   context.CancelFunc
+	done     chan struct{}
 
 	// 可配置的间隔与批量（起步用固定默认值，后续可接配置）。
 	notifyInterval    time.Duration
@@ -28,6 +29,7 @@ type Scheduler struct {
 	cleanupInterval   time.Duration
 	settleInterval    time.Duration
 	profitInterval    time.Duration
+	riskInterval      time.Duration
 	batchLimit        int
 	settleLimit       int
 	profitLimit       int
@@ -45,6 +47,7 @@ func New(pay *service.PayService, settle *service.SettleService) *Scheduler {
 		cleanupInterval:   1 * time.Hour,    // 每小时清理一次超时未付单
 		settleInterval:    1 * time.Hour,    // 每小时检查一次自动结算（服务层每日只跑一次）
 		profitInterval:    5 * time.Minute,  // 每 5 分钟自动执行一次待分账单
+		riskInterval:      10 * time.Minute, // 每 10 分钟跑一次风控自动关停检查
 		batchLimit:        20,               // 每批处理条数，对齐 epay limit=20
 		settleLimit:       100,              // 单次自动结算处理商户数上限
 		profitLimit:       50,               // 单次自动分账处理条数上限
@@ -55,6 +58,9 @@ func New(pay *service.PayService, settle *service.SettleService) *Scheduler {
 
 // SetProfit 注入分账服务（自动执行待分账单）。nil 则不跑分账自动执行。
 func (s *Scheduler) SetProfit(p *service.ProfitService) { s.profit = p }
+
+// SetRiskAuto 注入风控自动关停服务。nil 则不跑风控自动检查。
+func (s *Scheduler) SetRiskAuto(r *service.RiskAutoService) { s.riskAuto = r }
 
 // Start 启动后台任务协程。非阻塞。
 func (s *Scheduler) Start() {
@@ -82,11 +88,13 @@ func (s *Scheduler) run(ctx context.Context) {
 	cleanupTicker := time.NewTicker(s.cleanupInterval)
 	settleTicker := time.NewTicker(s.settleInterval)
 	profitTicker := time.NewTicker(s.profitInterval)
+	riskTicker := time.NewTicker(s.riskInterval)
 	defer notifyTicker.Stop()
 	defer reconcileTicker.Stop()
 	defer cleanupTicker.Stop()
 	defer settleTicker.Stop()
 	defer profitTicker.Stop()
+	defer riskTicker.Stop()
 
 	for {
 		select {
@@ -102,7 +110,46 @@ func (s *Scheduler) run(ctx context.Context) {
 			s.runSettle(ctx)
 		case <-profitTicker.C:
 			s.runProfit()
+		case <-riskTicker.C:
+			s.runRiskAuto()
 		}
+	}
+}
+
+// RunTask 手动触发一个任务（对齐 epay cron.php?act=xxx，由 cronkey 保护的对外端点调用）。
+// 返回是否为已知任务。
+func (s *Scheduler) RunTask(task string) bool {
+	ctx := context.Background()
+	switch task {
+	case "notify":
+		s.runNotify(ctx)
+	case "reconcile":
+		s.runReconcile(ctx)
+	case "order", "cleanup":
+		s.runCleanup()
+	case "settle":
+		s.runSettle(ctx)
+	case "profitsharing", "profit":
+		s.runProfit()
+	case "check", "risk":
+		s.runRiskAuto()
+	default:
+		return false
+	}
+	return true
+}
+
+func (s *Scheduler) runRiskAuto() {
+	if s.riskAuto == nil {
+		return
+	}
+	n, err := s.riskAuto.Run()
+	if err != nil {
+		log.Printf("[scheduler] 风控自动检查出错: %v", err)
+		return
+	}
+	if n > 0 {
+		log.Printf("[scheduler] 风控自动关停 %d 个商户", n)
 	}
 }
 
