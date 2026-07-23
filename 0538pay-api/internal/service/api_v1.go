@@ -81,7 +81,8 @@ func (s *ApiV1Service) Order(q map[string]string) map[string]interface{} {
 		// 内部签名查单：md5(SYS_KEY.trade_no.SYS_KEY)
 		syskey := s.cfg.Str("syskey")
 		want := md5Hex(syskey + q["trade_no"] + syskey)
-		if syskey == "" || !strings.EqualFold(q["sign"], want) {
+		// B1-62：严格大小写敏感全等，对齐 epay `md5(...) !== $_GET['sign']`（大写 hex 应被拒）。
+		if syskey == "" || q["sign"] != want {
 			return v1Fail(-3, "verify sign failed")
 		}
 		o, err = s.orders.FindByTradeNo(q["trade_no"])
@@ -109,8 +110,11 @@ func (s *ApiV1Service) Order(q map[string]string) map[string]interface{} {
 		"name": o.Name, "money": money.String(o.Money), "param": o.Param,
 		"buyer": o.Buyer, "status": o.Status, "payurl": o.QRCode,
 	}
+	// B1-61：endtime 恒返回该键（epay act=order 未支付单返回空串，非省略）。
 	if o.EndTime != nil {
 		res["endtime"] = o.EndTime.Format(timeLayout)
+	} else {
+		res["endtime"] = ""
 	}
 	return res
 }
@@ -140,8 +144,11 @@ func (s *ApiV1Service) Orders(q map[string]string) map[string]interface{} {
 			"pid": o.UID, "addtime": o.AddTime.Format(timeLayout), "name": o.Name,
 			"money": money.String(o.Money), "param": o.Param, "buyer": o.Buyer, "status": o.Status,
 		}
+		// B1-61：endtime 恒返回该键（epay 未支付单返回空串，非省略）。
 		if o.EndTime != nil {
 			row["endtime"] = o.EndTime.Format(timeLayout)
+		} else {
+			row["endtime"] = ""
 		}
 		data = append(data, row)
 	}
@@ -156,19 +163,28 @@ func (s *ApiV1Service) Settle(q map[string]string) map[string]interface{} {
 	}
 	limit := clampLimit(parseIntDef(q["limit"], 10))
 	offset := parseIntDef(q["offset"], 0)
-	page := offset/limit + 1
-	list, _, err := s.settles.ListByMerchant(m.UID, nil, page, limit)
+	// B1-59：原生行偏移 + id DESC，对齐 epay `order by id desc limit {offset},{limit}`。
+	list, err := s.settles.ListByMerchantOffset(m.UID, limit, offset)
 	if err != nil {
 		return v1Fail(-1, "查询结算记录失败！")
 	}
 	data := make([]map[string]interface{}, 0, len(list))
 	for i := range list {
 		st := &list[i]
-		data = append(data, map[string]interface{}{
-			"id": st.ID, "uid": st.UID, "money": money.String(st.Money),
-			"account": st.Account, "username": st.Username,
-			"status": st.Status, "addtime": st.AddTime.Format(timeLayout),
-		})
+		// B1-58：epay `SELECT *` 全字段原样回吐，此处回吐 pay_settle 全部有意义字段（非仅6项）。
+		row := map[string]interface{}{
+			"id": st.ID, "uid": st.UID, "batch": st.Batch, "auto": st.Auto,
+			"type": st.Type, "account": st.Account, "username": st.Username,
+			"money": money.String(st.Money), "realmoney": money.String(st.RealMoney),
+			"status": st.Status, "result": st.Result,
+			"addtime": st.AddTime.Format(timeLayout),
+		}
+		if st.EndTime != nil {
+			row["endtime"] = st.EndTime.Format(timeLayout)
+		} else {
+			row["endtime"] = ""
+		}
+		data = append(data, row)
 	}
 	return map[string]interface{}{"code": 1, "msg": "查询结算记录成功！", "data": data}
 }
@@ -176,12 +192,13 @@ func (s *ApiV1Service) Settle(q map[string]string) map[string]interface{} {
 // Refund act=refund：退款（POST，明文 key 鉴权 + per-merchant refund 开关，复用 V2 退款核心）。
 // 返回 V1 语义（code=1 成功）；V2 核心返回 code=0，此处映射。
 func (s *ApiV1Service) Refund(q map[string]string) map[string]interface{} {
+	// B1-60(a)：对齐 epay api.php:118 —— 先查全局 user_refund 开关(坏 pid 也先报此错)，再做 pid/key 鉴权。
+	if !s.cfg.Bool("user_refund") {
+		return v1Fail(-4, "未开启商户后台自助退款")
+	}
 	m, fail := s.authV1(q["pid"], q["key"])
 	if fail != nil {
 		return fail
-	}
-	if !s.cfg.Bool("user_refund") {
-		return v1Fail(-4, "未开启商户后台自助退款")
 	}
 	if m.Refund == 0 {
 		return v1Fail(-2, "商户未开启订单退款API接口")

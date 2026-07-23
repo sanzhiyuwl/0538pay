@@ -77,6 +77,7 @@ type SubChannelPick struct {
 	PayMin    string
 	PayMax    string
 	Info      string // 子通道自定义参数 JSON
+	AppType   string // 主通道 apptype（子通道 info.apptype 非空则覆盖，对齐 epay getSub L44-46）
 }
 
 // FindPickable 取某商户在某支付方式下、按 use_time 升序（最久未用优先）排列的可用子通道。
@@ -89,7 +90,7 @@ type SubChannelPick struct {
 func (r *SubChannelRepo) FindPickable(uid uint, typeID int) ([]SubChannelPick, error) {
 	var rows []SubChannelPick
 	err := r.db.Table("pay_subchannel AS B").
-		Select("B.id AS sub_id, A.id AS channel_id, A.plugin AS plugin, A.rate AS rate, A.pay_min AS pay_min, A.pay_max AS pay_max, B.info AS info").
+		Select("B.id AS sub_id, A.id AS channel_id, A.plugin AS plugin, A.rate AS rate, A.pay_min AS pay_min, A.pay_max AS pay_max, B.info AS info, A.apptype AS app_type").
 		Joins("INNER JOIN pay_channel AS A ON B.channel = A.id").
 		Where("B.uid = ? AND A.type = ? AND A.status = 1 AND B.status = 1 AND A.daystatus = 0", uid, typeID).
 		Order("B.use_time ASC").

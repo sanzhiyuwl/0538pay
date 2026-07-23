@@ -1,7 +1,9 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,7 +54,9 @@ type TransferService struct {
 	repo      *repository.TransferRepo
 	merchants *repository.MerchantRepo
 	admins    *repository.AdminRepo
-	orders    *repository.OrderRepo // 可空；SetOrderRepo 注入。settle_type=1 可用余额扣当日已收 realmoney 用
+	orders    *repository.OrderRepo    // 可空；SetOrderRepo 注入。settle_type=1 可用余额扣当日已收 realmoney 用
+	cfg       *ConfigService           // 可空；SetConfigService 注入。读 user_transfer/transfer_* 通道配置
+	groups    *repository.GroupRepo    // 可空；SetGroupRepo 注入。按商户 gid 组级覆盖 transfer_* 配置(B1-09)
 }
 
 func NewTransferService(
@@ -66,6 +70,106 @@ func NewTransferService(
 // SetOrderRepo 注入订单 repo（A-8：settle_type=1 时代付可用余额 = 余额 - 当日已成功订单 realmoney）。
 // nil 则可用余额直接取商户余额（settle_type=0 语义，向后兼容）。
 func (s *TransferService) SetOrderRepo(o *repository.OrderRepo) { s.orders = o }
+
+// SetConfigService 注入配置服务（读 user_transfer 全局开关 + transfer_alipay 等通道配置）。
+func (s *TransferService) SetConfigService(c *ConfigService) { s.cfg = c }
+
+// SetGroupRepo 注入用户组仓储，使代付按商户 gid 做组级 transfer_* 配置覆盖（B1-09）。
+func (s *TransferService) SetGroupRepo(g *repository.GroupRepo) { s.groups = g }
+
+// CheckUserTransfer 校验某商户(gid)代付全局开关（B1-08，供 query/proof/balance 等非创建路径复用）。
+// 未开启返回错误；cfg 未注入时默认放行（向后兼容）。
+func (s *TransferService) CheckUserTransfer(gid int) error {
+	if !s.resolveTransferConf(gid).userTransfer {
+		return tfErr("管理员未开启代付功能")
+	}
+	return nil
+}
+
+// transferConf 某商户生效的代付配置（全局为底 + 组级非空覆盖，对齐 epay array_merge(conf,getGroupConfig)）。
+type transferConf struct {
+	userTransfer bool            // user_transfer 全局总开关
+	rate         decimal.Decimal // transfer_rate（空复用 settle_rate）
+	minMoney     decimal.Decimal // transfer_minmoney
+	maxMoney     decimal.Decimal // transfer_maxmoney
+	maxLimit     int             // transfer_maxlimit
+	channel      map[string]int  // 付款方式→通道 id（0=未开启该方式）
+}
+
+// resolveTransferConf 计算某商户(gid)生效的代付配置：以全局 config 为底，组级 config 非空键覆盖
+// （B1-08 user_transfer / B1-09 组级覆盖 / B1-11 通道按方式取配置）。cfg 为 nil 时回退包级全局常量。
+func (s *TransferService) resolveTransferConf(gid int) transferConf {
+	c := transferConf{
+		userTransfer: true, // cfg 未注入时不拦（向后兼容旧行为）
+		rate:         transferRate,
+		minMoney:     transferMinMoney,
+		maxMoney:     transferMaxMoney,
+		maxLimit:     transferMaxLimit,
+		channel:      map[string]int{"alipay": transferDefaultChannel["alipay"], "wxpay": transferDefaultChannel["wxpay"], "qqpay": transferDefaultChannel["qqpay"], "bank": transferDefaultChannel["bank"]},
+	}
+	if s.cfg == nil {
+		return c
+	}
+	// 全局配置为底
+	c.userTransfer = s.cfg.Int("user_transfer", 0) == 1
+	if r := strings.TrimSpace(s.cfg.Str("transfer_rate")); r != "" {
+		c.rate = s.cfg.Dec("transfer_rate", settleRate)
+	} else {
+		c.rate = settleRate
+	}
+	c.minMoney = s.cfg.Dec("transfer_minmoney", transferMinMoney)
+	c.maxMoney = s.cfg.Dec("transfer_maxmoney", transferMaxMoney)
+	c.maxLimit = s.cfg.Int("transfer_maxlimit", transferMaxLimit)
+	c.channel = map[string]int{
+		"alipay": s.cfg.Int("transfer_alipay", 0),
+		"wxpay":  s.cfg.Int("transfer_wxpay", 0),
+		"qqpay":  s.cfg.Int("transfer_qqpay", 0),
+		"bank":   s.cfg.Int("transfer_bank", 0),
+	}
+	// 组级非空覆盖（对齐 epay getGroupConfig）
+	if s.groups == nil || gid <= 0 {
+		return c
+	}
+	g, err := s.groups.FindByID(gid)
+	if err != nil || g == nil || strings.TrimSpace(g.Config) == "" {
+		return c
+	}
+	var gc map[string]interface{}
+	if json.Unmarshal([]byte(g.Config), &gc) != nil {
+		return c
+	}
+	if v, ok := groupConfStr(gc, "user_transfer"); ok {
+		c.userTransfer = v == "1"
+	}
+	if v, ok := groupConfStr(gc, "transfer_rate"); ok {
+		if d, err := decimal.NewFromString(v); err == nil {
+			c.rate = d
+		}
+	}
+	if v, ok := groupConfStr(gc, "transfer_minmoney"); ok {
+		if d, err := decimal.NewFromString(v); err == nil {
+			c.minMoney = d
+		}
+	}
+	if v, ok := groupConfStr(gc, "transfer_maxmoney"); ok {
+		if d, err := decimal.NewFromString(v); err == nil {
+			c.maxMoney = d
+		}
+	}
+	if v, ok := groupConfStr(gc, "transfer_maxlimit"); ok {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.maxLimit = n
+		}
+	}
+	for _, t := range []string{"alipay", "wxpay", "qqpay", "bank"} {
+		if v, ok := groupConfStr(gc, "transfer_"+t); ok {
+			if n, err := strconv.Atoi(v); err == nil {
+				c.channel[t] = n
+			}
+		}
+	}
+	return c
+}
 
 // enableMoney 计算代付可用余额（A-8，对齐 epay Transfer.php:17-25）。
 // settle_type=1(订单结算)：可用 = 余额 - 当日已成功订单 realmoney(tid≠2)，不小于 0；否则=全部余额。
@@ -97,10 +201,15 @@ func tfErr(msg string) *TransferError { return &TransferError{Code: 1106, Msg: m
 
 // calcTransferFee 计算代付手续费（对齐 epay：need = money + money*rate/100，round 2）。返回手续费。
 func calcTransferFee(money decimal.Decimal) decimal.Decimal {
-	if transferRate.LessThanOrEqual(decimal.Zero) {
+	return calcTransferFeeWith(transferRate, money)
+}
+
+// calcTransferFeeWith 按指定费率计算代付手续费（B1-09：费率可组级覆盖，故显式传入）。
+func calcTransferFeeWith(rate, money decimal.Decimal) decimal.Decimal {
+	if rate.LessThanOrEqual(decimal.Zero) {
 		return decimal.Zero
 	}
-	return money.Mul(transferRate).Div(hundred).Round(2)
+	return money.Mul(rate).Div(hundred).Round(2)
 }
 
 // List 后台代付列表（分页 + 筛选）。
@@ -146,7 +255,8 @@ func (s *TransferService) CreateByAdmin(adminID uint, req dto.TransferCreateReq)
 	if err := s.verifyAdminPwd(adminID, req.Password); err != nil {
 		return "", err
 	}
-	money, bizNo, err := s.validateCommon(req)
+	conf := s.resolveTransferConf(0) // 管理员发起：全局配置，无组级覆盖
+	money, bizNo, err := s.validateCommon(req, conf)
 	if err != nil {
 		return "", err
 	}
@@ -154,7 +264,7 @@ func (s *TransferService) CreateByAdmin(adminID uint, req dto.TransferCreateReq)
 		BizNo:     bizNo,
 		UID:       0, // 管理员发起哨兵值
 		Type:      req.Type,
-		Channel:   s.resolveChannel(req),
+		Channel:   s.resolveChannel(req, conf),
 		Account:   strings.TrimSpace(req.Account),
 		Username:  strings.TrimSpace(req.Username),
 		Money:     money,
@@ -194,17 +304,18 @@ func (s *TransferService) CreateBatchByAdmin(adminID uint, password string, item
 	if len(items) > 200 {
 		return nil, tfErr("单次批量代付上限 200 条")
 	}
+	conf := s.resolveTransferConf(0) // 管理员批量：全局配置，无组级覆盖
 	results := make([]BatchItemResult, 0, len(items))
 	for i, it := range items {
 		r := BatchItemResult{Index: i, Account: strings.TrimSpace(it.Account)}
-		money, bizNo, err := s.validateCommon(it)
+		money, bizNo, err := s.validateCommon(it, conf)
 		if err != nil {
 			r.Msg = err.Error()
 			results = append(results, r)
 			continue
 		}
 		t := &model.Transfer{
-			BizNo: bizNo, UID: 0, Type: it.Type, Channel: s.resolveChannel(it),
+			BizNo: bizNo, UID: 0, Type: it.Type, Channel: s.resolveChannel(it, conf),
 			Account: strings.TrimSpace(it.Account), Username: strings.TrimSpace(it.Username),
 			Money: money, CostMoney: money, AddTime: time.Now(), Status: 0, Desc: it.Desc,
 		}
@@ -257,6 +368,10 @@ func (s *TransferService) CreateByMerchantSigned(uid uint, req dto.TransferCreat
 	if m == nil {
 		return "", tfErr("商户不存在")
 	}
+	// B1-08：全局代付开关在最前（对齐 epay Transfer.php:14 先 user_transfer 再 userrow['transfer']）。
+	if err := s.CheckUserTransfer(m.GID); err != nil {
+		return "", err
+	}
 	// per-merchant 代付API开关（A-7，对齐 epay Transfer.php:15 userrow['transfer']==0）。
 	if m.Transfer == 0 {
 		return "", tfErr("商户未开启代付API接口")
@@ -264,33 +379,57 @@ func (s *TransferService) CreateByMerchantSigned(uid uint, req dto.TransferCreat
 	if m.Settle != 1 {
 		return "", tfErr("结算功能未开启，无法发起代付")
 	}
+	// B1-07/37：V2 API 路径强制收款人姓名非空（对齐 epay api/Transfer.php:38）。
+	// user 页(CreateByMerchant)姓名选填，不在此校验，故只在 signed 路径拦。
+	if strings.TrimSpace(req.Username) == "" {
+		return "", tfErr("收款人姓名(name)不能为空")
+	}
 	return s.createByMerchantCore(uid, req)
 }
 
 // createByMerchantCore 商户代付核心（鉴权后共用：限额/费率/余额扣减/幂等）。
 func (s *TransferService) createByMerchantCore(uid uint, req dto.TransferCreateReq) (string, error) {
-	money, bizNo, err := s.validateCommon(req)
+	// 解析该商户生效的代付配置（全局 + 组级覆盖）。先取商户拿 gid。
+	m, _ := s.merchants.FindByUIDSafe(uid)
+	gid := 0
+	if m != nil {
+		gid = m.GID
+	}
+	conf := s.resolveTransferConf(gid)
+
+	// B1-08：全局代付总开关（管理员未开启则一律拒，与 per-merchant Transfer 开关是两道独立闸门）。
+	if !conf.userTransfer {
+		return "", tfErr("管理员未开启代付功能")
+	}
+
+	money, bizNo, err := s.validateCommon(req, conf)
 	if err != nil {
 		return "", err
 	}
 
-	// 同一收款账号+方式每日次数限制
-	if transferMaxLimit > 0 {
+	// 同一收款账号+方式每日次数限制（B1-10/36：CountTodayByAccount 已改按 pay_time 仅计成功单）
+	if conf.maxLimit > 0 {
 		cnt, err := s.repo.CountTodayByAccount(uid, req.Type, strings.TrimSpace(req.Account), dayStart(time.Now()))
 		if err != nil {
 			return "", err
 		}
-		if int(cnt) >= transferMaxLimit {
+		if int(cnt) >= conf.maxLimit {
 			return "", tfErr("该收款账号今日代付已达次数上限")
 		}
 	}
 
-	fee := calcTransferFee(money)
+	// B1-11：按付款方式取通道配置，channel=0(未开启该方式)则拒（对齐 epay '未开启此转账方式'）。
+	channelID := s.resolveChannel(req, conf)
+	if channelID <= 0 {
+		return "", tfErr("未开启此转账方式")
+	}
+
+	fee := calcTransferFeeWith(conf.rate, money)
 	cost := money.Add(fee)
 
 	// settle_type=1 可用余额校验（A-8）：需支付金额 > 可用余额(余额-当日已收 realmoney)则拒。
 	// CreateWithDebit 内另有余额行锁校验兜底；此处按 epay 语义提前拦并给准确文案。
-	if m, err := s.merchants.FindByUIDSafe(uid); err == nil && m != nil {
+	if m != nil {
 		if cost.GreaterThan(s.enableMoney(m)) {
 			return "", tfErr("需支付金额大于可转账余额")
 		}
@@ -300,7 +439,7 @@ func (s *TransferService) createByMerchantCore(uid uint, req dto.TransferCreateR
 		BizNo:     bizNo,
 		UID:       uid,
 		Type:      req.Type,
-		Channel:   s.resolveChannel(req),
+		Channel:   channelID,
 		Account:   strings.TrimSpace(req.Account),
 		Username:  strings.TrimSpace(req.Username),
 		Money:     money,
@@ -382,7 +521,8 @@ func (s *TransferService) Delete(bizNo string) error {
 }
 
 // validateCommon 校验发起代付的公共入参并生成/校验交易号，返回解析后的到账金额与交易号。
-func (s *TransferService) validateCommon(req dto.TransferCreateReq) (decimal.Decimal, string, error) {
+// conf 为该商户生效的代付配置（min/max 限额来自其中，支持组级覆盖，B1-09）。
+func (s *TransferService) validateCommon(req dto.TransferCreateReq, conf transferConf) (decimal.Decimal, string, error) {
 	if !transferTypes[req.Type] {
 		return decimal.Zero, "", tfErr("付款方式不合法")
 	}
@@ -405,11 +545,11 @@ func (s *TransferService) validateCommon(req dto.TransferCreateReq) (decimal.Dec
 	if !money.Equal(money.Round(2)) {
 		return decimal.Zero, "", tfErr("金额最多两位小数")
 	}
-	if transferMinMoney.GreaterThan(decimal.Zero) && money.LessThan(transferMinMoney) {
-		return decimal.Zero, "", tfErr("单笔最低 ¥" + transferMinMoney.StringFixed(2))
+	if conf.minMoney.GreaterThan(decimal.Zero) && money.LessThan(conf.minMoney) {
+		return decimal.Zero, "", tfErr("单笔最低 ¥" + conf.minMoney.StringFixed(2))
 	}
-	if transferMaxMoney.GreaterThan(decimal.Zero) && money.GreaterThan(transferMaxMoney) {
-		return decimal.Zero, "", tfErr("单笔最高 ¥" + transferMaxMoney.StringFixed(2))
+	if conf.maxMoney.GreaterThan(decimal.Zero) && money.GreaterThan(conf.maxMoney) {
+		return decimal.Zero, "", tfErr("单笔最高 ¥" + conf.maxMoney.StringFixed(2))
 	}
 	bizNo, err := s.resolveBizNo(req.BizNo)
 	if err != nil {
@@ -430,12 +570,13 @@ func (s *TransferService) resolveBizNo(in string) (string, error) {
 	return in, nil
 }
 
-// resolveChannel 取本次代付使用的通道 id：入参优先，否则按付款方式取默认通道。
-func (s *TransferService) resolveChannel(req dto.TransferCreateReq) int {
+// resolveChannel 取本次代付使用的通道 id：入参优先，否则按付款方式从配置取（B1-11）。
+// 返回 0 表示该方式未开启（管理员未配置 transfer_<type> 通道），调用方据此拒绝。
+func (s *TransferService) resolveChannel(req dto.TransferCreateReq, conf transferConf) int {
 	if req.Channel > 0 {
 		return req.Channel
 	}
-	return transferDefaultChannel[req.Type]
+	return conf.channel[req.Type]
 }
 
 // verifyAdminPwd 校验管理员支付密码（对齐 epay admin_paypwd，独立于登录密码）。

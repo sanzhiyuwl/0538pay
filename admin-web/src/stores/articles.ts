@@ -1,82 +1,95 @@
 /**
- * 官网文章资讯单一数据源（CMS）。
+ * 官网文章资讯单一数据源。
  * 运营后台「官网管理 / 文章管理」写入 → 官网首页「最新动态」板块 + 文章详情页读取，实时联动。
- * 持久化到 localStorage，从 mock 取默认值（后端接好后换成接口）。
+ *
+ * 存储：真后端行表（pay_article + pay_article_category，对齐 epay pre_article）。
+ * - 后台（有 admin token）：hydrate 拉全量 + CRUD 走 /admin/articles 真接口，写后重新 hydrate。
+ * - 官网（无 token 公开页）：hydrate 拉 /site/articles 公开列表（仅显示中的），只读。
  */
 import { defineStore } from 'pinia'
-import { ref, watch, computed } from 'vue'
+import { ref, computed } from 'vue'
 import {
-  defaultArticles,
-  defaultArticleCategories,
+  fetchPublicArticles,
+  fetchArticles,
+  fetchArticleCategories,
+  createArticle as apiCreateArticle,
+  updateArticle as apiUpdateArticle,
+  setArticleActive as apiSetActive,
+  deleteArticle as apiDeleteArticle,
+  createArticleCategory as apiCreateCat,
+  updateArticleCategory as apiUpdateCat,
+  deleteArticleCategory as apiDeleteCat,
   type Article,
   type ArticleCategory,
-} from '@/lib/mock/articles'
-import { fetchSiteConfig, saveSiteConfig } from '@/lib/api/siteConfig'
+} from '@/lib/api/articles'
 import { getToken } from '@/lib/api/client'
 
-const STORAGE_KEY = 'site-articles'
-
-interface Persisted {
-  categories: ArticleCategory[]
-  articles: Article[]
-}
-
-function clone<T>(src: T): T {
-  return JSON.parse(JSON.stringify(src))
-}
-
-function load(): Persisted {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed?.categories) && Array.isArray(parsed?.articles)) {
-        return parsed as Persisted
-      }
-    }
-  } catch {
-    // 损坏缓存忽略，回退默认
-  }
-  return { categories: clone(defaultArticleCategories), articles: clone(defaultArticles) }
-}
-
 export const useArticlesStore = defineStore('site-articles', () => {
-  const initial = load()
-  const categories = ref<ArticleCategory[]>(initial.categories)
-  const articles = ref<Article[]>(initial.articles)
+  const categories = ref<ArticleCategory[]>([])
+  const articles = ref<Article[]>([])
 
-  /** 恢复默认数据 */
-  function reset() {
-    categories.value = clone(defaultArticleCategories)
-    articles.value = clone(defaultArticles)
-  }
+  const isAdmin = () => !!getToken()
 
-  // ===== 分类增删改 =====
-  function addCategory(c: Omit<ArticleCategory, 'id'>) {
-    const id = Math.max(0, ...categories.value.map((x) => x.id)) + 1
-    categories.value.push({ ...c, id })
-  }
-  function updateCategory(c: ArticleCategory) {
-    const i = categories.value.findIndex((x) => x.id === c.id)
-    if (i >= 0) categories.value[i] = { ...c }
-  }
-  function removeCategory(id: number) {
-    categories.value = categories.value.filter((x) => x.id !== id)
-    // 该分类下的文章一并移除
-    articles.value = articles.value.filter((a) => a.categoryId !== id)
+  // ===== 拉取 =====
+  let hydrated = false
+  async function hydrate() {
+    if (hydrated) return
+    hydrated = true
+    await refresh()
   }
 
-  // ===== 文章增删改 =====
-  function addArticle(a: Omit<Article, 'id'>) {
-    const id = Math.max(0, ...articles.value.map((x) => x.id)) + 1
-    articles.value.push({ ...a, id })
+  /** 强制重新拉取（写操作后调用，保持与后端一致）。 */
+  async function refresh() {
+    try {
+      if (isAdmin()) {
+        // 后台：分类 + 全量文章（含草稿）
+        const [catRes, artRes] = await Promise.all([
+          fetchArticleCategories(),
+          fetchArticles({ pageSize: 200 }),
+        ])
+        categories.value = catRes.list
+        articles.value = artRes.list
+      } else {
+        // 官网公开：分类 + 显示中的文章
+        const res = await fetchPublicArticles()
+        categories.value = res.categories
+        articles.value = res.articles
+      }
+    } catch {
+      // 后端不可用时保持现有内存数据
+    }
   }
-  function updateArticle(a: Article) {
-    const i = articles.value.findIndex((x) => x.id === a.id)
-    if (i >= 0) articles.value[i] = { ...a }
+
+  // ===== 分类增删改（后台真接口）=====
+  async function addCategory(c: Omit<ArticleCategory, 'id'>) {
+    await apiCreateCat(c)
+    await refresh()
   }
-  function removeArticle(id: number) {
-    articles.value = articles.value.filter((a) => a.id !== id)
+  async function updateCategory(c: ArticleCategory) {
+    await apiUpdateCat(c.id, c)
+    await refresh()
+  }
+  async function removeCategory(id: number) {
+    await apiDeleteCat(id)
+    await refresh()
+  }
+
+  // ===== 文章增删改（后台真接口）=====
+  async function addArticle(a: Omit<Article, 'id'>) {
+    await apiCreateArticle(a)
+    await refresh()
+  }
+  async function updateArticle(a: Article) {
+    await apiUpdateArticle(a.id, a)
+    await refresh()
+  }
+  async function removeArticle(id: number) {
+    await apiDeleteArticle(id)
+    await refresh()
+  }
+  async function setArticleStatus(id: number, status: number) {
+    await apiSetActive(id, status)
+    await refresh()
   }
 
   // ===== 官网读取用派生数据 =====
@@ -92,7 +105,7 @@ export const useArticlesStore = defineStore('site-articles', () => {
       })),
   )
 
-  /** 按 id 取单篇文章（详情页用）*/
+  /** 按 id 取单篇文章（详情页用；列表中没有时返回 undefined，详情页应走 fetchArticleDetail） */
   function getArticle(id: number): Article | undefined {
     return articles.value.find((a) => a.id === id)
   }
@@ -102,56 +115,50 @@ export const useArticlesStore = defineStore('site-articles', () => {
     Object.fromEntries(categories.value.map((c) => [c.id, c.name])),
   )
 
-  // 后端同步（对齐 siteContent/siteDocs：hydrate 拉取 + 变更防抖推后端，仅 admin token 时推）。
-  let hydrated = false
-  async function hydrate() {
-    if (hydrated) return
-    hydrated = true
-    try {
-      const remote = await fetchSiteConfig<Persisted>('articles')
-      if (remote && Array.isArray(remote.categories) && Array.isArray(remote.articles)) {
-        categories.value = remote.categories
-        articles.value = remote.articles
-      }
-    } catch {
-      // 后端不可用时用本地缓存
-    }
-  }
-
-  let pushTimer: ReturnType<typeof setTimeout> | null = null
-  function pushBackend() {
-    // 仅在后台(admin token)时推后端，官网公开页只读不误写。
-    if (!getToken()) return
-    if (pushTimer) clearTimeout(pushTimer)
-    pushTimer = setTimeout(() => {
-      saveSiteConfig('articles', { categories: categories.value, articles: articles.value }).catch(() => {})
-    }, 800)
-  }
-
-  watch(
-    [categories, articles],
-    () => {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ categories: categories.value, articles: articles.value }),
-      )
-      pushBackend()
-    },
-    { deep: true },
+  /** 全部已发布文章（置顶优先 → sort 升序 → id 倒序，与后端排序一致）*/
+  const published = computed(() =>
+    articles.value
+      .filter((a) => a.status === 1)
+      .sort(
+        (a, b) => Number(b.isTop) - Number(a.isTop) || a.sort - b.sort || b.id - a.id,
+      ),
   )
+
+  /** 热门资讯：已发布文章按浏览量降序取前 N（侧栏「热门资讯」用）*/
+  function hotArticles(limit = 5): Article[] {
+    return [...published.value].sort((a, b) => b.views - a.views).slice(0, limit)
+  }
+
+  /** 热门标签云：聚合全部已发布文章的 tags，按出现频次降序（侧栏「热门标签」用）*/
+  const hotTags = computed<{ name: string; count: number }[]>(() => {
+    const freq = new Map<string, number>()
+    for (const a of published.value) {
+      for (const t of a.tags ?? []) {
+        const name = t.trim()
+        if (name) freq.set(name, (freq.get(name) ?? 0) + 1)
+      }
+    }
+    return [...freq.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+  })
 
   return {
     categories,
     articles,
     hydrate,
-    reset,
+    refresh,
     addCategory,
     updateCategory,
     removeCategory,
     addArticle,
     updateArticle,
     removeArticle,
+    setArticleStatus,
     publishedByCategory,
+    published,
+    hotArticles,
+    hotTags,
     getArticle,
     categoryName,
   }

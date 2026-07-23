@@ -27,6 +27,20 @@ function installedTypes(p: PluginMeta): string[] {
   if (p.products?.length) return p.products.map((x) => x.name)
   return splitTypes(metaByKey.value[p.key]?.types || '')
 }
+// 产品形态是否按支付方式分组（L-10：对齐 ltzf select_wxpay/select_alipay）。
+// 有任一产品带 group 即视为分组渠道，展示时按 group 归类。
+function groupedProducts(p: PluginMeta): Record<string, { name: string; need_sign?: boolean }[]> {
+  const out: Record<string, { name: string; need_sign?: boolean }[]> = {}
+  for (const pr of p.products || []) {
+    const g = pr.group || ''
+    ;(out[g] ||= []).push({ name: pr.name, need_sign: pr.need_sign })
+  }
+  return out
+}
+// 是否存在分组或签约门控（决定该行是否展开产品形态详情）。
+function hasProductMeta(p: PluginMeta): boolean {
+  return (p.products || []).some((x) => x.group || x.need_sign)
+}
 async function loadInstalled() {
   installedLoading.value = true
   try {
@@ -92,7 +106,19 @@ const installedKeys = computed(() => new Set(installed.value.map((p) => p.key)))
               </td>
               <td>{{ showname(p.key) }}</td>
               <td>
-                <div class="flex flex-wrap gap-1">
+                <!-- 分组渠道（ltzf 式 select_xxx）按支付方式归类展示子产品；否则平铺 -->
+                <template v-if="hasProductMeta(p)">
+                  <div v-for="(items, g) in groupedProducts(p)" :key="g" class="mb-1 last:mb-0">
+                    <span v-if="g" class="mr-1 text-[11px] text-muted-foreground">{{ g }}:</span>
+                    <span class="inline-flex flex-wrap gap-1">
+                      <Badge v-for="it in items" :key="it.name" :variant="it.need_sign ? 'warning' : 'outline'"
+                        :title="it.need_sign ? '需在渠道侧签约后才可用' : ''">
+                        {{ it.name }}<span v-if="it.need_sign" class="ml-0.5 opacity-70">·需签约</span>
+                      </Badge>
+                    </span>
+                  </div>
+                </template>
+                <div v-else class="flex flex-wrap gap-1">
                   <Badge v-for="t in installedTypes(p)" :key="t" variant="outline">{{ t }}</Badge>
                 </div>
               </td>

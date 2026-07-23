@@ -65,6 +65,12 @@ async function submit() {
       captcha_token: captchaToken.value,
       captcha: form.value.code.trim(),
     })
+    // 付费注册（reg_pay=1）：先支付注册费，回调成功后后端建号。跳收银台完成支付。
+    if (res.need_pay && res.pay) {
+      toast.info(res.msg || '请完成支付以完成注册')
+      router.push(`/pay/mock/cashier/${res.pay.trade_no}`)
+      return
+    }
     toast.success(res.msg || '注册成功，请登录')
     router.push('/m/login')
   } catch (e) {

@@ -52,13 +52,17 @@ func mapiErrCode(code int, msg string) *MapiError { return &MapiError{Code: code
 // 返回校验通过的商户。规则：pid 必填→查商户→状态守卫→timestamp ±300s 防重放→
 // keytype=1 强制 RSA；sign_type 缺省 MD5；MD5 用商户 key、RSA 用商户公钥验签。
 func (s *MapiService) Verify(params map[string]string) (*model.Merchant, error) {
-	pidStr := strings.TrimSpace(params["pid"])
-	if pidStr == "" {
-		return nil, mapiErrCode(-4, "商户ID不能为空")
+	// B1-39：对齐 epay ApiHelper::verify 的 pid 分支与错误码。
+	//   ① 完全未传 pid 参数 → -4 '未传入任何参数'（epay isset($_POST['pid']) 为假的分支）。
+	//   ② 传了 pid 但 intval 后为空/0（空串/非数字/0）→ '商户ID不能为空'，code 归 -1
+	//      （epay throw 无 code，load_api 行34 $code!=0?$code:-1 → -1）。
+	pidStr, ok := params["pid"]
+	if !ok {
+		return nil, mapiErrCode(-4, "未传入任何参数")
 	}
-	pid, err := strconv.ParseUint(pidStr, 10, 64)
+	pid, err := strconv.ParseUint(strings.TrimSpace(pidStr), 10, 64)
 	if err != nil || pid == 0 {
-		return nil, mapiErrCode(-4, "商户ID不合法")
+		return nil, mapiErr("商户ID不能为空") // mapiErr => code -1
 	}
 	m, err := s.merchants.FindByUIDSafe(uint(pid))
 	if err != nil {
@@ -106,10 +110,12 @@ func (s *MapiService) Verify(params map[string]string) (*model.Merchant, error) 
 func (s *MapiService) SignResponse(data map[string]string) map[string]string {
 	priv := s.cfg.PlatformPrivateKey()
 	data["timestamp"] = strconv.FormatInt(time.Now().Unix(), 10)
+	// B1-40：sign_type 无条件设 RSA（对齐 epay ApiHelper 行28 恒设，私钥缺失时也保留该字段，
+	// 仅 sign 缺省）。商户侧据 sign_type 决定验签分支，缺该键会走偏。
+	data["sign_type"] = "RSA"
 	if priv == "" {
 		return data
 	}
-	data["sign_type"] = "RSA"
 	sig, err := sign.MakeRSA(data, priv)
 	if err == nil {
 		data["sign"] = sig

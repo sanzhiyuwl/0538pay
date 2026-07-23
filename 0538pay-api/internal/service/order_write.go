@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0538pay/api/internal/channel"
 	"github.com/0538pay/api/internal/dto"
 	"github.com/0538pay/api/internal/model"
 	"github.com/shopspring/decimal"
@@ -74,17 +75,22 @@ func (s *OrderService) Freeze(tradeNo string) error {
 	if s.channelIsDirect(o.Channel) {
 		return odErr("商户直清通道不支持冻结")
 	}
-	ok, err := s.repo.SetStatusFrom(tradeNo, 1, 3)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return odErr("订单状态已变更，冻结未执行")
-	}
+	// B1-28：对齐 epay Order::freeze —— 先扣款(changeUserMoney)再改状态(update status=3)。
+	// 若扣款成功但状态条件更新失败(并发已变)，补偿性加回，避免"扣了钱没冻结"。
 	if o.GetMoney.GreaterThan(decimal.Zero) {
 		if err := s.accounts.ChangeUserMoney(o.UID, o.GetMoney, false, "订单冻结", tradeNo); err != nil {
 			return err
 		}
+	}
+	ok, err := s.repo.SetStatusFrom(tradeNo, 1, 3)
+	if err != nil || !ok {
+		if o.GetMoney.GreaterThan(decimal.Zero) {
+			_ = s.accounts.ChangeUserMoney(o.UID, o.GetMoney, true, "订单冻结回滚", tradeNo)
+		}
+		if err != nil {
+			return err
+		}
+		return odErr("订单状态已变更，冻结未执行")
 	}
 	return nil
 }
@@ -104,17 +110,22 @@ func (s *OrderService) Unfreeze(tradeNo string) error {
 	if s.channelIsDirect(o.Channel) {
 		return odErr("商户直清通道不支持解冻")
 	}
-	ok, err := s.repo.SetStatusFrom(tradeNo, 3, 1)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return odErr("订单状态已变更，解冻未执行")
-	}
+	// B1-28：对齐 epay Order::unfreeze —— 先加回款(changeUserMoney)再改状态(update status=1)。
+	// 若加回成功但状态条件更新失败(并发已变)，补偿性扣回，避免"退了钱没解冻"。
 	if o.GetMoney.GreaterThan(decimal.Zero) {
 		if err := s.accounts.ChangeUserMoney(o.UID, o.GetMoney, true, "订单解冻", tradeNo); err != nil {
 			return err
 		}
+	}
+	ok, err := s.repo.SetStatusFrom(tradeNo, 3, 1)
+	if err != nil || !ok {
+		if o.GetMoney.GreaterThan(decimal.Zero) {
+			_ = s.accounts.ChangeUserMoney(o.UID, o.GetMoney, false, "订单解冻回滚", tradeNo)
+		}
+		if err != nil {
+			return err
+		}
+		return odErr("订单状态已变更，解冻未执行")
 	}
 	return nil
 }
@@ -153,8 +164,23 @@ func (s *OrderService) RefundInfo(tradeNo string) (*dto.OrderRefundInfo, error) 
 		RealMoney:  real.InexactFloat64(),
 		Refunded:   o.RefundMoney.InexactFloat64(),
 		Refundable: refundable.InexactFloat64(),
-		CanAPI:     o.APITradeNo != "" && !s.channelIsDirect(o.Channel),
+		CanAPI:     o.APITradeNo != "" && s.channelCanRefund(o.Channel),
 	}, nil
+}
+
+// channelCanRefund 判断订单所属通道的插件是否支持 API 退款（B1-25，对齐 epay Plugin::isrefund(plugin)）。
+// 即通道 plugin 是否实现 Refunder 能力（channel registry meta.CanRefund），而非按 mode 判定。
+// 查不到通道/插件按不支持处理。
+func (s *OrderService) channelCanRefund(channelID int) bool {
+	if s.channels == nil || channelID == 0 {
+		return false
+	}
+	c, err := s.channels.FindByID(uint(channelID))
+	if err != nil || c == nil {
+		return false
+	}
+	m, ok := channel.Meta(c.Plugin)
+	return ok && m.CanRefund
 }
 
 // Refund 订单退款（对齐 epay Order::refund）。
@@ -191,14 +217,16 @@ func (s *OrderService) Refund(adminID uint, req dto.OrderRefundReq) error {
 			return odErr("退款金额超过剩余可退")
 		}
 	}
+	// B1-26：api_trade_no 无条件前置校验（对齐 epay Order.php:76，在 api 分支之前）。
+	// 手动退款(api=0)与 API 退款(api=1)都要求接口订单号存在，防止对未经真实渠道成功的订单退款。
+	if strings.TrimSpace(o.APITradeNo) == "" {
+		return odErr("接口订单号不存在")
+	}
 
 	// API 退款：校验管理员密码；真实渠道原路退款。
 	if req.API {
 		if err := s.verifyAdminPwd(adminID, req.Password); err != nil {
 			return err
-		}
-		if o.APITradeNo == "" {
-			return odErr("该订单无接口订单号，无法原路退款")
 		}
 		if s.channelIsDirect(o.Channel) {
 			return odErr("商户直清通道不支持 API 退款")
@@ -231,6 +259,28 @@ func (s *OrderService) Refund(adminID uint, req dto.OrderRefundReq) error {
 	// ②ChangeUserMoney 内对 type=订单退款+trade_no 记录级幂等(B1-23,对齐 epay changeUserMoney:678-681)。
 	if reduce.GreaterThan(decimal.Zero) {
 		if err := s.accounts.ChangeUserMoney(o.UID, reduce, false, "订单退款", req.TradeNo); err != nil {
+			return err
+		}
+	}
+
+	// API 退款落 pay_refundorder（对齐 epay Order::refund L121：仅 api==1 分支 INSERT refundorder）。
+	// 手动退款(api=0) epay 不写退款单，此处同样不落，保持对账口径一致。
+	if req.API && s.refunds != nil {
+		now := time.Now()
+		refundNo := genTradeNo(now)
+		ro := &model.RefundOrder{
+			RefundNo:    refundNo,
+			OutRefundNo: refundNo, // 后台发起无外部退款号，对齐 epay out_refund_no 默认取 refund_no
+			TradeNo:     o.TradeNo,
+			OutTradeNo:  o.OutTradeNo,
+			UID:         o.UID,
+			Money:       money,
+			ReduceMoney: reduce,
+			Status:      1, // 余额层退款即时完成；渠道原路退款待真实凭证
+			AddTime:     now,
+			EndTime:     &now,
+		}
+		if err := s.refunds.Create(ro); err != nil {
 			return err
 		}
 	}

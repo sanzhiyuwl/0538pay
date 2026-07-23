@@ -69,12 +69,26 @@ export interface MerchantRegReq {
   account: string
   password: string
   invite?: string
+  ref?: string
+  plugin?: string // reg_pay 付费注册选用的支付方式
   captcha_token: string
   captcha: string
+}
+/** 付费注册待付订单（对齐后端 SubmitResp） */
+export interface RegPaySubmit {
+  trade_no: string
+  out_trade_no: string
+  pay_type: string
+  pay_url?: string
+  qrcode?: string
+  html?: string
+  money: string
 }
 export interface MerchantRegResp {
   uid: number
   need_review: boolean
+  need_pay: boolean // 付费注册：需先支付
+  pay?: RegPaySubmit
   msg: string
 }
 export function merchantRegister(body: MerchantRegReq): Promise<MerchantRegResp> {

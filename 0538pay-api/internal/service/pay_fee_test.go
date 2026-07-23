@@ -38,6 +38,102 @@ func TestCalcFeeMode1(t *testing.T) {
 	}
 }
 
+// TestCalcInternalFee B1-53：内部订单按 tid 维度加费（对齐 epay submit2.php:35
+// `if(mode==1 && tid!=4 || tid==2)`）。money=100,rate=2。
+func TestCalcInternalFee(t *testing.T) {
+	s := &PayService{}
+	// tid=2 余额充值：无论商户 mode 都加费 → realmoney=198(买家多付), getmoney=100(全额到账)。
+	for _, mode := range []int8{0, 1} {
+		m := &model.Merchant{Mode: mode}
+		get, real := s.calcInternalFee(m, 2, dec("100"), dec("2"))
+		if !get.Equal(dec("100")) || !real.Equal(dec("198")) {
+			t.Errorf("tid=2 mode=%d get=%s real=%s 期望 100/198(强制加费)", mode, get, real)
+		}
+	}
+	// tid=4 购买用户组：即便 mode==1 也强制平台代收（不加费）→ realmoney=100, getmoney=2。
+	get, real := s.calcInternalFee(&model.Merchant{Mode: 1}, 4, dec("100"), dec("2"))
+	if !get.Equal(dec("2")) || !real.Equal(dec("100")) {
+		t.Errorf("tid=4 mode=1 get=%s real=%s 期望 2/100(强制代收,排除加费)", get, real)
+	}
+	// tid=3 聚合收款：按商户 mode。mode=1 → 加费(198/100)；mode=0 → 代收(100/2)。
+	g1, r1 := s.calcInternalFee(&model.Merchant{Mode: 1}, 3, dec("100"), dec("2"))
+	if !g1.Equal(dec("100")) || !r1.Equal(dec("198")) {
+		t.Errorf("tid=3 mode=1 get=%s real=%s 期望 100/198(随商户加费)", g1, r1)
+	}
+	g0, r0 := s.calcInternalFee(&model.Merchant{Mode: 0}, 3, dec("100"), dec("2"))
+	if !g0.Equal(dec("2")) || !r0.Equal(dec("100")) {
+		t.Errorf("tid=3 mode=0 get=%s real=%s 期望 2/100(随商户代收)", g0, r0)
+	}
+	// m=nil（收款商户查不到）→ 按 mode=0 代收安全默认。
+	gn, rn := s.calcInternalFee(nil, 3, dec("100"), dec("2"))
+	if !gn.Equal(dec("2")) || !rn.Equal(dec("100")) {
+		t.Errorf("tid=3 m=nil get=%s real=%s 期望 2/100(安全默认代收)", gn, rn)
+	}
+}
+
+// TestParseInternalParam B1-46：内部订单 param JSON 解析 uid/gid/endtime，兼容数字与字符串编码。
+func TestParseInternalParam(t *testing.T) {
+	// 数字编码
+	if got := parseParamUID(`{"uid":1000}`); got != 1000 {
+		t.Errorf("uid 数字编码 got=%d 期望 1000", got)
+	}
+	// 字符串编码
+	if got := parseParamUID(`{"uid":"1001"}`); got != 1001 {
+		t.Errorf("uid 字符串编码 got=%d 期望 1001", got)
+	}
+	// 空/非法 → 0
+	if got := parseParamUID(``); got != 0 {
+		t.Errorf("空 param got=%d 期望 0", got)
+	}
+	if got := parseParamUID(`not json`); got != 0 {
+		t.Errorf("非法 param got=%d 期望 0", got)
+	}
+	// endtime 解析
+	if parseParamEndTime("") != nil {
+		t.Error("空 endtime 期望 nil(永久组)")
+	}
+	if tm := parseParamEndTime("2026-08-01"); tm == nil || tm.Year() != 2026 {
+		t.Errorf("endtime 日期解析失败: %v", tm)
+	}
+	if tm := parseParamEndTime("2026-08-01 12:30:00"); tm == nil || tm.Hour() != 12 {
+		t.Errorf("endtime 时间解析失败: %v", tm)
+	}
+}
+
+// TestCheckChannelPayLimit B1-01/B1-56：选定通道后单笔限额硬拒绝（对齐 epay Pay.php:170-174）。
+func TestCheckChannelPayLimit(t *testing.T) {
+	// 区间 [10,100]
+	if err := checkChannelPayLimit("10", "100", dec("50")); err != nil {
+		t.Errorf("50 在 [10,100] 内应放行，得 %v", err)
+	}
+	// 低于最小 → 拒
+	if err := checkChannelPayLimit("10", "100", dec("5")); err == nil {
+		t.Error("5 < 最小10 应拒绝")
+	}
+	// 高于最大 → 拒
+	if err := checkChannelPayLimit("10", "100", dec("200")); err == nil {
+		t.Error("200 > 最大100 应拒绝")
+	}
+	// 边界值放行（epay 用 < / > 严格比较，等于不拒）
+	if err := checkChannelPayLimit("10", "100", dec("10")); err != nil {
+		t.Errorf("等于最小10 应放行，得 %v", err)
+	}
+	if err := checkChannelPayLimit("10", "100", dec("100")); err != nil {
+		t.Errorf("等于最大100 应放行，得 %v", err)
+	}
+	// 空/0 限额 → 该侧不限制
+	if err := checkChannelPayLimit("", "", dec("99999")); err != nil {
+		t.Errorf("空限额应不限制，得 %v", err)
+	}
+	if err := checkChannelPayLimit("0", "0", dec("99999")); err != nil {
+		t.Errorf("0 限额应不限制，得 %v", err)
+	}
+	// money<=0 不校验
+	if err := checkChannelPayLimit("10", "100", dec("0")); err != nil {
+		t.Errorf("money=0 不校验，得 %v", err)
+	}
+}
+
 // TestTruncateRunes A-11：按 UTF-8 边界截断，不切碎中文。
 func TestTruncateRunes(t *testing.T) {
 	// 42 个中文 = 126 字节 ≤127，全保留

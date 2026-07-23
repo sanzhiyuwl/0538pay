@@ -590,6 +590,39 @@ func (r *AccountRepo) BuyGroupWithBalance(uid uint, price decimal.Decimal, gid i
 	})
 }
 
+// ChangeUserGroup 改用户组 + 到期时间（B1-46 tid=4 渠道支付回调路径，对齐 epay changeUserGroup:697-700）。
+// 钱已从渠道收取，此处只改组不扣余额、不写流水。endTime 为 nil 表示永久组。
+func (r *AccountRepo) ChangeUserGroup(uid uint, gid int, endTime *time.Time) error {
+	return r.db.Model(&model.Merchant{}).Where("uid = ?", uid).
+		Updates(map[string]interface{}{"gid": gid, "group_end": endTime}).Error
+}
+
+// DepositAdd 保证金累加（B1-46 tid=5 渠道支付回调路径，对齐 epay processOrder:607-611 deposit=deposit+money）。
+// 钱从渠道收取转入保证金，deposit 累加 amount 并写一条收入流水（type=充值保证金），不动 money 余额。
+func (r *AccountRepo) DepositAdd(uid uint, amount decimal.Decimal, tradeNo string) error {
+	if amount.LessThanOrEqual(decimal.Zero) {
+		return nil
+	}
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var m model.Merchant
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("uid = ?", uid).First(&m).Error; err != nil {
+			return err
+		}
+		newDeposit := m.Deposit.Add(amount)
+		if err := tx.Model(&model.Merchant{}).Where("uid = ?", uid).
+			Update("deposit", newDeposit).Error; err != nil {
+			return err
+		}
+		rec := model.PayRecord{
+			UID: uid, Action: 1, Money: amount,
+			OldMoney: m.Money, NewMoney: m.Money,
+			Type: "充值保证金", TradeNo: tradeNo, Date: time.Now(),
+		}
+		return tx.Create(&rec).Error
+	})
+}
+
 // RecordRepo 资金流水（pay_record）数据访问。
 type RecordRepo struct{ db *gorm.DB }
 
@@ -855,6 +888,22 @@ func (r *OrderRepo) SavePayInfo(tradeNo, payType, qrCode string) error {
 		Updates(map[string]interface{}{"pay_type": payType, "qr_code": qrCode}).Error
 }
 
+// UpdateChannelInfo 回填裸单(收银台空 type 单)选定通道后的下单信息（B1-04）：
+// 通道/子通道/插件/支付方式名/费率结果 realmoney、getmoney + 命中的分账规则 profits。
+// 仅允许对未支付(status=0)单更新，避免并发下覆盖已翻转单。
+func (r *OrderRepo) UpdateChannelInfo(tradeNo, plugin, payType string, channelID, subchannelID int, realMoney, getMoney decimal.Decimal, profits uint) error {
+	return r.db.Model(&model.Order{}).Where("trade_no = ? AND status = 0", tradeNo).
+		Updates(map[string]interface{}{
+			"channel":    channelID,
+			"subchannel": subchannelID,
+			"plugin":     plugin,
+			"type_name":  payType,
+			"real_money": realMoney,
+			"get_money":  getMoney,
+			"profits":    profits,
+		}).Error
+}
+
 // SetNotifySuccess 通知成功：notify=0，清空重试时间。
 func (r *OrderRepo) SetNotifySuccess(tradeNo string) error {
 	return r.db.Model(&model.Order{}).Where("trade_no = ?", tradeNo).
@@ -875,21 +924,23 @@ func (r *OrderRepo) SetNotifyRetry(tradeNo string, n int, nextRetry time.Time) e
 	return r.db.Model(&model.Order{}).Where("trade_no = ?", tradeNo).Updates(fields).Error
 }
 
-// FindNotifyPending 取待重试通知的订单（notify>0 且到期 且完成时间在近一天内）。
-// 对齐 epay cron notify：WHERE notify>0 AND notify_time<NOW() AND endtime 近 1 天，LIMIT。
+// FindNotifyPending 取待重试通知的订单（notify>0 且到期 且完成时间在近日历天窗内）。
+// 对齐 epay cron notify（cron.php:158）：WHERE (TO_DAYS(NOW())-TO_DAYS(endtime)<=1) AND notify>0 AND notifytime<NOW()。
+// B1-71：完成窗口用【日历天差<=1】(endtime 是今天或昨天，最长约 48h)，非严格滚动 24h，与 epay 边界一致。
 func (r *OrderRepo) FindNotifyPending(limit int) ([]model.Order, error) {
 	var list []model.Order
-	err := r.db.Where("notify > 0 AND notify_time IS NOT NULL AND notify_time < ? AND end_time > ?",
-		time.Now(), time.Now().Add(-24*time.Hour)).
+	err := r.db.Where("(TO_DAYS(NOW()) - TO_DAYS(end_time) <= 1) AND notify > 0 AND notify_time IS NOT NULL AND notify_time < ?",
+		time.Now()).
 		Order("notify_time ASC").Limit(limit).Find(&list).Error
 	return list, err
 }
 
-// FindAbandonedNotify 取已放弃通知(notify=-1)且完成时间在近一天内的订单（notify2 兜底重发用）。
-// 对齐 epay cron notify2：WHERE notify=-1 AND (NOW()-endtime <= 1 天)，LIMIT。
+// FindAbandonedNotify 取已放弃通知(notify=-1)且完成时间在近日历天窗内的订单（notify2 兜底重发用）。
+// 对齐 epay cron notify2（cron.php:211）：WHERE (TO_DAYS(NOW())-TO_DAYS(endtime)<=1) AND notify=-1。
+// B1-71：完成窗口用【日历天差<=1】而非严格滚动 24h，与 epay 边界一致。
 func (r *OrderRepo) FindAbandonedNotify(limit int) ([]model.Order, error) {
 	var list []model.Order
-	err := r.db.Where("notify = -1 AND end_time > ?", time.Now().Add(-24*time.Hour)).
+	err := r.db.Where("(TO_DAYS(NOW()) - TO_DAYS(end_time) <= 1) AND notify = -1").
 		Order("end_time DESC").Limit(limit).Find(&list).Error
 	return list, err
 }

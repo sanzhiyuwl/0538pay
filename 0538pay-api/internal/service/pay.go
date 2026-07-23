@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -49,7 +50,14 @@ type PayService struct {
 	selector  *ChannelSelector  // 选通道分发（可空；SetSelector 注入。nil 则退回 plugin 名直配）
 	cfg       *ConfigService    // 系统配置（可空；SetConfigService 注入。回调 RSA 签名/全局限额/加费兜底用）
 	notice    *NoticeService    // 对外通知中枢（可空；SetNoticeService 注入。order 支付成功商户通知）
+	paytypes  *repository.PayTypeRepo // 支付方式（可空；SetPayTypeRepo 注入。device 分端过滤用）
+	subchannels *repository.SubChannelRepo // 子通道（可空；SetSubChannelRepo 注入。B1-34 下单/退款子通道占位覆盖用）
+	regPayHook func(param string) error   // B1-51 付费注册 tid=1 回调建号钩子（可空；SetRegPayHook 注入，避免与 reg 服务循环依赖）
 }
+
+// SetRegPayHook 注入付费注册回调建号钩子（B1-51）。tid=1 注册费订单支付成功后调用，参数为订单 param（注册信息 JSON）。
+// nil 则 tid=1 订单支付后不建号（向后兼容 reg_pay=0）。
+func (s *PayService) SetRegPayHook(f func(param string) error) { s.regPayHook = f }
 
 // SetNoticeService 注入对外通知中枢（K-1）。支付成功后发 order 场景通知（微信/邮件/短信）。
 // nil 则不发对外通知（不影响商户异步回调 do_notify）。
@@ -66,6 +74,12 @@ func NewPayService(m *repository.MerchantRepo, o *repository.OrderRepo, a *repos
 // SetSelector 注入选通道分发器（用户组通道分配 / 轮询组 / 子通道 / 组级费率覆盖）。
 // nil 则 Submit 退回旧版按 plugin 名定位单一通道（向后兼容阶段A/B）。
 func (s *PayService) SetSelector(sel *ChannelSelector) { s.selector = sel }
+
+// SetPayTypeRepo 注入支付方式仓储（device 分端过滤：移动端不出仅PC通道，反之亦然，对齐 epay Channel::submit）。
+func (s *PayService) SetPayTypeRepo(r *repository.PayTypeRepo) { s.paytypes = r }
+
+// SetSubChannelRepo 注入子通道仓储（B1-34：下单/退款按 order.subchannel>0 用子通道 info 覆盖主通道 config 占位）。
+func (s *PayService) SetSubChannelRepo(r *repository.SubChannelRepo) { s.subchannels = r }
 
 // SetProfitService 注入分账服务（下单匹配规则 + 支付成功建分账单）。nil 则不启用分账。
 func (s *PayService) SetProfitService(p *ProfitService) { s.profit = p }
@@ -191,9 +205,9 @@ func truncateRunes(s string, maxBytes int) string {
 	return s
 }
 
-// calcProfitMoney 计算平台利润（对齐 epay processOrder）：reducemoney = realmoney - getmoney，
+// calcProfitMoney 计算平台利润（对齐 epay processOrder）：reducemoney = realmoney - getmoney（负则 clamp 0），
 // profitmoney = reducemoney - realmoney*通道成本费率costrate/100。realmoney 空则用 money。
-// 通道不存在或 costrate=0 时 profit = reducemoney。
+// 通道不存在或 costrate=0 时 profit = reducemoney。成本高于毛利时返回负值（不 clamp，对齐 epay B1-50）。
 // isDirectChannel 判断通道是否商户直清模式(mode==1)。查不到通道按非直清处理（安全默认：走平台代收加钱路径）。
 func (s *PayService) isDirectChannel(channelID int) bool {
 	if s.channels == nil || channelID <= 0 {
@@ -226,19 +240,17 @@ func (s *PayService) calcProfitMoney(o *model.Order) decimal.Decimal {
 	if o.RealMoney != nil && o.RealMoney.GreaterThan(decimal.Zero) {
 		realMoney = *o.RealMoney
 	}
+	// reducemoney = realmoney - getmoney，负值 clamp 到 0（对齐 epay processOrder:561 if($reducemoney<0)$reducemoney=0）。
 	reduce := realMoney.Sub(o.GetMoney)
-	if reduce.LessThanOrEqual(decimal.Zero) {
-		return decimal.Zero
+	if reduce.LessThan(decimal.Zero) {
+		reduce = decimal.Zero
 	}
-	// 扣通道成本费率
+	// 扣通道成本费率后不再 clamp：成本高于毛利时利润可为负（对齐 epay，profitmoney 允许写负值）。
 	if o.Channel > 0 {
 		if ch, _ := s.channels.FindByID(uint(o.Channel)); ch != nil && ch.CostRate.GreaterThan(decimal.Zero) {
 			cost := realMoney.Mul(ch.CostRate).Div(hundred).Round(2)
 			reduce = reduce.Sub(cost)
 		}
-	}
-	if reduce.LessThan(decimal.Zero) {
-		return decimal.Zero
 	}
 	return reduce
 }
@@ -439,14 +451,51 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 			old.NotifyURL != notifyURL || old.ReturnURL != returnURL || old.Param != params["param"] {
 			return nil, payErr("该订单(" + outTradeNo + ")支付参数有变化，请更换订单号重新发起支付")
 		}
+		// B1-04：裸单(收银台建的空 type 单，channel=0)复发起时若带上了具体 type，此处补选通道并回填订单，
+		// 再走正常下单（epay 收银台选方式后 firstGetChannel 重新取通道信息）。仍空 type 则再跳收银台。
+		if old.Channel == 0 && old.Plugin == "" {
+			if strings.TrimSpace(payType) == "" {
+				return &dto.SubmitResp{
+					TradeNo: old.TradeNo, OutTradeNo: old.OutTradeNo, PayType: "jump",
+					PayURL: cashierSelectURL(params["_siteurl"], old.TradeNo), Money: money.String(old.Money),
+				}, nil
+			}
+			return s.upgradeBareOrder(ctx, m, old, params, payType, amount)
+		}
+		// B1-01：幂等复用单也要过通道单笔限额硬校验（epay Pay.php:169-174 在 firstGetChannel 之外，复用路径同样跑）。
+		// 复用旧单的已定通道，用旧单金额比对；通道查不到则跳过（向后兼容 mock/阶段A）。
+		if s.channels != nil && old.Channel > 0 {
+			if och, _ := s.channels.FindByID(uint(old.Channel)); och != nil {
+				if err := checkChannelPayLimit(och.PayMin, och.PayMax, old.Money); err != nil {
+					return nil, err
+				}
+			}
+		}
 		return s.dispatch(ctx, old, payType, sceneFromParams(params))
+	}
+
+	// 6-0. 空 type（未指定支付方式）→ 建裸单(未定通道) + 跳收银台聚合选方式（B1-04，对齐 epay Pay.php:129-132）。
+	//      epay：type 为空时不选通道，直接把用户带到 /cashier.php?trade_no=..，由收银台自选方式后再回来定通道。
+	//      我方等价：建 channel=0/plugin="" 的裸单（realmoney=money，未加费），返回 PayType="jump" 指向收银台。
+	//      用户在收银台选定方式后，前端以该 trade_no 复发起下单（携带 type），走幂等复用分支定通道下单。
+	if strings.TrimSpace(payType) == "" {
+		return s.createBareOrderForCashier(ctx, m, params, outTradeNo, notifyURL, returnURL, name, amount)
 	}
 
 	// 6. 选通道：按 商户用户组(gid) 对该支付方式的分配选出主通道 + 可选子通道 + 组级费率覆盖
 	//    （对齐 epay Channel::getSubmitInfo：0关/-1随机/-2子通道/正整数固定或轮询组）。
 	//    selector 未注入时退回旧版按 plugin 名定位单一通道（向后兼容阶段A/B）。
-	plugin, channelID, subchannelID, rate, err := s.resolveChannel(m, payType, amount)
+	sel, err := s.resolveChannel(m, payType, params["device"], amount)
 	if err != nil {
+		return nil, err
+	}
+	plugin, channelID, subchannelID, rate := sel.plugin, sel.channelID, sel.subchannelID, sel.rate
+
+	// 6b. 选定通道后单笔限额硬拒绝（B1-01/B1-56，对齐 epay Pay.php:169-174）：
+	//     epay 在选通道之后（firstGetChannel 之外）还有一段独立的通道级 paymin/paymax 硬校验，
+	//     固定通道/随机兜底/子通道全过滤兜底等场景选出的越限通道都会在此被拒（channelFitsMoney 仅用于候选过滤，
+	//     兜底可能返回越限通道）。用订单原额 amount 比对，与 epay 一致。
+	if err := checkChannelPayLimit(sel.payMin, sel.payMax, amount); err != nil {
 		return nil, err
 	}
 
@@ -467,9 +516,10 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 	// 7b. 分账规则匹配（A-11，对齐 epay updateOrderProfits 三级优先 subchannel→uid→NULL）：
 	//     传订单实际命中的 subchannelID，让 MatchRule 能按 channel+uid+subchannel 最精确匹配。
 	//     命中则记规则 id 到 order.profits，支付成功回调时据此按比例创建分账订单。
+	//     B1-55 传 plugin 做支持列表前置门；B1-19/54 用 realMoney（实收额）而非原始 amount 判 minmoney。
 	var profits uint
 	if s.profit != nil {
-		profits = s.profit.MatchRuleForOrder(channelID, subchannelID, pid, amount)
+		profits = s.profit.MatchRuleForOrder(plugin, channelID, subchannelID, pid, realMoney)
 	}
 
 	// 8. 创建订单（status=0 未支付）。
@@ -499,14 +549,132 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 		Version:    orderVersion(params),
 		Profits:    profits,
 	}
+	// 下单场景：把选通道时确定的 apptype（含子通道 info 覆盖）带给 dispatch，供插件按子形态分派。
+	scene := sceneFromParams(params)
+	scene.AppType = sel.apptype
 	if err := s.orders.Create(order); err != nil {
 		// 并发下唯一键冲突：重查一次走幂等分支
 		if again, e := s.orders.FindByOut(pid, outTradeNo); e == nil && again != nil {
-			return s.dispatch(ctx, again, payType, sceneFromParams(params))
+			return s.dispatch(ctx, again, payType, scene)
 		}
 		return nil, err
 	}
-	return s.dispatch(ctx, order, payType, sceneFromParams(params))
+	return s.dispatch(ctx, order, payType, scene)
+}
+
+// createBareOrderForCashier 建裸单(未定通道) + 返回跳收银台的 jump 响应（B1-04，对齐 epay Pay.php 空 type 分支）。
+// 裸单：channel=0/subchannel=0/plugin=""/realmoney=money（未加费，待收银台选定方式后由复发起下单定通道）。
+// 返回 PayType="jump"，PayURL 指向收银台聚合选方式页 /pay/cashier/<trade_no>（前端 replace 跳转）。
+func (s *PayService) createBareOrderForCashier(ctx context.Context, m *model.Merchant, params map[string]string, outTradeNo, notifyURL, returnURL, name string, amount decimal.Decimal) (*dto.SubmitResp, error) {
+	now := time.Now()
+	realMoney := amount // 裸单未选通道、不加费：realmoney=money
+	order := &model.Order{
+		TradeNo:    genTradeNo(now),
+		OutTradeNo: outTradeNo,
+		UID:        m.UID,
+		Domain:     hostOf(notifyURL),
+		NotifyURL:  notifyURL,
+		ReturnURL:  returnURL,
+		Param:      params["param"],
+		Name:       name,
+		Money:      amount,
+		RealMoney:  &realMoney,
+		GetMoney:   decimal.Zero,
+		IP:         params["_ip"],
+		Type:       0,
+		TypeName:   "", // 空 type：未定支付方式
+		Channel:    0,  // 未定通道
+		AddTime:    now,
+		Status:     0,
+		Version:    orderVersion(params),
+	}
+	if err := s.orders.Create(order); err != nil {
+		// 并发唯一键冲突：重查复用（已存在的同单可能已定通道，直接返回其收银台跳转）。
+		if again, e := s.orders.FindByOut(m.UID, outTradeNo); e == nil && again != nil {
+			order = again
+		} else {
+			return nil, err
+		}
+	}
+	return &dto.SubmitResp{
+		TradeNo:    order.TradeNo,
+		OutTradeNo: order.OutTradeNo,
+		PayType:    "jump",
+		PayURL:     cashierSelectURL(params["_siteurl"], order.TradeNo),
+		Money:      money.String(order.Money),
+	}, nil
+}
+
+// ChooseCashierPay 收银台选定支付方式（B1-04，对齐 epay cashier.php 选方式后对既有订单取通道信息）。
+// 无需商户签名：订单已在空 type 下单时验签建号，此处仅凭 trade_no 对既有裸单补选通道并下单。
+// device 为请求端标识（PC/mobile），用于设备过滤。仅允许对未支付(status=0)裸单(channel=0)操作。
+func (s *PayService) ChooseCashierPay(ctx context.Context, tradeNo, payType, device string) (*dto.SubmitResp, error) {
+	if strings.TrimSpace(payType) == "" {
+		return nil, payErr("请选择支付方式")
+	}
+	o, err := s.orders.FindByTradeNo(tradeNo)
+	if err != nil {
+		return nil, err
+	}
+	if o == nil {
+		return nil, payErr("订单不存在")
+	}
+	if o.Status != 0 {
+		return nil, payErr("该订单已处理，请勿重复支付")
+	}
+	m, err := s.merchants.FindByUID(o.UID)
+	if err != nil || m == nil {
+		return nil, payErr("商户不存在")
+	}
+	params := map[string]string{"device": device}
+	return s.upgradeBareOrder(ctx, m, o, params, payType, o.Money)
+}
+
+// upgradeBareOrder 裸单(收银台空 type 单)在收银台选定方式后补选通道 + 费率 + 分账规则并回填订单，
+// 再走渠道下单（B1-04，对齐 epay 收银台选方式后 firstGetChannel 重新取通道信息）。
+func (s *PayService) upgradeBareOrder(ctx context.Context, m *model.Merchant, old *model.Order, params map[string]string, payType string, amount decimal.Decimal) (*dto.SubmitResp, error) {
+	sel, err := s.resolveChannel(m, payType, params["device"], amount)
+	if err != nil {
+		return nil, err
+	}
+	// 选定通道后单笔限额硬拒绝（对齐 epay Pay.php:169-174）。
+	if err := checkChannelPayLimit(sel.payMin, sel.payMax, amount); err != nil {
+		return nil, err
+	}
+	getMoney, realMoney := s.calcFee(m, amount, sel.rate)
+	// 直清 mode=1 余额校验（对齐 epay Pay.php:177）。
+	if s.channelModeIs(sel.channelID, 1) && realMoney.Sub(getMoney).GreaterThan(m.Money) {
+		return nil, payErr("当前商户余额不足，无法完成支付，请商户登录用户中心充值余额")
+	}
+	var profits uint
+	if s.profit != nil {
+		profits = s.profit.MatchRuleForOrder(sel.plugin, sel.channelID, sel.subchannelID, m.UID, realMoney)
+	}
+	if err := s.orders.UpdateChannelInfo(old.TradeNo, sel.plugin, payType, sel.channelID, sel.subchannelID, realMoney, getMoney, profits); err != nil {
+		return nil, err
+	}
+	// 回填内存态供 dispatch 用（避免再查一次库）。
+	old.Plugin = sel.plugin
+	old.TypeName = payType
+	old.Channel = sel.channelID
+	old.Subchannel = sel.subchannelID
+	old.RealMoney = &realMoney
+	old.GetMoney = getMoney
+	old.Profits = profits
+	scene := sceneFromParams(params)
+	scene.AppType = sel.apptype
+	return s.dispatch(ctx, old, payType, scene)
+}
+
+// cashierSelectURL 构造收银台聚合选方式页地址（对齐 epay /cashier.php?trade_no=..）。
+// siteURL 为空时返回相对路径 /pay/cashier/<trade_no>（同源前端路由可直接消费）。
+func cashierSelectURL(siteURL, tradeNo string) string {
+	path := "/pay/cashier/" + tradeNo
+	siteURL = strings.TrimSpace(siteURL)
+	if siteURL == "" {
+		return path
+	}
+	return strings.TrimRight(siteURL, "/") + path
 }
 
 // resolveChannel 选出下单主通道 + 可选子通道 + 最终费率。
@@ -514,32 +682,53 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 // selector 未注入或该 type 无法解析为支付方式ID时，退回旧版按 plugin 名定位单一通道
 // （向后兼容阶段A mock 与阶段B epay/真实渠道：type 传插件名、通道表 plugin 匹配）。
 // 返回 (plugin, channelID, subchannelID, rate)。
-func (s *PayService) resolveChannel(m *model.Merchant, payType string, amount decimal.Decimal) (string, int, int, decimal.Decimal, error) {
+func (s *PayService) resolveChannel(m *model.Merchant, payType, device string, amount decimal.Decimal) (channelSelection, error) {
 	if s.selector != nil {
 		if typeID, ok := s.resolveTypeID(payType); ok {
+			// device 分端过滤（对齐 epay Channel::submit L108-116）：移动端不出仅PC(device=1)方式，
+			// PC 端不出仅移动(device=2)方式；device=0 通用。paytypes 未注入时跳过（向后兼容）。
+			if err := s.checkPayTypeDevice(typeID, device); err != nil {
+				return channelSelection{}, err
+			}
 			res, err := s.selector.Select(m.UID, m.GID, typeID, amount)
 			if err != nil {
-				return "", 0, 0, decimal.Zero, err
+				return channelSelection{}, err
 			}
-			return res.Plugin, res.ChannelID, res.Subchannel, res.Rate, nil
+			return channelSelection{
+				plugin: res.Plugin, channelID: res.ChannelID,
+				subchannelID: res.Subchannel, rate: res.Rate, apptype: res.AppType,
+				payMin: res.PayMin, payMax: res.PayMax,
+			}, nil
 		}
 	}
 	// 退回旧版：type 当 plugin 名定位单一已开启通道。找不到则记 mock/零费率（阶段A向后兼容）。
-	plugin := "mock"
-	channelID := 0
-	rate := decimal.Zero
+	sel := channelSelection{plugin: "mock", rate: decimal.Zero}
 	if payType != "" {
 		ch, err := s.channels.FindEnabledByPlugin(payType)
 		if err != nil {
-			return "", 0, 0, decimal.Zero, err
+			return channelSelection{}, err
 		}
 		if ch != nil {
-			plugin = ch.Plugin
-			channelID = int(ch.ID)
-			rate = ch.Rate
+			sel.plugin = ch.Plugin
+			sel.channelID = int(ch.ID)
+			sel.rate = ch.Rate
+			sel.apptype = ch.AppType
+			sel.payMin = ch.PayMin
+			sel.payMax = ch.PayMax
 		}
 	}
-	return plugin, channelID, 0, rate, nil
+	return sel, nil
+}
+
+// channelSelection 选通道结果（含 apptype，供下单场景按子形态分派 JSAPI/H5/scan 等，对齐 epay getSubmitInfo）。
+type channelSelection struct {
+	plugin       string
+	channelID    int
+	subchannelID int
+	rate         decimal.Decimal
+	apptype      string
+	payMin       string // 选定通道单笔最小限额（选后硬拒绝，对齐 epay submitData['paymin']）
+	payMax       string // 选定通道单笔最大限额（选后硬拒绝，对齐 epay submitData['paymax']）
 }
 
 // channelModeIs 判断所选通道的 mode 是否等于 want（对齐 epay submitData['mode']）。
@@ -573,6 +762,42 @@ func (s *PayService) resolveTypeID(payType string) (int, bool) {
 		return 0, false
 	}
 	return ch.Type, true
+}
+
+// checkPayTypeDevice 校验支付方式的 device 与请求端匹配（对齐 epay Channel::submit L108-116）。
+//   - 移动端请求(device∈{mobile,qq,wechat,alipay})：仅允许 device∈{0,2} 的支付方式
+//   - PC 端请求(device 空或其它)：仅允许 device∈{0,1}
+//   - 支付方式 device=0（通用）永远允许
+//
+// paytypes 未注入时不做校验（向后兼容）。命中不匹配返回错误，对齐 epay sysmsg('支付方式(type)不存在')。
+func (s *PayService) checkPayTypeDevice(typeID int, device string) error {
+	if s.paytypes == nil {
+		return nil
+	}
+	pt, err := s.paytypes.FindByID(uint(typeID))
+	if err != nil || pt == nil {
+		return nil // 查不到不在此拦截，交由后续选通道处理
+	}
+	if pt.Device == 0 {
+		return nil // 通用方式，PC/移动皆可
+	}
+	mobile := isMobileDevice(device)
+	if mobile && pt.Device != 2 {
+		return payErr("支付方式(type)不存在") // 移动端选到仅PC方式
+	}
+	if !mobile && pt.Device != 1 {
+		return payErr("支付方式(type)不存在") // PC端选到仅移动方式
+	}
+	return nil
+}
+
+// isMobileDevice 判断下单请求是否移动端场景（对齐 epay device 判定 + checkmobile）。
+func isMobileDevice(device string) bool {
+	switch strings.ToLower(strings.TrimSpace(device)) {
+	case "mobile", "qq", "wechat", "alipay", "wap", "jsapi", "h5":
+		return true
+	}
+	return false
 }
 
 // QueryStatus 收银台轮询查单：先看本地订单状态，未付则主动问渠道 Query。
@@ -634,6 +859,31 @@ func (s *PayService) loadChannelConfig(channelID int) channel.Config {
 	return buildChannelConfig(c)
 }
 
+// loadChannelConfigForOrder 载入订单所用通道配置，subchannel>0 时用子通道 info 覆盖主通道 config 占位
+// （B1-34，对齐 epay Plugin::loadForPay/refund 的 subchannel>0 ? getSub : get）。
+// 子通道仓储未注入 / subchannel<=0 / 子通道无 info 时退回主通道 config（向后兼容）。
+func (s *PayService) loadChannelConfigForOrder(channelID, subchannelID int) channel.Config {
+	if channelID <= 0 {
+		return channel.Config{Extra: map[string]string{}}
+	}
+	c, err := s.channels.FindByID(uint(channelID))
+	if err != nil || c == nil {
+		return channel.Config{Extra: map[string]string{}}
+	}
+	if subchannelID <= 0 || s.subchannels == nil {
+		return buildChannelConfig(c)
+	}
+	sub, err := s.subchannels.FindByID(uint(subchannelID))
+	if err != nil || sub == nil || strings.TrimSpace(sub.Info) == "" {
+		return buildChannelConfig(c)
+	}
+	kv := mergeSubChannelConfig(c.Config, sub.Info)
+	if kv == nil {
+		return buildChannelConfig(c)
+	}
+	return buildChannelConfigFromKV(kv)
+}
+
 // RefundViaChannel 尝试通过渠道原路退款（对齐 epay Order::refund 的渠道退款）。
 // 返回 (是否已由渠道处理, error)。渠道未实现 Refunder 或插件不可用 → (false, nil)，由调用方走余额层。
 // 渠道退款失败 → (false, err)，调用方据此决定是否中止。
@@ -646,7 +896,8 @@ func (s *PayService) RefundViaChannel(ctx context.Context, o *model.Order, money
 	if !ok {
 		return false, nil // 该渠道不支持原路退款
 	}
-	cfg := s.loadChannelConfig(o.Channel)
+	// B1-34：退款侧同样按 subchannel>0 取子通道配置（对齐 epay Plugin::refund L145 getSub）。
+	cfg := s.loadChannelConfigForOrder(o.Channel, o.Subchannel)
 	total := o.Money
 	if o.RealMoney != nil && o.RealMoney.GreaterThan(decimal.Zero) {
 		total = *o.RealMoney
@@ -689,18 +940,76 @@ func (s *PayService) GetCashier(tradeNo string) (*dto.CashierView, error) {
 	if s.cfg != nil && s.cfg.Bool("pageordername") {
 		dispName = "onlinepay"
 	}
-	return &dto.CashierView{
+	view := &dto.CashierView{
 		TradeNo:    o.TradeNo,
 		OutTradeNo: o.OutTradeNo,
 		Name:       dispName,
 		Money:      money.String(payMoney),
+		OrderMoney: money.String(o.Money), // B1-65：原始订单额，前端据 money≠order_money 显示'含X元手续费'
 		Plugin:     o.Plugin,
 		PayType:    o.PayType,
 		QRCode:     o.QRCode,
 		Status:     o.Status,
 		AddTime:    o.AddTime.Format(timeLayout),
 		ReturnURL:  s.buildReturnURL(o),
-	}, nil
+	}
+	// B1-67：已付/终态订单服务端不再下发可支付信息（对齐 epay cashier.php:13 已付即中断，防重复支付）。
+	//   epay 是整页 sysmsg 中断；我方 SPA 仍需 status+return_url 跳成功页，故保留这两项，
+	//   仅抹掉二维码/支付方式/可选方式等「可继续支付」字段——直接请求 API 也拿不到已付单的可支付信息。
+	if o.Status != 0 {
+		view.QRCode = ""
+		view.PayType = ""
+		view.PayTypes = nil
+		return view, nil
+	}
+	// B1-04：裸单(空 type 未定通道)返回可选支付方式，供收银台聚合选方式后以本 trade_no 复发起下单。
+	if o.Channel == 0 && o.Plugin == "" {
+		view.PayTypes = s.payTypeOptionsForOrder(o)
+	}
+	return view, nil
+}
+
+// payTypeOptionsForOrder 列出裸单可选支付方式（B1-04 收银台聚合选方式用，对齐 epay cashier 渲染 getTypes）。
+// 复用商户所在组的可见性(IsTypeAvailable)+设备通用性+插件已实现判定；paytypes 未注入时返回空。
+func (s *PayService) payTypeOptionsForOrder(o *model.Order) []dto.PayTypeOption {
+	if s.paytypes == nil {
+		return nil
+	}
+	types, err := s.paytypes.All()
+	if err != nil {
+		return nil
+	}
+	gid := -1
+	if m, e := s.merchants.FindByUID(o.UID); e == nil && m != nil {
+		gid = m.GID
+	}
+	out := make([]dto.PayTypeOption, 0, len(types))
+	seen := map[string]bool{}
+	for i := range types {
+		t := &types[i]
+		if t.Status != 1 {
+			continue
+		}
+		// 组可见性过滤（channel=0 隐藏 / -1 有启用通道 / -2 有子通道 / 正整数校验），selector+gid 有效才做。
+		if s.selector != nil && gid >= 0 {
+			if !s.selector.IsTypeAvailable(o.UID, gid, int(t.ID)) {
+				continue
+			}
+		}
+		ch, err := s.channels.FindEnabledByPlugin(t.Name)
+		if err != nil || ch == nil {
+			continue
+		}
+		if _, ok := channel.Get(ch.Plugin); !ok {
+			continue // 插件未实现（seed 显示名），不作为可选项
+		}
+		if seen[ch.Plugin] {
+			continue
+		}
+		seen[ch.Plugin] = true
+		out = append(out, dto.PayTypeOption{Type: ch.Plugin, ShowName: t.ShowName})
+	}
+	return out
 }
 
 // buildReturnURL 构造支付完成后跳回商户的 return_url（A-10，对齐 epay processOrder !isnotify 分支）：
@@ -737,7 +1046,7 @@ func (s *PayService) buildReturnURL(o *model.Order) string {
 // CreateInternalOrder 创建内部业务订单（充值余额 tid=2 等）并走渠道下单，返回收银台信息。
 // 对齐 epay：内部订单下到收款商户名下、回调时按 tid 分派。当前 uid 直接记发起商户，
 // settle() 按 tid 决定入账流水类型。plugin 指定渠道（如 mock 可真跑；真实渠道待凭证）。
-func (s *PayService) CreateInternalOrder(ctx context.Context, uid uint, tid int8, name string, amount decimal.Decimal, plugin string) (*dto.SubmitResp, error) {
+func (s *PayService) CreateInternalOrder(ctx context.Context, uid uint, tid int8, name string, amount decimal.Decimal, plugin string, param ...string) (*dto.SubmitResp, error) {
 	if amount.LessThanOrEqual(decimal.Zero) {
 		return nil, payErr("金额不合法")
 	}
@@ -746,16 +1055,33 @@ func (s *PayService) CreateInternalOrder(ctx context.Context, uid uint, tid int8
 		return nil, err
 	}
 	channelID := 0
+	rate := decimal.Zero
 	if ch != nil {
 		channelID = int(ch.ID)
+		rate = ch.Rate
 	}
+	// 费率计算（B1-53，对齐 epay submit2.php:35）：内部订单同样按 tid 维度加费——
+	//   · tid==2 余额充值：无论商户 mode 都走加费（买家多付手续费 realmoney=money*(200-rate)/100、getmoney=money 全额到账）；
+	//   · tid==4 购买用户组：即便 mode==1 也强制平台代收（不加费）；
+	//   · 其余（tid=3 聚合收款等）：按下单商户自身 mode 判定加费/代收。
+	// 收款商户按 tid 语义解析：tid=2/4/5 收款方是 param.uid（内部业务方），否则就是下单 uid。
+	payUID := uid
+	if len(param) > 0 && param[0] != "" {
+		if v := parseParamUID(param[0]); v > 0 {
+			payUID = v
+		}
+	}
+	m, _ := s.merchants.FindByUID(payUID)
+	getMoney, realMoney := s.calcInternalFee(m, tid, amount, rate)
 	now := time.Now()
 	order := &model.Order{
 		TradeNo:    genTradeNo(now),
 		OutTradeNo: fmt.Sprintf("IN%d%s", tid, genTradeNo(now)),
-		UID:        uid,
+		UID:        payUID,
 		Name:       name,
 		Money:      amount,
+		RealMoney:  &realMoney,
+		GetMoney:   getMoney,
 		Type:       0,
 		TypeName:   plugin,
 		Channel:    channelID,
@@ -764,10 +1090,70 @@ func (s *PayService) CreateInternalOrder(ctx context.Context, uid uint, tid int8
 		Status:     0,
 		Tid:        tid,
 	}
+	if len(param) > 0 {
+		order.Param = param[0]
+	}
 	if err := s.orders.Create(order); err != nil {
 		return nil, err
 	}
 	return s.dispatch(ctx, order, plugin)
+}
+
+// calcInternalFee 内部订单费率计算，对齐 epay submit2.php:35 的 tid 维度加费判定。
+// 条件 (mode==1 && tid!=4) || tid==2 为真 → 加费（买家多付）；否则平台代收。
+// m 为 nil（收款商户查不到）时按非加费(平台代收)安全默认处理。
+func (s *PayService) calcInternalFee(m *model.Merchant, tid int8, money, rate decimal.Decimal) (getMoney, realMoney decimal.Decimal) {
+	mode := int8(0)
+	if m != nil {
+		mode = m.Mode
+	}
+	if (mode == 1 && tid != 4) || tid == 2 {
+		// 加费模式：买家多付手续费，getmoney=全额到账。
+		return s.calcFee(&model.Merchant{Mode: 1}, money, rate)
+	}
+	// 平台代收：realmoney=money，getmoney=money*rate/100。
+	return s.calcFee(&model.Merchant{Mode: 0}, money, rate)
+}
+
+// internalOrderParam 内部订单 param（JSON）承载的业务字段（对齐 epay processOrder 从 param 解析 uid/gid/endtime）。
+// uid/gid 兼容 JSON 数字与字符串两种编码（json.Number 统一解析）。
+type internalOrderParam struct {
+	UID     json.Number `json:"uid"`
+	GID     json.Number `json:"gid"`
+	EndTime string      `json:"endtime"`
+}
+
+// parseInternalParam 解析内部订单 param JSON，非法则返回零值结构（各字段按缺省处理）。
+func parseInternalParam(raw string) internalOrderParam {
+	var p internalOrderParam
+	if raw == "" {
+		return p
+	}
+	_ = json.Unmarshal([]byte(raw), &p)
+	return p
+}
+
+// parseParamUID 从内部订单 param JSON 取收款商户 uid（tid=2/4/5 的实际入账/操作对象）。
+func parseParamUID(raw string) uint {
+	if v, err := parseInternalParam(raw).UID.Int64(); err == nil && v > 0 {
+		return uint(v)
+	}
+	return 0
+}
+
+// parseParamEndTime 解析 param 里的用户组到期时间（tid=4 购组），空串/非法返回 nil（永久组，对齐 epay endtime null）。
+// 支持 "2006-01-02 15:04:05" 与 "2006-01-02" 两种格式。
+func parseParamEndTime(s string) *time.Time {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02"} {
+		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
+			return &t
+		}
+	}
+	return nil
 }
 
 // CreateTestOrderByChannel 后台测试支付：指定通道 ID(+可选子通道)下一笔真实测试单走收单链
@@ -828,9 +1214,26 @@ func (s *PayService) CreateTestOrderByChannel(ctx context.Context, channelID, su
 	return s.dispatch(ctx, order, ch.Plugin)
 }
 
-// sceneParams 下单场景参数（A-2，对齐 epay device/method/sub_openid/auth_code）。
+// resolveApptype 解析本单生效的 apptype（对齐 epay getSubmitInfo/getSub apptype）：
+// 优先取 scene 里选通道时确定的 apptype（含子通道 info 覆盖）；否则读所选通道的 apptype
+//（补单/查单复用 dispatch 但无 scene 时的兜底，等价 epay Channel::get(apptype)）。
+func (s *PayService) resolveApptype(o *model.Order, scene ...*sceneParams) string {
+	if len(scene) > 0 && scene[0] != nil && strings.TrimSpace(scene[0].AppType) != "" {
+		return scene[0].AppType
+	}
+	if o.Channel <= 0 || s.channels == nil {
+		return ""
+	}
+	ch, err := s.channels.FindByID(uint(o.Channel))
+	if err != nil || ch == nil {
+		return ""
+	}
+	return ch.AppType
+}
+
+// sceneParams 下单场景参数（A-2，对齐 epay device/method/sub_openid/auth_code + apptype）。
 type sceneParams struct {
-	Method, Device, SubOpenID, SubAppID, AuthCode string
+	Method, Device, SubOpenID, SubAppID, AuthCode, AppType string
 }
 
 // sceneFromParams 从原始请求参数提取下单场景参数。
@@ -851,7 +1254,8 @@ func (s *PayService) dispatch(ctx context.Context, o *model.Order, payType strin
 		return nil, payErr("支付渠道不可用：" + o.Plugin)
 	}
 	// 载入通道密钥配置（真实渠道用；mock 通道 config 为空返回零值 Config）。
-	cfg := s.loadChannelConfig(o.Channel)
+	// B1-34：subchannel>0 时用子通道 info 覆盖主通道 config 占位（对齐 epay Plugin::loadForPay getSub）。
+	cfg := s.loadChannelConfigForOrder(o.Channel, o.Subchannel)
 	// 渠道回调地址 = 通道配置的 notify_url 基址 + /系统订单号，命中本系统 /api/pay/notify/:trade_no。
 	cfg.NotifyURL = notifyBackURL(cfg.NotifyURL, o.TradeNo)
 	// 发给渠道的是实际待付金额 realmoney（含 randomFloat 随机微调 + mode=1 加费），而非原始订单额 money
@@ -868,6 +1272,19 @@ func (s *PayService) dispatch(ctx context.Context, o *model.Order, payType strin
 		Money:     payAmount,
 		Subject:   subject,
 		NotifyURL: cfg.NotifyURL,
+		ReturnURL: o.ReturnURL,
+		ClientIP:  o.IP,
+		// 支付方式英文名（alipay/wxpay/qqpay/bank）透传给聚合渠道，用于其内部 paytype 映射
+		//（对齐 epay 插件 $order['typename']；vmq/epay 等据此选上游收单方式）。
+		Extra: map[string]string{"typename": payType},
+		// L-7 渠道侧分账标记：本单命中分账规则（Profits>0）时置位，让支持分账的渠道下单带
+		// settle_info.profit_sharing（对齐 epay wxpayn/adapay）；不支持的渠道忽略，走本地余额层分账。
+		ProfitSharing: o.Profits > 0,
+	}
+	// apptype 透传（对齐 epay getSubmitInfo 返回 apptype → 插件按 in_array($apptype) 分派 JSAPI/H5/扫码）。
+	// 优先取 scene 里选通道时定的 apptype；否则读所选通道的 apptype（Fill/Query 复用路径）。
+	if at := s.resolveApptype(o, scene...); at != "" {
+		req.Extra["apptype"] = at
 	}
 	// 注入下单场景参数（A-2）：渠道按需消费（JSAPI/付款码/APP 等），mock/不支持则忽略。
 	if len(scene) > 0 && scene[0] != nil {

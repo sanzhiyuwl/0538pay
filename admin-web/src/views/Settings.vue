@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { Save, Upload, UploadCloud, X } from 'lucide-vue-next'
-import { Panel, Button } from '@/components/ui'
+import { Panel, Button, Switch, ImageUpload } from '@/components/ui'
 import { logoItems } from '@/lib/mock/settings'
 import { useSiteStore } from '@/stores/site'
 import { useToast } from '@/composables/useToast'
@@ -9,6 +9,7 @@ import { useToast } from '@/composables/useToast'
 const tabs = [
   { key: 'site', label: '网站信息' },
   { key: 'beian', label: '版权备案' },
+  { key: 'float', label: '悬浮栏' },
   { key: 'logo', label: 'LOGO 设置' },
 ]
 const activeTab = ref('site')
@@ -168,10 +169,24 @@ async function save() {
             </div>
           </div>
           <div class="beian-field">
+            <label class="beian-lbl">清算协会备案号</label>
+            <div class="min-w-0 flex-1">
+              <input v-model="site.qingsuan" placeholder="如 中国支付清算协会会员" class="field-input w-full" />
+              <p class="beian-hint">中国支付清算协会备案/会员信息，留空则 PC 底部不显示该徽标</p>
+            </div>
+          </div>
+          <div class="beian-field">
             <label class="beian-lbl">网站公安链接</label>
             <div class="min-w-0 flex-1">
               <input v-model="site.policeLink" placeholder="https://beian.mps.gov.cn/" class="field-input w-full" />
               <p class="beian-hint">PC 底部公安备案号点击跳转的链接</p>
+            </div>
+          </div>
+          <div class="beian-field">
+            <label class="beian-lbl">清算协会链接</label>
+            <div class="min-w-0 flex-1">
+              <input v-model="site.qingsuanLink" placeholder="https://www.paymentclearing.org.cn/" class="field-input w-full" />
+              <p class="beian-hint">PC 底部清算协会备案徽标点击跳转的链接</p>
             </div>
           </div>
           <div class="beian-field">
@@ -180,6 +195,51 @@ async function save() {
               <input v-model="site.marketLink" placeholder="https://www.gsxt.gov.cn/" class="field-input w-full" />
               <p class="beian-hint">PC 底部市场监督管理局点击跳转的链接</p>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 悬浮栏（官网首页右侧联系悬浮栏）-->
+      <div v-else-if="activeTab === 'float'" class="max-w-md space-y-5">
+        <!-- 总开关 -->
+        <label class="flex items-center gap-3 bg-muted/40 px-3.5 py-2.5">
+          <span class="flex flex-1 flex-col">
+            <span class="text-sm text-foreground">启用悬浮联系栏</span>
+            <span class="mt-0.5 text-xs text-muted-foreground/70">官网首页右侧竖排联系入口，关闭则整栏不显示</span>
+          </span>
+          <Switch v-model="site.floatBarOn" size="sm" />
+        </label>
+
+        <!-- 各入口显隐 + 公众号二维码，仅总开关开启时可配 -->
+        <div v-if="site.floatBarOn" class="space-y-5 border-t border-border/60 pt-5">
+          <div class="text-xs font-medium uppercase tracking-wide text-muted-foreground/70">显示项</div>
+          <div class="space-y-2">
+            <label class="flex items-center gap-3 bg-muted/40 px-3.5 py-2.5">
+              <span class="w-16 shrink-0 text-sm text-foreground">在线客服</span>
+              <span class="flex-1 text-xs text-muted-foreground/60">走「网站信息」客服 QQ</span>
+              <Switch v-model="site.floatKf" size="sm" />
+            </label>
+            <label class="flex items-center gap-3 bg-muted/40 px-3.5 py-2.5">
+              <span class="w-16 shrink-0 text-sm text-foreground">公众号</span>
+              <span class="flex-1 text-xs text-muted-foreground/60">悬浮弹出下方二维码</span>
+              <Switch v-model="site.floatQr" size="sm" />
+            </label>
+            <label class="flex items-center gap-3 bg-muted/40 px-3.5 py-2.5">
+              <span class="w-16 shrink-0 text-sm text-foreground">邮箱</span>
+              <span class="flex-1 text-xs text-muted-foreground/60">走「网站信息」联系邮箱</span>
+              <Switch v-model="site.floatMail" size="sm" />
+            </label>
+            <label class="flex items-center gap-3 bg-muted/40 px-3.5 py-2.5">
+              <span class="w-16 shrink-0 text-sm text-foreground">返回顶部</span>
+              <span class="flex-1 text-xs text-muted-foreground/60">页面下滚后出现</span>
+              <Switch v-model="site.floatTop" size="sm" />
+            </label>
+          </div>
+
+          <!-- 公众号二维码上传（悬浮栏公众号项 + 资讯页侧栏共用）-->
+          <div v-if="site.floatQr" class="border-t border-border/60 pt-5">
+            <label class="mb-1.5 block text-sm text-muted-foreground">公众号二维码 <span class="text-muted-foreground/60">（悬浮栏「公众号」+ 资讯页侧栏共用，留空显示占位框）</span></label>
+            <ImageUpload v-model="site.mpQrcode" dir="cover" />
           </div>
         </div>
       </div>

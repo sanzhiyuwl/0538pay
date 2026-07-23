@@ -14,3 +14,7 @@ vendor/
 # 编辑器
 .idea/
 .vscode/
+
+# 用户上传产物（锚定路径，仅忽略内容，保留目录占位）
+/uploads/*
+!/uploads/.gitkeep

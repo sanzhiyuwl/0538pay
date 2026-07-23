@@ -18,6 +18,11 @@ export default defineConfig({
         target: 'http://127.0.0.1:8080',
         changeOrigin: true,
       },
+      // 上传的图片走后端静态服务（/uploads/...），dev 期一并代理
+      '/uploads': {
+        target: 'http://127.0.0.1:8080',
+        changeOrigin: true,
+      },
     },
   },
 })

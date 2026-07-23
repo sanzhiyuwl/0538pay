@@ -395,6 +395,22 @@ async function confirmDelRule() {
   }
 }
 
+// 多接收方拆分展示（P0-a，对齐 epay | 分隔）：account/name/rate 按 | 拆分对齐，
+// rate 段缺省复用首段。返回逐接收方 { account, name, rate } 供表格分行展示。
+function splitReceivers(r: PsReceiver): { account: string; name: string; rate: string }[] {
+  const accounts = r.account.split('|').map((s) => s.trim()).filter((s) => s !== '')
+  const names = r.name.split('|')
+  const rates = r.rate.split('|')
+  return accounts.map((account, i) => ({
+    account,
+    name: (names[i] ?? '').trim(),
+    rate: (rates[i] ?? rates[0] ?? '').trim(),
+  }))
+}
+function isMultiReceiver(r: PsReceiver): boolean {
+  return r.account.includes('|')
+}
+
 onMounted(() => {
   loadRules()
   loadChannelOpts()
@@ -627,10 +643,22 @@ onMounted(() => {
                 <span v-else class="dim">通道级全局</span>
               </td>
               <td>
-                <div class="truncate" :title="r.account">{{ r.account }}</div>
-                <div v-if="r.name" class="truncate text-xs dim">{{ r.name }}</div>
+                <template v-if="isMultiReceiver(r)">
+                  <div v-for="(rc, ri) in splitReceivers(r)" :key="ri" class="truncate" :title="rc.account">
+                    <span>{{ rc.account }}</span>
+                    <span v-if="rc.name" class="ml-1 text-xs dim">（{{ rc.name }}）</span>
+                    <span class="ml-1 text-xs dim tabular-nums">{{ rc.rate }}%</span>
+                  </div>
+                </template>
+                <template v-else>
+                  <div class="truncate" :title="r.account">{{ r.account }}</div>
+                  <div v-if="r.name" class="truncate text-xs dim">{{ r.name }}</div>
+                </template>
               </td>
-              <td class="tabular-nums">{{ r.rate }}%</td>
+              <td class="tabular-nums">
+                <span v-if="isMultiReceiver(r)" class="text-xs dim">多接收方</span>
+                <span v-else>{{ r.rate }}%</span>
+              </td>
               <td class="tabular-nums"><span class="dim text-xs">¥</span>{{ r.minmoney }}</td>
               <td class="col-center">
                 <Switch :model-value="r.status === 1" @update:model-value="toggleRule(r)" />

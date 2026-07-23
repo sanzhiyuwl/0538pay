@@ -15,7 +15,8 @@ type OrderService struct {
 	accounts *repository.AccountRepo
 	channels *repository.ChannelRepo
 	admins   *repository.AdminRepo
-	pay      *PayService // 复用补单入账 + 重新通知
+	refunds  *repository.RefundOrderRepo // API 退款落 pay_refundorder（对齐 epay Order::refund api=1）
+	pay      *PayService                 // 复用补单入账 + 重新通知
 }
 
 func NewOrderService(repo *repository.OrderRepo) *OrderService {
@@ -29,6 +30,11 @@ func (s *OrderService) SetWriteDeps(a *repository.AccountRepo, ch *repository.Ch
 	s.channels = ch
 	s.admins = ad
 	s.pay = pay
+}
+
+// SetRefundRepo 注入退款单仓储（API 退款写 pay_refundorder，对齐 epay Order::refund api=1 分支）。
+func (s *OrderService) SetRefundRepo(r *repository.RefundOrderRepo) {
+	s.refunds = r
 }
 
 // List 返回分页订单（已转为对外 View，金额补两位小数、时间格式化）。

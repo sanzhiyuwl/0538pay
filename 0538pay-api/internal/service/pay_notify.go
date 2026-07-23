@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/0538pay/api/internal/channel"
+	"github.com/0538pay/api/internal/model"
 	"github.com/shopspring/decimal"
 )
 
@@ -92,13 +93,70 @@ func (s *PayService) settle(ctx context.Context, tradeNo string) error {
 		return payErr("入账时订单丢失")
 	}
 
-	// 内部业务订单（tid≠0）按类型分派入账（对齐 epay processOrder 的 tid 分支）。
-	if order.Tid == 2 {
-		// 充值余额：全额入商户余额（对齐 epay tid=2，加费模式下 getmoney=充值全额）。
-		if err := s.accounts.ChangeUserMoney(order.UID, order.Money, true, "余额充值", order.TradeNo); err != nil {
+	// 内部业务订单（tid≠0）按类型分派入账（对齐 epay processOrder:594-611 的 tid 分支）。
+	switch order.Tid {
+	case 1: // 付费注册（B1-51，对齐 epay processOrder tid==1）：注册费入收款商户余额 + 回调建号。
+		addMoney := order.GetMoney
+		if addMoney.LessThanOrEqual(decimal.Zero) {
+			addMoney = order.Money
+		}
+		if err := s.accounts.ChangeUserMoney(order.UID, addMoney, true, "订单收入", order.TradeNo); err != nil {
+			return err
+		}
+		// 建号（读订单 param 里挂的注册信息）。建号失败不回滚入账（钱已收到），仅记日志由钩子内部处理。
+		if s.regPayHook != nil {
+			if err := s.regPayHook(order.Param); err != nil {
+				return err
+			}
+		}
+		return nil // 付费注册无需商户异步通知
+	case 2: // 充值余额：入 getmoney（加费模式下 getmoney=充值全额，对齐 epay tid=2 addmoney=getmoney）。
+		addMoney := order.GetMoney
+		if addMoney.LessThanOrEqual(decimal.Zero) {
+			addMoney = order.Money
+		}
+		if err := s.accounts.ChangeUserMoney(order.UID, addMoney, true, "余额充值", order.TradeNo); err != nil {
 			return err
 		}
 		return nil // 内部充值无需商户异步通知
+	case 3: // 聚合收款码：按通道 mode 分派（对齐 epay processOrder:597-603）。
+		//   · mode==1 商户直清：钱已到商户，平台只扣在线收款服务费 reducemoney(>0 才扣)；
+		//   · mode!=1 平台代收：平台加商户实得 addmoney，流水语义为「在线收款」。
+		// 注意 tid=3 仍需走后续 order 通知/邀请返现/分账（epay 在 tid==0||tid==3 时才发通知），故不 return。
+		if s.isDirectChannel(order.Channel) {
+			reduce := s.calcReduceMoneyOnSettle(order)
+			if reduce.GreaterThan(decimal.Zero) {
+				if err := s.accounts.ChangeUserMoney(order.UID, reduce, false, "在线收款服务费", order.TradeNo); err != nil {
+					return err
+				}
+			}
+		} else {
+			addMoney := order.GetMoney
+			if addMoney.LessThanOrEqual(decimal.Zero) {
+				addMoney = order.Money
+			}
+			if err := s.accounts.ChangeUserMoney(order.UID, addMoney, true, "在线收款", order.TradeNo); err != nil {
+				return err
+			}
+		}
+		// tid=3 走后续 profitmoney/通知/邀请返现/分账链路（与普通订单一致），跳过下方 tid=0 的入账分支。
+		return s.settleAfterCredit(ctx, order)
+	case 4: // 购买用户组：改组 + 到期时间（对齐 epay tid=4 changeUserGroup(param.gid,endtime)）。渠道支付路径。
+		p := parseInternalParam(order.Param)
+		gid := 0
+		if v, err := p.GID.Int64(); err == nil {
+			gid = int(v)
+		}
+		endTime := parseParamEndTime(p.EndTime)
+		if err := s.accounts.ChangeUserGroup(order.UID, gid, endTime); err != nil {
+			return err
+		}
+		return nil // 购组无需商户异步通知
+	case 5: // 充值保证金：deposit 累加订单 money（对齐 epay tid=5 deposit=deposit+money）。渠道支付路径。
+		if err := s.accounts.DepositAdd(order.UID, order.Money, order.TradeNo); err != nil {
+			return err
+		}
+		return nil // 保证金充值无需商户异步通知
 	}
 
 	// 回调入账方向按通道模式分派（对齐 epay functions.php:612-618）：
@@ -122,18 +180,23 @@ func (s *PayService) settle(ctx context.Context, tradeNo string) error {
 		}
 	}
 
+	return s.settleAfterCredit(ctx, order)
+}
+
+// settleAfterCredit 入账完成后的通用后处理：落平台利润 + 邀请返现 + 对外通知 + daytop 累计 + 分账 + 商户异步通知。
+// tid=0(普通订单)与 tid=3(聚合收款)共享此链路（对齐 epay processOrder：tid==0||tid==3 才发通知/返现）。
+func (s *PayService) settleAfterCredit(ctx context.Context, order *model.Order) error {
 	// 计算并落库平台利润 profitmoney（对齐 epay processOrder：reducemoney=realmoney-getmoney，
 	// profitmoney=reducemoney - realmoney*通道成本费率costrate/100）。供日报利润 + 邀请返现 type=2 口径用。
+	// 无条件写库（含负值），对齐 epay processOrder:568 $DB->update('order',['profitmoney'=>...])。
 	profitMoney := s.calcProfitMoney(order)
-	if profitMoney.GreaterThan(decimal.Zero) {
-		_ = s.orders.SetProfitMoney(order.TradeNo, profitMoney)
-	}
+	_ = s.orders.SetProfitMoney(order.TradeNo, profitMoney)
 
 	// 邀请返现：下单商户若有上级(upid)，按比例实时返现到上级余额（对齐 epay functions.php 结算钩子）。
+	// 传入真实平台利润 profitMoney，供 type=2 口径按平台利润返现（对齐 epay functions.php:638-639）。
 	// 失败不回滚入账（返现是附属激励），仅静默跳过。
 	if s.invite != nil {
-		getMoney := order.GetMoney
-		s.invite.SettleOnPaid(order.UID, order.Money, getMoney, order.TradeNo)
+		s.invite.SettleOnPaid(order.UID, order.Money, order.GetMoney, profitMoney, order.TradeNo)
 	}
 
 	// 对外通知（K-1 order 场景）：支付成功后按商户 msgconfig 发微信/邮件/短信到账提醒
@@ -166,7 +229,7 @@ func (s *PayService) settle(ctx context.Context, tradeNo string) error {
 		if order.RealMoney != nil && order.RealMoney.GreaterThan(decimal.Zero) {
 			realMoney = *order.RealMoney
 		}
-		_ = s.profit.CreateOrderOnPaid(order.Profits, order.TradeNo, order.APITradeNo, realMoney)
+		_ = s.profit.CreateOrderOnPaid(order.Profits, order.TradeNo, order.APITradeNo, order.Plugin, realMoney)
 	}
 
 	// 触发商户异步通知（A5）。失败不回滚入账，仅置重试标志，交由 cron 重试(阶段E)。

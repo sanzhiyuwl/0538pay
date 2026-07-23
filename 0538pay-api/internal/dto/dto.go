@@ -312,10 +312,11 @@ type MerchantPwdReq struct {
 	NewPwd string `json:"newpwd" binding:"required"`
 }
 
-// RefundReq 订单退款入参（商户端）。
+// RefundReq 订单退款入参（商户端，对齐 epay user/ajax2.php refund_submit）。
 type RefundReq struct {
-	TradeNo string `json:"trade_no" binding:"required"`
-	// 全额退款，暂不支持部分退款金额与支付密码（支付密码校验待商户资料域）
+	TradeNo  string `json:"trade_no" binding:"required"`
+	Money    string `json:"money"`    // 退款金额（支持部分退款）；空则默认全额退（取订单实付）
+	Password string `json:"password"` // 登录密码二次校验（对齐 epay getMd5Pwd）
 }
 
 // RecordView 资金流水对外响应，对齐前端 mock/merchant/records.ts（金额用 number）+ epay pre_record。
@@ -485,13 +486,16 @@ type CashierView struct {
 	TradeNo    string `json:"trade_no"`
 	OutTradeNo string `json:"out_trade_no"`
 	Name       string `json:"name"`
-	Money      string `json:"money"`
+	Money      string `json:"money"`       // 需支付金额（realmoney，含加费/随机微调）
+	OrderMoney string `json:"order_money"` // 原始订单金额（B1-65，前端据 money≠order_money 还原'含X元手续费'）
 	Plugin     string `json:"plugin"`      // 渠道标识（mock 时前端展示模拟支付）
 	PayType    string `json:"pay_type"`    // 收银台渲染方式 qrcode/redirect/html（真实渠道）
 	QRCode     string `json:"qrcode"`      // 二维码内容/支付链接（真实渠道；mock 为空，前端走模拟支付）
 	Status     int8   `json:"status"`      // 0未付1已付…（已付则前端提示勿重复支付）
 	AddTime    string `json:"addtime"`
 	ReturnURL  string `json:"return_url"`  // 支付完成跳回商户
+	// B1-04：裸单(空 type 未定通道)时返回可选支付方式，供收银台聚合选方式后复发起下单；已定通道单为空。
+	PayTypes   []PayTypeOption `json:"paytypes,omitempty"`
 }
 
 // MerchantView 商户对外响应，字段/json tag 对齐前端 mock/merchants.ts 的 Merchant。
@@ -1349,15 +1353,20 @@ type MerchantRegReq struct {
 	Password     string `json:"password" binding:"required"`
 	Invite       string `json:"invite"`       // 注册授权码（reg_open=2 必填，对应 pay_invitecode）
 	Ref          string `json:"ref"`          // 邀请返现推广码（?invite= 解出上级 uid，对齐 epay upid）
+	Plugin       string `json:"plugin"`       // reg_pay=1 付费注册时选用的支付渠道插件 key
 	CaptchaToken string `json:"captcha_token"`
 	Captcha      string `json:"captcha"`
 }
 
-// MerchantRegResp 注册结果。NeedReview=true 表示待审核（pay=2）。
+// MerchantRegResp 注册结果。
+//   - NeedReview=true：待审核（pay=2）。
+//   - NeedPay=true：reg_pay 付费注册模式，需先支付 Pay 里的订单，回调成功后才真正建号。
 type MerchantRegResp struct {
-	UID        uint   `json:"uid"`
-	NeedReview bool   `json:"need_review"`
-	Msg        string `json:"msg"`
+	UID        uint        `json:"uid"`
+	NeedReview bool        `json:"need_review"`
+	NeedPay    bool        `json:"need_pay"`      // B1-51 付费注册：需先支付
+	Pay        *SubmitResp `json:"pay,omitempty"` // 付费注册待付订单（收银/跳转信息）
+	Msg        string      `json:"msg"`
 }
 
 // MerchantCompleteReq 完善资料入参（对齐 epay completeinfo）。

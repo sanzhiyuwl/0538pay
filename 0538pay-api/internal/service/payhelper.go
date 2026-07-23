@@ -53,14 +53,42 @@ var channelConfigKeys = map[string]bool{
 // 通用字段映射到具名字段，其余键保留到 Extra，供渠道插件自取。
 // config 为空或非法 JSON 时返回零值 Config（mock 等无需密钥的渠道向后兼容）。
 func buildChannelConfig(c *model.Channel) channel.Config {
-	cfg := channel.Config{Extra: map[string]string{}}
 	if c == nil || c.Config == "" {
-		return cfg
+		return channel.Config{Extra: map[string]string{}}
 	}
 	kv := map[string]string{}
 	if err := json.Unmarshal([]byte(c.Config), &kv); err != nil {
-		return cfg
+		return channel.Config{Extra: map[string]string{}}
 	}
+	return buildChannelConfigFromKV(kv)
+}
+
+// mergeSubChannelConfig 用子通道 info 覆盖主通道 config 里形如 "[key]" 的占位键
+// （B1-34，对齐 epay Channel::getSub：config 值以 '[' 开头则取 arr[key] 替换）。
+// 主 config 或子 info 非法 JSON 时返回 nil（调用方退回主通道 config）。
+func mergeSubChannelConfig(mainConfig, subInfo string) map[string]string {
+	kv := map[string]string{}
+	if err := json.Unmarshal([]byte(mainConfig), &kv); err != nil {
+		return nil
+	}
+	arr := map[string]string{}
+	if err := json.Unmarshal([]byte(subInfo), &arr); err != nil {
+		return nil
+	}
+	for k, v := range kv {
+		if len(v) >= 2 && v[0] == '[' && v[len(v)-1] == ']' {
+			key := v[1 : len(v)-1]
+			if rv, ok := arr[key]; ok {
+				kv[k] = rv // 子通道自定义值替换占位（各商户各自 appid/mchid 等）
+			}
+		}
+	}
+	return kv
+}
+
+// buildChannelConfigFromKV 把通道 config 的键值表映射为 channel.Config（子通道占位覆盖后复用此逻辑）。
+func buildChannelConfigFromKV(kv map[string]string) channel.Config {
+	cfg := channel.Config{Extra: map[string]string{}}
 	for k, v := range kv {
 		switch k {
 		case "appid":

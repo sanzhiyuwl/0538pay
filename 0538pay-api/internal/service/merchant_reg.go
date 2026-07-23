@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -24,6 +26,7 @@ type MerchantRegService struct {
 	invite  *InviteService
 	captcha *CaptchaService
 	notice  *NoticeService // 新注册待审核管理员通知（可空；SetNoticeService 注入）
+	pay     *PayService    // 付费注册下单/回调建号（可空；SetPayService 注入。B1-51）
 }
 
 func NewMerchantRegService(repo *repository.MerchantRepo, cfg *ConfigService, invite *InviteService, captcha *CaptchaService) *MerchantRegService {
@@ -32,6 +35,73 @@ func NewMerchantRegService(repo *repository.MerchantRepo, cfg *ConfigService, in
 
 // SetNoticeService 注入对外通知中枢（K-1）。注册需审核时发 regaudit 场景管理员通知。
 func (s *MerchantRegService) SetNoticeService(n *NoticeService) { s.notice = n }
+
+// SetPayService 注入收单服务（B1-51 付费注册：下 tid=1 注册费订单 + 回调建号）。
+func (s *MerchantRegService) SetPayService(p *PayService) { s.pay = p }
+
+// regPayInfo 付费注册待建号信息，序列化进 tid=1 订单 param，回调成功后 FinalizeRegPay 读回建号
+// （对齐 epay CACHE reg_<trade_no> 承载的 verifytype/email/phone/pwd/upid/invitecodeid）。
+type regPayInfo struct {
+	Email      string `json:"email"`
+	Phone      string `json:"phone"`
+	Pwd        string `json:"pwd"` // 明文，回调建号时再 bcrypt（对齐 epay 缓存明文 pwd + getMd5Pwd）
+	UpID       int    `json:"upid"`
+	InviteID   uint   `json:"invitecodeid,omitempty"`
+	RegPayDone bool   `json:"-"`
+}
+
+// registerPay 付费注册下单（reg_pay=1，对齐 epay user/ajax.php:237-256）：
+// 校验收款商户 reg_pay_uid 存在 → 下 tid=1 注册费订单（金额 reg_pay_price，param 挂注册信息）→
+// 返回待付订单信息（NeedPay=true）。用户支付成功后回调走 FinalizeRegPay 建号。
+func (s *MerchantRegService) registerPay(req dto.MerchantRegReq, email, phone string, upid int, inviteID uint) (*dto.MerchantRegResp, error) {
+	if s.pay == nil {
+		return nil, maErr("付费注册未启用")
+	}
+	payUID := uint(s.cfg.Int("reg_pay_uid", 0))
+	if payUID == 0 {
+		return nil, maErr("注册收款商户ID未配置")
+	}
+	if up, e := s.repo.FindByUID(payUID); e != nil || up == nil {
+		return nil, maErr("注册收款商户ID不存在")
+	}
+	price := s.cfg.Dec("reg_pay_price", decimal.Zero)
+	if price.LessThanOrEqual(decimal.Zero) {
+		return nil, maErr("注册付费金额未配置")
+	}
+	plugin := strings.TrimSpace(req.Plugin)
+	if plugin == "" {
+		return nil, maErr("请选择支付方式")
+	}
+	info := regPayInfo{Email: email, Phone: phone, Pwd: req.Password, UpID: upid, InviteID: inviteID}
+	raw, err := json.Marshal(info)
+	if err != nil {
+		return nil, err
+	}
+	// 下 tid=1 订单，收款方 param.uid=reg_pay_uid（内部业务方），param 同时挂注册信息。
+	resp, err := s.pay.CreateInternalOrder(context.Background(), payUID, 1, "商户申请", price, plugin, string(raw))
+	if err != nil {
+		return nil, err
+	}
+	return &dto.MerchantRegResp{NeedPay: true, Pay: resp, Msg: "订单创建成功，请完成支付以完成注册"}, nil
+}
+
+// FinalizeRegPay 付费注册订单支付成功后的建号钩子（对齐 epay processOrder tid==1）。
+// 由收单回调在 tid==1 入账后调用：读订单 param 里的注册信息 → 建号（bcrypt/密钥/审核态/核销邀请码/通知）。
+// 幂等由回调侧保证（订单只翻转一次）；param 缺失或已建号则静默跳过。
+func (s *MerchantRegService) FinalizeRegPay(param string) error {
+	var info regPayInfo
+	if strings.TrimSpace(param) == "" {
+		return nil
+	}
+	if err := json.Unmarshal([]byte(param), &info); err != nil {
+		return nil // param 非注册信息（非付费注册订单），跳过
+	}
+	if info.Email == "" && info.Phone == "" {
+		return nil
+	}
+	_, _, err := s.createMerchantAccount(info.Email, info.Phone, info.Pwd, info.UpID, info.InviteID)
+	return err
+}
 
 // checkPassword 密码规则（对齐 epay：长度≥6、不等于账号、非纯数字）。
 func checkPassword(pwd, account string) error {
@@ -111,20 +181,6 @@ func (s *MerchantRegService) Register(req dto.MerchantRegReq) (*dto.MerchantRegR
 		inviteID = id
 	}
 
-	// 5. 密钥 + bcrypt 密码 + 审核态(user_review→pay)
-	key, err := randomHex(32)
-	if err != nil {
-		return nil, err
-	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, err
-	}
-	pay := int8(1)
-	needReview := s.cfg.Int("user_review", 0) == 1
-	if needReview {
-		pay = 2 // 待审核（对齐 epay：审核态落 pay 字段，status 恒 1）
-	}
 	// 邀请返现关系：推广码 ref 解出上级 uid（对齐 epay reg 从 ?invite= 解出 upid）。
 	// 上级须真实存在且非自身，否则 upid=0（无邀请关系）。
 	upid := 0
@@ -134,6 +190,43 @@ func (s *MerchantRegService) Register(req dto.MerchantRegReq) (*dto.MerchantRegR
 				upid = int(id)
 			}
 		}
+	}
+
+	// 5. 付费注册（reg_pay=1）：不立即建号，先落 tid=1 订单，把注册信息挂到订单 param，
+	//    回调成功后由 FinalizeRegPay 建号（对齐 epay user/ajax.php reg_pay 分支 + processOrder tid==1）。
+	if s.cfg.Int("reg_pay", 0) == 1 {
+		return s.registerPay(req, email, phone, upid, inviteID)
+	}
+
+	// 6. 直接建号（免费注册）：审核态(user_review→pay) + bcrypt 密码 + 32 位密钥 + 核销邀请码 + 通知。
+	m, needReview, err := s.createMerchantAccount(email, phone, req.Password, upid, inviteID)
+	if err != nil {
+		return nil, err
+	}
+
+	msg := "注册成功，请登录"
+	if needReview {
+		msg = "注册成功，请等待管理员审核后开通支付"
+	}
+	return &dto.MerchantRegResp{UID: m.UID, NeedReview: needReview, Msg: msg}, nil
+}
+
+// createMerchantAccount 落一条商户账号（免费注册 & 付费注册回调建号共用，对齐 epay INSERT pre_user）。
+// 生成 32 位密钥 + bcrypt 密码，审核态 user_review→pay(1正常/2待审)，status 恒 1，核销邀请码，
+// 审核态发 regaudit 管理员通知。返回创建的商户与是否待审核。
+func (s *MerchantRegService) createMerchantAccount(email, phone, plainPwd string, upid int, inviteID uint) (*model.Merchant, bool, error) {
+	key, err := randomHex(32)
+	if err != nil {
+		return nil, false, err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(plainPwd), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, false, err
+	}
+	pay := int8(1)
+	needReview := s.cfg.Int("user_review", 0) == 1
+	if needReview {
+		pay = 2 // 待审核（对齐 epay：审核态落 pay 字段，status 恒 1）
 	}
 	m := &model.Merchant{
 		GID:      0,
@@ -150,15 +243,11 @@ func (s *MerchantRegService) Register(req dto.MerchantRegReq) (*dto.MerchantRegR
 		AddTime:  time.Now(),
 	}
 	if err := s.repo.Create(m); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-
-	// 6. 核销邀请码
 	if inviteID > 0 {
 		_ = s.invite.MarkUsed(inviteID, m.UID)
 	}
-
-	// 7. 新注册待审核管理员通知（K-1 regaudit 场景，对齐 epay MsgNotice::send('regaudit', 0)，仅审核态发）。
 	if needReview && s.notice != nil {
 		account := email
 		if account == "" {
@@ -169,12 +258,7 @@ func (s *MerchantRegService) Register(req dto.MerchantRegReq) (*dto.MerchantRegR
 			"account": account,
 		})
 	}
-
-	msg := "注册成功，请登录"
-	if needReview {
-		msg = "注册成功，请等待管理员审核后开通支付"
-	}
-	return &dto.MerchantRegResp{UID: m.UID, NeedReview: needReview, Msg: msg}, nil
+	return m, needReview, nil
 }
 
 // Complete 完善资料。对齐 epay completeinfo：结算方式/账号/姓名/QQ/域名校验 + 入库。

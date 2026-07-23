@@ -16,10 +16,13 @@ import (
 // 返回 JSON 契约：code=0 + trade_no + pay_type + pay_info（+ 回包签名由 handler 调 signResponse）。
 // 注意：Submit 内部已做 pid/验签/风控/选通道/建单/dispatch，这里只做结果到 V2 契约的映射。
 func (s *MapiService) PayCreate(ctx context.Context, params map[string]string) (map[string]string, error) {
-	// clientip 映射到内部 _ip（Submit 用 _ip 做黑名单校验；mapi 显式传 clientip）。
-	if ip := strings.TrimSpace(params["clientip"]); ip != "" {
-		params["_ip"] = ip
+	// B1-05：V2 create clientip 必填（对齐 epay Pay::create:241,262）。
+	// V2 由商户服务器代传真实买家 IP，用于风控/IP限额/落库 order.ip，为空即拒。
+	clientIP := strings.TrimSpace(params["clientip"])
+	if clientIP == "" {
+		return nil, mapiErrCode(-4, "用户IP地址(clientip)不能为空")
 	}
+	params["_ip"] = clientIP
 	// V2 REST 入口标记（对齐 epay api.php define API_INIT）：订单 version=1，回调走平台私钥 RSA 签+timestamp。
 	params["_version"] = "1"
 	resp, err := s.pay.Submit(ctx, params)
@@ -30,6 +33,12 @@ func (s *MapiService) PayCreate(ctx context.Context, params map[string]string) (
 	// 内部渠道 PayType(qrcode/redirect/html/wap) → V2 契约(qrcode/jump/html/urlscheme/jsapi/app/scan…)。
 	// 渠道已返 V2 原生值(jsapi/app/scan/urlscheme/wxplugin/wxapp)则透传。
 	payType, payInfo := mapV2PayType(resp.PayType, resp.QRCode, resp.PayURL, resp.RawHTML)
+	// B1-18：未知支付形态或载荷全空时，回落收银台 URL + pay_type=jump
+	// （对齐 epay Payment::echoJson default: pay_type=jump, pay_info=siteurl.'pay/submit/TRADE_NO/'）。
+	if payInfo == "" {
+		payType = "jump"
+		payInfo = cashierFallbackURL(params["_siteurl"], resp.TradeNo)
+	}
 	out := map[string]string{
 		"code":      "0",
 		"trade_no":  resp.TradeNo,
@@ -37,6 +46,16 @@ func (s *MapiService) PayCreate(ctx context.Context, params map[string]string) (
 		"pay_info":  payInfo,
 	}
 	return out, nil
+}
+
+// cashierFallbackURL 构造收银台回落地址（对齐 epay $siteurl.'pay/submit/TRADE_NO/'）。
+// siteurl 为空时退回相对路径，保证 pay_info 恒非空可用。
+func cashierFallbackURL(siteURL, tradeNo string) string {
+	base := strings.TrimRight(strings.TrimSpace(siteURL), "/")
+	if base == "" {
+		return "/pay/submit/" + tradeNo + "/"
+	}
+	return base + "/pay/submit/" + tradeNo + "/"
 }
 
 // mapV2PayType 把内部渠道 PayType + 载荷映射为 epay V2 pay_type + pay_info（A-2，对齐 Payment::echoJson）。
@@ -79,6 +98,54 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
+// PayCreateClassic 处理经典 mapi.php JSON 下单（对齐 epay Payment::echoJson 的 else 分支，version=0）。
+// 与 PayCreate 复用同一 Submit 核心，仅输出契约不同：
+//   - code=1（成功）而非 code=0
+//   - 按支付形态映射到不同顶层字段(payurl/html/qrcode/urlscheme)，而非统一 pay_type+pay_info
+//   - 不做回包签名（经典契约无 sign/timestamp/sign_type）
+// 订单 version=0（回调走商户 key MD5 签名，对齐 epay 未 define API_INIT 分支）。
+func (s *MapiService) PayCreateClassic(ctx context.Context, params map[string]string) (map[string]interface{}, error) {
+	if ip := strings.TrimSpace(params["clientip"]); ip != "" {
+		params["_ip"] = ip
+	}
+	// 经典 mapi.php 入口：订单 version=0，回调走商户 key MD5（对齐 epay 未 define API_INIT）。
+	params["_version"] = "0"
+	resp, err := s.pay.Submit(ctx, params)
+	if err != nil {
+		// 经典契约错误：code=-2 + msg（对齐 echoJson case 'error'）。
+		me := toMapiErr(err)
+		msg := me.Error()
+		if m2, ok := me.(*MapiError); ok {
+			msg = m2.Msg
+		}
+		return map[string]interface{}{"code": -2, "msg": msg}, nil
+	}
+	out := map[string]interface{}{
+		"code":     1,
+		"trade_no": resp.TradeNo,
+	}
+	// 按内部 PayType 映射到经典顶层字段（对齐 echoJson else 分支 switch）。
+	payType, payInfo := mapV2PayType(resp.PayType, resp.QRCode, resp.PayURL, resp.RawHTML)
+	switch payType {
+	case "qrcode":
+		out["qrcode"] = payInfo
+	case "html":
+		out["html"] = payInfo
+	case "urlscheme":
+		out["urlscheme"] = payInfo
+	case "jsapi", "app", "scan", "wxplugin", "wxapp":
+		// 经典契约无这些专属字段，epay 统一回落跳转收银台；这里保留形态值+载荷兼容新渠道。
+		out[payType] = payInfo
+	default: // jump 及未知
+		// B1-18：经典契约 default 同样回落收银台 URL（对齐 echoJson else 分支 default: payurl=siteurl.'pay/submit/TRADE_NO/'）。
+		if payInfo == "" {
+			payInfo = cashierFallbackURL(params["_siteurl"], resp.TradeNo)
+		}
+		out["payurl"] = payInfo
+	}
+	return out, nil
+}
+
 // PayQuery 查单（对齐 epay Pay::query）。入参 pid + (trade_no | out_trade_no)。
 func (s *MapiService) PayQuery(m *model.Merchant, params map[string]string) (map[string]string, error) {
 	o, err := s.findMerchantOrder(m.UID, params)
@@ -87,19 +154,20 @@ func (s *MapiService) PayQuery(m *model.Merchant, params map[string]string) (map
 	}
 	out := map[string]string{
 		"code":         "0",
-		"trade_no":     o.TradeNo,
-		"out_trade_no": o.OutTradeNo,
-		"api_trade_no": o.APITradeNo,
-		"type":         o.TypeName,
-		"pid":          uintToStr(o.UID),
-		"addtime":      o.AddTime.Format(timeLayout),
-		"name":         o.Name,
-		"money":        money.String(o.Money),
-		"param":        o.Param,
-		"buyer":        o.Buyer,
-		"clientip":     o.IP,
-		"status":       fmt.Sprintf("%d", o.Status),
-		"refundmoney":  money.String(o.RefundMoney),
+		"trade_no":      o.TradeNo,
+		"out_trade_no":  o.OutTradeNo,
+		"api_trade_no":  o.APITradeNo,
+		"bill_trade_no": o.BillTradeNo, // B1-02：对账/账单交易号（对齐 epay query 返回，array_filter 剔空）
+		"type":          o.TypeName,
+		"pid":           uintToStr(o.UID),
+		"addtime":       o.AddTime.Format(timeLayout),
+		"name":          o.Name,
+		"money":         money.String(o.Money),
+		"param":         o.Param,
+		"buyer":         o.Buyer,
+		"clientip":      o.IP,
+		"status":        fmt.Sprintf("%d", o.Status),
+		"refundmoney":   money.String(o.RefundMoney),
 	}
 	if o.EndTime != nil {
 		out["endtime"] = o.EndTime.Format(timeLayout)
@@ -118,10 +186,12 @@ func (s *MapiService) PayRefund(m *model.Merchant, params map[string]string) (ma
 	if m.Refund == 0 {
 		return nil, mapiErr("商户未开启订单退款API接口")
 	}
+	// B1-60(b)：金额校验对齐 epay is_numeric+/^[0-9.]+$/：非数字/空/负数一律拒'金额输入错误'，
+	// 但允许 money=0 通过（epay 0 元退款为 no-op：不扣款仅改单，语义保留）。
 	amountStr := strings.TrimSpace(params["money"])
 	amount, err := money.Parse(amountStr)
-	if err != nil || amount.LessThanOrEqual(decimal.Zero) {
-		return nil, mapiErr("退款金额不合法")
+	if err != nil || amountStr == "" || amount.IsNegative() {
+		return nil, mapiErr("金额输入错误")
 	}
 	o, err := s.findMerchantOrder(m.UID, params)
 	if err != nil {
@@ -129,10 +199,17 @@ func (s *MapiService) PayRefund(m *model.Merchant, params map[string]string) (ma
 	}
 	outRefundNo := strings.TrimSpace(params["out_refund_no"])
 
-	// 幂等：out_refund_no 长度>5 时查已有退款单。成功直接返回原结果，处理中复用退款号。
+	// B1-03 幂等：out_refund_no 长度>5 时查已有退款单，按状态分两支（对齐 epay Order.php:474-483）：
+	//   status==1(已成功) → 直接返回原结果（真正幂等，不重复退）；
+	//   status==0(处理中/挂起) → 复用其 refund_no 继续往下推进一次（渠道异步退款重试）。
+	// 当前余额退款即时 status=1，pending 分支要等接通道异步退款(乙类凭证)才走到。
+	var reuseRefundNo string
 	if len(outRefundNo) > 5 {
 		if exist, e := s.refunds.FindByOutRefundNo(m.UID, outRefundNo); e == nil && exist != nil {
-			return s.refundResult(exist), nil
+			if exist.Status == 1 {
+				return s.refundResult(exist), nil
+			}
+			reuseRefundNo = exist.RefundNo // status==0 复用退款号继续处理
 		}
 	}
 
@@ -182,8 +259,18 @@ func (s *MapiService) PayRefund(m *model.Merchant, params map[string]string) (ma
 	}
 
 	now := time.Now()
+	// B1-03：status==0 挂起退款单复用其 refund_no 继续推进；否则新生成。
+	refundNo := reuseRefundNo
+	if refundNo == "" {
+		refundNo = genTradeNo(now)
+	}
+	// B1-27：out_refund_no 空时回落为系统 refund_no（对齐 epay Order.php:82 $out_refund_no ?: $refund_no），
+	// 保证落库与回包的 out_refund_no 恒非空，商户按 out_refund_no 对账可查。
+	if outRefundNo == "" {
+		outRefundNo = refundNo
+	}
 	ro := &model.RefundOrder{
-		RefundNo:    genTradeNo(now),
+		RefundNo:    refundNo,
 		OutRefundNo: outRefundNo,
 		TradeNo:     o.TradeNo,
 		OutTradeNo:  o.OutTradeNo,

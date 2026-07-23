@@ -127,6 +127,22 @@ func channelFitsMoney(c *model.Channel, money decimal.Decimal) bool {
 	return true
 }
 
+// checkChannelPayLimit 选定通道后的单笔限额硬拒绝（B1-01/B1-56，对齐 epay Pay.php:170-174 / submit2.php:64-68）。
+// 与 channelFitsMoney（候选过滤，返回 bool）不同：这里是选后硬校验，越限直接返回错误中止下单，
+// 文案对齐 epay「单笔最小/最大限额为X元」。paymin/paymax 为空或非正数则该侧不限制。
+func checkChannelPayLimit(payMin, payMax string, money decimal.Decimal) error {
+	if money.LessThanOrEqual(decimal.Zero) {
+		return nil
+	}
+	if min, ok := parsePosDec(payMin); ok && money.LessThan(min) {
+		return payErr("当前支付方式单笔最小限额为" + min.String() + "元，请选择其他支付方式")
+	}
+	if max, ok := parsePosDec(payMax); ok && money.GreaterThan(max) {
+		return payErr("当前支付方式单笔最大限额为" + max.String() + "元，请选择其他支付方式")
+	}
+	return nil
+}
+
 // subFitsMoney 子通道候选的金额过滤（复用主通道 paymin/paymax）。
 func subFitsMoney(p *repository.SubChannelPick, money decimal.Decimal) bool {
 	if money.LessThanOrEqual(decimal.Zero) {

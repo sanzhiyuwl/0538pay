@@ -141,15 +141,21 @@ func (r *RiskAutoRepo) lastNAllUnpaid(where map[string]interface{}, start time.T
 	if err != nil {
 		return false, err
 	}
-	if len(statuses) < failCount {
-		return false, nil
+	return AllUnpaidWithMinSample(statuses, failCount), nil
+}
+
+// AllUnpaidWithMinSample 判定「最近 failCount 单是否全部未支付」（B1-69 核心算法，纯函数便于单测）。
+// 对齐 epay cron.php:262-268：样本不足 failCount 不关(返回 false)，样本充足且无一 status>0 才关(返回 true)。
+func AllUnpaidWithMinSample(statuses []int8, failCount int) bool {
+	if failCount <= 0 || len(statuses) < failCount {
+		return false
 	}
 	for _, st := range statuses {
 		if st > 0 {
-			return false, nil // 有成功单，不关
+			return false // 有成功单，不关
 		}
 	}
-	return true, nil
+	return true
 }
 
 // CloseChannel 关停通道(status=0)。仅当前 status=1 才改。返回是否实际关停。

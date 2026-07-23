@@ -16,9 +16,9 @@ type ProfitReceiver struct {
 	Channel    int             `gorm:"index;not null" json:"channel"`         // 匹配的支付通道 id
 	SubChannel int             `gorm:"default:0" json:"subchannel"`           // 子通道 id（0=不限）
 	UID        *uint           `gorm:"index" json:"uid"`                      // 绑定商户（空=该通道全局；填=仅该商户且从其余额扣款）
-	Account    string          `gorm:"size:128;not null" json:"account"`      // 接收方账号（| 分隔多接收方）
-	Name       string          `gorm:"size:64" json:"name"`                   // 接收方姓名（可空；| 分隔）
-	Rate       decimal.Decimal `gorm:"type:decimal(5,2);default:30" json:"-"` // 分账比例 %（原始）
+	Account    string          `gorm:"size:255;not null" json:"account"`      // 接收方账号（| 分隔多接收方）
+	Name       string          `gorm:"size:255" json:"name"`                  // 接收方姓名（可空；| 分隔）
+	Rate       string          `gorm:"size:64;not null;default:30" json:"-"`  // 分账比例 %（对齐 epay varchar，| 分隔多接收方，段数缺省复用首段）
 	MinMoney   decimal.Decimal `gorm:"type:decimal(18,4);default:0" json:"-"` // 订单最小金额门槛（0=不限）
 	Status     int8            `gorm:"not null;default:0;index" json:"status"` // 0关闭 1开启
 	AddTime    time.Time       `json:"-"`                                     // 创建时间（原始）

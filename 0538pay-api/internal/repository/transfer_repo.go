@@ -242,12 +242,12 @@ func (r *TransferRepo) Stats(q dto.TransferQuery) (totalMoney, successMoney deci
 }
 
 // CountTodayByAccount 统计商户当天向同一账号同一方式的代付笔数（次数限制用）。
-// 对齐 epay transfer_maxlimit：统计 paytime>=今日 的同 account+type 记录数。
-// 用 add_time 作为"当天"口径（发起即计数，比 paytime 更严格防刷）。
+// B1-10/36：1:1 对齐 epay transfer_maxlimit（Transfer.php:50）—— 统计 pay_time>=今日00:00 的同
+// account+type 记录数。pay_time 仅 status=1(成功)时写入，故只计【当日已成功】笔数，处理中/失败不占额度。
 func (r *TransferRepo) CountTodayByAccount(uid uint, transferType, account string, dayStart time.Time) (int64, error) {
 	var n int64
 	err := r.db.Model(&model.Transfer{}).
-		Where("uid = ? AND type = ? AND account = ? AND add_time >= ?", uid, transferType, account, dayStart).
+		Where("uid = ? AND type = ? AND account = ? AND pay_time >= ?", uid, transferType, account, dayStart).
 		Count(&n).Error
 	return n, err
 }

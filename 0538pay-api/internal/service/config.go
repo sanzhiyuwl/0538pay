@@ -39,11 +39,17 @@ var configDefaults = map[string]string{
 	"settle_fee_min":  "0.1", // 手续费封底(元)
 	"settle_fee_max":  "20",  // 手续费封顶(元)
 	"settle_maxlimit": "5",   // 每日手动申请次数上限(0不限)
+	"direct_settle_time": "0", // 0支付后立即结算 / 1延迟24小时结算(影响 wxpaynp/alipayd 分账 delay；对齐 epay)
 	// 代付 transfer
+	"user_transfer":     "0",     // 全局代付总开关(1开0关；管理员级，对齐 epay user_transfer)
 	"transfer_rate":     "",      // 代付手续费率(%)，空则复用 settle_rate
 	"transfer_minmoney": "1",     // 单笔最小
 	"transfer_maxmoney": "20000", // 单笔最大
 	"transfer_maxlimit": "10",    // 同账号每日代付次数上限(0不限)
+	"transfer_alipay":   "0",     // 支付宝代付通道 id(0=未开启该方式；对齐 epay transfer_alipay)
+	"transfer_wxpay":    "0",     // 微信代付通道 id(0=未开启)
+	"transfer_qqpay":    "0",     // QQ代付通道 id(0=未开启)
+	"transfer_bank":     "0",     // 银行卡代付通道 id(0=未开启)
 	// 退款 refund
 	"refund_fee_type": "0", // 0平台承担手续费(退回商户扣getmoney) / 1商户承担(全额退扣realmoney)
 	// 保证金 / 实名
@@ -77,6 +83,7 @@ var configDefaults = map[string]string{
 	"reg_input_settle": "0", // 注册后可不填结算账户
 	"reg_pay":          "0", // 注册付费
 	"reg_pay_price":    "0", // 注册付费金额
+	"reg_pay_uid":      "0", // 注册付费收款商户 uid（收注册费的商户，对齐 epay reg_pay_uid）
 	"captcha_open_login": "0", // 登录验证码
 	"captcha_version":  "1", // 极验版本 0=V3/1=V4
 	"captcha_id":       "",
@@ -148,10 +155,11 @@ var configDefaults = map[string]string{
 var configGroups = map[string][]string{
 	"settle": {
 		"settle_open", "settle_type", "settle_money", "settle_rate",
-		"settle_fee_min", "settle_fee_max", "settle_maxlimit",
+		"settle_fee_min", "settle_fee_max", "settle_maxlimit", "direct_settle_time",
 	},
 	"transfer": {
-		"transfer_rate", "transfer_minmoney", "transfer_maxmoney", "transfer_maxlimit",
+		"user_transfer", "transfer_rate", "transfer_minmoney", "transfer_maxmoney", "transfer_maxlimit",
+		"transfer_alipay", "transfer_wxpay", "transfer_qqpay", "transfer_bank",
 	},
 	"pay": {
 		"pay_maxmoney", "pay_minmoney", "blockname", "blockalert", "refund_fee_type",
@@ -163,7 +171,7 @@ var configGroups = map[string][]string{
 	"deposit": {"user_deposit_min", "cert_money", "user_deposit", "user_deposit_day"},
 	"site":    {"sitename", "kfqq", "reg_open"},
 	"reg": {
-		"reg_open", "user_review", "reg_input_settle", "reg_pay", "reg_pay_price",
+		"reg_open", "user_review", "reg_input_settle", "reg_pay", "reg_pay_price", "reg_pay_uid",
 		"captcha_open_login", "captcha_version", "captcha_id", "captcha_key",
 	},
 	"cron":  {"cronkey"},

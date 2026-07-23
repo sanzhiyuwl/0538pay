@@ -87,6 +87,8 @@ export interface PluginFieldInput {
 export interface PluginProduct {
   code: string
   name: string
+  group?: string // 所属支付方式分组（alipay/wxpay/qqpay/bank；空=不分组），对齐 ltzf select_xxx
+  need_sign?: boolean // 是否需渠道侧签约才可选，对齐 alipay「只能选已签约产品」
 }
 
 /** 插件能力与配置元数据（对齐后端 channel.PluginMeta） */

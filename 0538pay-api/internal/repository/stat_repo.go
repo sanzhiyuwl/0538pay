@@ -160,6 +160,15 @@ func (r *LogRepo) CountRecentFail(uid uint, failType string, since time.Time) (i
 	return n, err
 }
 
+// CountRecentFailByIP 统计某 IP 在 since 之后的登录失败次数（对齐 epay admin/login.php:23 防爆破计数：
+// WHERE ip=? AND uid=0 AND type='登录失败' AND date>DATE_SUB(NOW(),INTERVAL 1 DAY)）。
+func (r *LogRepo) CountRecentFailByIP(ip, failType string, since time.Time) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.LoginLog{}).
+		Where("ip = ? AND uid = 0 AND type = ? AND date > ?", ip, failType, since).Count(&n).Error
+	return n, err
+}
+
 // ===== 邀请码 =====
 
 // InviteRepo 邀请码数据访问。

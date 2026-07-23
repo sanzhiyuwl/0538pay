@@ -58,18 +58,16 @@ func (s *MapiService) MerchantOrders(m *model.Merchant, params map[string]string
 	if v, err := strconv.Atoi(strings.TrimSpace(params["offset"])); err == nil && v > 0 {
 		offset = v
 	}
-	q := dto.OrderQuery{Page: offset/limit + 1, PageSize: limit}
+	var status *int
 	if st := strings.TrimSpace(params["status"]); st != "" {
 		if v, err := strconv.Atoi(st); err == nil {
 			vv := v
-			q.Status = &vv
+			status = &vv
 		}
 	}
-	uid := m.UID
-	q.UID = &uid
-	q.Normalize()
-
-	list, _, err := s.orders.List(q)
+	// B1-15/16：对齐 epay Merchant::orders → ORDER BY trade_no DESC LIMIT {offset},{limit}，
+	// 用原生行偏移(ListByMerchantV1)，不再把 offset 反算成 page（整除丢精度导致分页错位）。
+	list, err := s.orders.ListByMerchantV1(m.UID, status, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -91,10 +89,14 @@ func (s *MapiService) MerchantOrders(m *model.Merchant, params map[string]string
 			"status":       fmt.Sprintf("%d", o.Status),
 			"refundmoney":  money.String(o.RefundMoney),
 		}
+		// B1-61：endtime 恒返回该键（epay 未支付单返回空串，非省略）。
 		if o.EndTime != nil {
 			row["endtime"] = o.EndTime.Format(timeLayout)
+		} else {
+			row["endtime"] = ""
 		}
-		data = append(data, pruneEmpty(row))
+		// B1-17：epay orders() 无 array_filter，原样返回全字段，不删空字段。
+		data = append(data, row)
 	}
 	// data 列表不参与回包签名（epay 回包签名只对顶层标量），handler 单独处理。
 	return map[string]interface{}{"code": 0, "data": data}, nil
@@ -129,6 +131,11 @@ func (s *MapiService) TransferSubmit(m *model.Merchant, params map[string]string
 
 // TransferQuery 代付查询（对齐 epay Transfer::query）。入参 out_biz_no。
 func (s *MapiService) TransferQuery(m *model.Merchant, params map[string]string) (map[string]string, error) {
+	if s.transfer != nil { // B1-08：全局代付开关
+		if err := s.transfer.CheckUserTransfer(m.GID); err != nil {
+			return nil, toMapiErr(err)
+		}
+	}
 	t, err := s.findMerchantTransfer(m.UID, params)
 	if err != nil {
 		return nil, err
@@ -138,6 +145,11 @@ func (s *MapiService) TransferQuery(m *model.Merchant, params map[string]string)
 
 // TransferProof 代付凭证（对齐 epay Transfer::proof）。真实回单依赖渠道凭证，如实返回待凭证。
 func (s *MapiService) TransferProof(m *model.Merchant, params map[string]string) (map[string]string, error) {
+	if s.transfer != nil { // B1-08：全局代付开关
+		if err := s.transfer.CheckUserTransfer(m.GID); err != nil {
+			return nil, toMapiErr(err)
+		}
+	}
 	t, err := s.findMerchantTransfer(m.UID, params)
 	if err != nil {
 		return nil, err
@@ -153,6 +165,11 @@ func (s *MapiService) TransferProof(m *model.Merchant, params map[string]string)
 
 // TransferBalance 代付可用余额（对齐 epay Transfer::balance）。返回可用余额 + 代付费率。
 func (s *MapiService) TransferBalance(m *model.Merchant) (map[string]string, error) {
+	if s.transfer != nil { // B1-08：全局代付开关
+		if err := s.transfer.CheckUserTransfer(m.GID); err != nil {
+			return nil, toMapiErr(err)
+		}
+	}
 	rate := s.cfg.Str("transfer_rate")
 	if strings.TrimSpace(rate) == "" {
 		rate = s.cfg.Str("settle_rate") // 空则复用结算费率（对齐 transfer 配置回退）
@@ -186,20 +203,38 @@ func (s *MapiService) findMerchantTransfer(uid uint, params map[string]string) (
 	return t, nil
 }
 
-// transferResult 代付单 → 返回契约。
+// transferResult 代付单 → 返回契约（B1-12，1:1 对齐 epay Transfer::query 三分支）。
+// status=1 成功：msg='转账成功！', cost_money=costmoney, remark=desc。
+// status=2 失败：msg='转账失败：原因', cost_money=money(注意是到账额非扣款额), errmsg=原因, remark=desc。
+// 其它(处理中)：cost_money=costmoney, remark=desc。paydate/remark 恒返回该键（未支付为空串）。
 func (s *MapiService) transferResult(t *model.Transfer) map[string]string {
+	paydate := ""
+	if t.PayTime != nil {
+		paydate = t.PayTime.Format(timeLayout)
+	}
 	out := map[string]string{
 		"code":       "0",
 		"out_biz_no": t.BizNo,
 		"status":     fmt.Sprintf("%d", t.Status),
 		"amount":     money.String(t.Money),
-		"cost_money": money.String(t.CostMoney),
+		"paydate":    paydate,
+		"remark":     t.Desc,
 	}
-	if t.PayTime != nil {
-		out["paydate"] = t.PayTime.Format(timeLayout)
+	switch t.Status {
+	case 1:
+		out["msg"] = "转账成功！"
+		out["cost_money"] = money.String(t.CostMoney)
+	case 2:
+		reason := t.Result
+		if reason == "" {
+			reason = "原因未知"
+		}
+		out["msg"] = "转账失败：" + reason
+		out["errmsg"] = reason
+		out["cost_money"] = money.String(t.Money) // 对齐 epay：失败分支 cost_money 取 money
+	default:
+		out["msg"] = "转账处理中"
+		out["cost_money"] = money.String(t.CostMoney)
 	}
-	if t.Result != "" {
-		out["msg"] = t.Result
-	}
-	return pruneEmpty(out)
+	return out
 }

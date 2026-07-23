@@ -43,8 +43,10 @@ type Deps struct {
 	Message        *handler.MessageHandler
 	Dashboard      *handler.DashboardHandler
 	Announce       *handler.AnnounceHandler
+	Article        *handler.ArticleHandler
 	Clean          *handler.CleanHandler
 	Cron           *handler.CronHandler
+	Upload         *handler.UploadHandler
 }
 
 // Setup 注册所有路由。
@@ -242,15 +244,37 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.PUT("/announces/:id/status", d.Announce.SetStatus)
 			authed.DELETE("/announces/:id", d.Announce.Delete)
 
+			// 文章管理（对齐 epay article.php pre_article 行表 CRUD）
+			authed.GET("/articles", d.Article.List)
+			authed.POST("/articles", d.Article.Create)
+			authed.PUT("/articles/:id", d.Article.Update)
+			authed.PUT("/articles/:id/status", d.Article.SetActive)
+			authed.DELETE("/articles/:id", d.Article.Delete)
+			// 文章分类（我方官网扩展）
+			authed.GET("/article-categories", d.Article.ListCategories)
+			authed.POST("/article-categories", d.Article.CreateCategory)
+			authed.PUT("/article-categories/:id", d.Article.UpdateCategory)
+			authed.DELETE("/article-categories/:id", d.Article.DeleteCategory)
+
 			// 官网 CMS 内容保存（后台鉴权写）
 			authed.PUT("/site/config/:key", d.SiteConfig.Save)
+
+			// 图片上传（文章封面 / 富文本插图，对齐 epay article_upload）
+			if d.Upload != nil {
+				authed.POST("/upload/image", d.Upload.Image)
+			}
 		}
 	}
+
+	// 上传文件静态访问（/uploads/... → 本地磁盘 ./uploads 目录）
+	r.Static("/uploads", "./uploads")
 
 	// 对外收单 API（公开，无 JWT，靠 MD5 签名鉴权）
 	pay := api.Group("/pay")
 	{
 		pay.POST("/submit", d.Pay.Submit)
+		// B1-04 收银台选定支付方式：对既有裸单补选通道下单（公开，凭 trade_no，无需商户签名）
+		pay.POST("/choose", d.Pay.ChoosePay)
 		// 收银台中间页查单（公开，仅安全字段）
 		pay.GET("/order/:trade_no", d.Pay.Cashier)
 		// 收银台主动查单（公开）：未付时向渠道 Query，确认已付则改单入账
@@ -267,6 +291,11 @@ func Setup(r *gin.Engine, d Deps) {
 		mapi.POST("/:class/:action", d.Mapi.Dispatch)
 		mapi.GET("/:class/:action", d.Mapi.Dispatch)
 	}
+
+	// 经典 mapi.php 兼容下单端点（对齐 epay mapi.php，code=1/version=0/不签名，老商户 SDK 直连）。
+	// 注册在 api 组与站点根双路径，兼容老 SDK 硬编码 /mapi.php 的场景。
+	api.POST("/mapi.php", d.Mapi.Classic)
+	r.POST("/mapi.php", d.Mapi.Classic)
 
 	// V1 遗留接口 api.php?act=（A-5，GET+明文key，code=1 语义，兼容老商户）。
 	if d.ApiV1 != nil {
@@ -287,7 +316,9 @@ func Setup(r *gin.Engine, d Deps) {
 	site := api.Group("/site")
 	{
 		site.GET("/config/:key", d.SiteConfig.Get)
-		site.GET("/announces", d.Announce.Public) // 展示中的公告（官网/商户端读）
+		site.GET("/announces", d.Announce.Public)          // 展示中的公告（官网/商户端读）
+		site.GET("/articles", d.Article.Public)            // 分类 + 显示中的文章（官网首页/文章页读）
+		site.GET("/articles/:id", d.Article.PublicDetail)  // 文章详情（浏览量 +1）
 	}
 
 	// 商户中心（阶段D）

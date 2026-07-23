@@ -59,6 +59,7 @@ const navLinks = [
   { label: '费率方案', to: '/#pricing' },
   { label: '产品矩阵', to: '/#products' },
   { label: '开发文档', to: '/docs' },
+  { label: '官方动态', to: '/news' },
   { label: '关于我们', to: '/about' },
 ]
 

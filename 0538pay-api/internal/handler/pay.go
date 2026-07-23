@@ -24,7 +24,8 @@ func NewPayHandler(svc *service.PayService) *PayHandler {
 // 全量参数进 map 用于验签。返回 JSON（自研 code=0 约定）。
 func (h *PayHandler) Submit(c *gin.Context) {
 	params := collectParams(c)
-	params["_ip"] = c.ClientIP() // 注入真实客户端 IP（黑名单校验用，键名加 _ 前缀不参与验签）
+	params["_ip"] = c.ClientIP()        // 注入真实客户端 IP（黑名单校验用，键名加 _ 前缀不参与验签）
+	params["_siteurl"] = reqBaseURL(c) // B1-04：空 type 回落收银台聚合选方式页 URL 用
 	out, err := h.svc.Submit(c.Request.Context(), params)
 	if err != nil {
 		if pe, ok := err.(*service.PayError); ok {
@@ -104,6 +105,34 @@ func (h *PayHandler) Cashier(c *gin.Context) {
 		return
 	}
 	resp.OK(c, view)
+}
+
+// ChoosePay POST /api/pay/choose
+// B1-04 收银台选定支付方式：对既有裸单(空 type 单)按 trade_no 补选通道下单（无需商户签名）。
+func (h *PayHandler) ChoosePay(c *gin.Context) {
+	var body struct {
+		TradeNo string `json:"trade_no"`
+		Type    string `json:"type"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	// device：优先请求参数 device，否则按 UA 推断（对齐 B1-63 分端过滤）。
+	device := c.Query("device")
+	if device == "" {
+		device = deviceFromUA(c)
+	}
+	out, err := h.svc.ChooseCashierPay(c.Request.Context(), body.TradeNo, body.Type, device)
+	if err != nil {
+		if pe, ok := err.(*service.PayError); ok {
+			resp.Fail(c, pe.Code, pe.Msg)
+			return
+		}
+		resp.Fail(c, 1199, "下单失败: "+err.Error())
+		return
+	}
+	resp.OK(c, out)
 }
 
 // collectParams 汇集请求全部参数（form + query）为 string map，供验签与业务读取。

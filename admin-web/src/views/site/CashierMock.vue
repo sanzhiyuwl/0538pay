@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { QrCode, Loader2, ShieldCheck, AlertCircle } from 'lucide-vue-next'
 import QRCodeLib from 'qrcode'
 import { Button } from '@/components/ui'
-import { fetchCashierOrder, triggerMockPay, fetchOrderStatus, type CashierOrder } from '@/lib/api/pay'
+import { fetchCashierOrder, triggerMockPay, fetchOrderStatus, cashierChoosePay, type CashierOrder } from '@/lib/api/pay'
 
 // 收银台中间页。真实渠道(有 qrcode)渲染真二维码 + 轮询查单；mock 渠道无二维码，
 // 用"模拟支付成功"按钮直接触发后端回调走完整链路。对齐 epay cashier.php 语义。
@@ -19,9 +19,40 @@ const errMsg = ref('')
 const qrDataURL = ref('') // 真实渠道二维码图片(DataURL)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
+// B1-04：裸单(空 type 未定通道)带 paytypes → 先渲染聚合选方式，选定后补选通道再走扫码/模拟支付。
+const needChoose = computed(() => !!order.value && !!order.value.paytypes && order.value.paytypes.length > 0 && !order.value.plugin)
+const choosing = ref(false)
+
 // 是否真实渠道：mock 渠道的 qrcode 是收银台自身链接(占位)，走模拟支付按钮；
 // 其余渠道有真实 qrcode 内容，渲染真二维码 + 轮询查单。
 const isRealChannel = computed(() => !!order.value && order.value.plugin !== 'mock' && !!order.value.qrcode)
+
+// 选定支付方式：对既有裸单补选通道下单，成功后重载订单信息渲染二维码/模拟支付。
+async function choose(type: string) {
+  if (choosing.value) return
+  choosing.value = true
+  errMsg.value = ''
+  try {
+    await cashierChoosePay(tradeNo, type)
+    // 重载订单（此时已定通道，plugin/qrcode 就绪）。
+    order.value = await fetchCashierOrder(tradeNo)
+    if (isRealChannel.value && order.value.qrcode) {
+      qrDataURL.value = await QRCodeLib.toDataURL(order.value.qrcode, { width: 220, margin: 1 })
+      startPolling()
+    }
+  } catch (e: unknown) {
+    errMsg.value = e instanceof Error ? e.message : '选择支付方式失败'
+  } finally {
+    choosing.value = false
+  }
+}
+// B1-65：需支付(money)与订单额(order_money)差额即手续费，>0 才展示明细。
+const feeAmount = computed(() => {
+  const o = order.value
+  if (!o || !o.order_money) return ''
+  const fee = Number(o.money) - Number(o.order_money)
+  return fee > 0 ? fee.toFixed(2) : ''
+})
 
 onMounted(async () => {
   try {
@@ -158,15 +189,38 @@ async function pay() {
               <span class="text-lg font-normal text-muted-foreground">¥</span>{{ order.money }}
             </span>
           </div>
+          <!-- B1-65：加费时展示订单额与手续费明细（对齐 epay cashier.php:98 '含X元手续费'） -->
+          <div v-if="feeAmount" class="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+            <span>订单金额 ¥{{ order.order_money }}</span>
+            <span>含 ¥{{ feeAmount }} 元手续费</span>
+          </div>
         </div>
       </div>
 
       <!-- 右：扫码支付 -->
       <div class="flex flex-col items-center rounded-2xl border border-border bg-background p-6 text-center shadow-sm">
-        <div class="text-sm font-semibold text-muted-foreground">扫码支付</div>
+        <div class="text-sm font-semibold text-muted-foreground">{{ needChoose ? '选择支付方式' : '扫码支付' }}</div>
+
+        <!-- B1-04：裸单聚合选方式（对齐 epay cashier.php 选方式） -->
+        <template v-if="needChoose">
+          <div class="mt-4 flex w-full flex-col gap-2">
+            <button
+              v-for="pt in order.paytypes"
+              :key="pt.type"
+              type="button"
+              class="flex items-center justify-between rounded-xl border border-border px-4 py-3 text-sm transition hover:border-primary hover:bg-primary/5 disabled:opacity-60"
+              :disabled="choosing"
+              @click="choose(pt.type)"
+            >
+              <span class="font-medium">{{ pt.showname }}</span>
+              <Loader2 v-if="choosing" class="size-4 animate-spin text-muted-foreground" />
+            </button>
+          </div>
+          <p class="mt-4 text-xs text-muted-foreground">请选择一种支付方式完成付款</p>
+        </template>
 
         <!-- 真实渠道：渲染真二维码 + 轮询查单 -->
-        <template v-if="isRealChannel">
+        <template v-else-if="isRealChannel">
           <div class="mt-4 flex size-44 items-center justify-center rounded-xl border border-border bg-white p-2">
             <img v-if="qrDataURL" :src="qrDataURL" alt="支付二维码" class="size-full" />
             <QrCode v-else class="size-20 text-muted-foreground/50" />

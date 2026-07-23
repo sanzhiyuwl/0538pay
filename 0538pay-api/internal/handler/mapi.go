@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"strconv"
+
 	"github.com/0538pay/api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -59,12 +61,33 @@ func atoiSafe(s string) int {
 	return n
 }
 
+// Classic 经典 mapi.php 兼容下单端点（对齐 epay mapi.php → Pay::create() version=0 分支）。
+// 契约：POST 表单参数 → {code:1, trade_no, payurl|html|qrcode|urlscheme}，不签名。
+// 老商户 SDK 直连入口，与 /api/mapi/pay/create（新版 code=0+签名）区分。
+func (h *MapiHandler) Classic(c *gin.Context) {
+	params := collectParams(c)
+	params["_ip"] = c.ClientIP()
+	params["_siteurl"] = reqBaseURL(c) // B1-18：未知支付形态时回落收银台 URL 用
+	// 对齐 epay mapi.php:2 未传 pid 直接报 -4。
+	if _, ok := params["pid"]; !ok {
+		c.JSON(200, gin.H{"code": -4, "msg": "未传入任何参数"})
+		return
+	}
+	out, err := h.svc.PayCreateClassic(c.Request.Context(), params)
+	if err != nil {
+		mapiFail(c, err)
+		return
+	}
+	c.JSON(200, out)
+}
+
 // Dispatch 反射式分发 /api/mapi/:class/:action。
 func (h *MapiHandler) Dispatch(c *gin.Context) {
 	class := c.Param("class")
 	action := c.Param("action")
 	params := collectParams(c)
 	params["_ip"] = c.ClientIP()
+	params["_siteurl"] = reqBaseURL(c) // B1-18：未知支付形态时回落收银台 URL 用
 
 	key := class + "/" + action
 
@@ -97,13 +120,38 @@ func (h *MapiHandler) Dispatch(c *gin.Context) {
 	case "merchant/info":
 		out, err = h.svc.MerchantInfo(m)
 	case "merchant/orders":
-		// orders 返回含 data 列表，不参与顶层签名，单独输出。
-		data, e := h.svc.MerchantOrders(m, params)
+		// orders 返回含 data 列表。对齐 epay ApiHelper::load_api：整个 result 进 makeSign，
+		// getSignContent 跳过数组值(data)但 code/timestamp/sign_type 等标量仍参与签名并回包 sign。
+		res, e := h.svc.MerchantOrders(m, params)
 		if e != nil {
 			mapiFail(c, e)
 			return
 		}
-		c.JSON(200, data)
+		// 拆出标量字段走 SignResponse 签名，data 数组作为额外字段合并回输出（数组不参与签名，对齐 epay）。
+		scalar := map[string]string{}
+		extra := map[string]interface{}{}
+		for k, v := range res {
+			switch vv := v.(type) {
+			case string:
+				scalar[k] = vv
+			case int:
+				scalar[k] = strconv.Itoa(vv)
+			default:
+				extra[k] = v // data 列表等非标量，不参与签名
+			}
+		}
+		signed := h.svc.SignResponse(scalar)
+		out := make(map[string]interface{}, len(signed)+len(extra))
+		for k, v := range signed {
+			out[k] = v
+		}
+		if _, ok := signed["code"]; ok {
+			out["code"] = atoiSafe(signed["code"])
+		}
+		for k, v := range extra {
+			out[k] = v
+		}
+		c.JSON(200, out)
 		return
 	case "transfer/submit":
 		out, err = h.svc.TransferSubmit(m, params)

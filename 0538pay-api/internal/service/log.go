@@ -23,6 +23,15 @@ func (s *LogService) Record(uid uint, logType, ip, city string) {
 	})
 }
 
+// CountFailByIPLastDay 统计某 IP 近 24 小时后台登录失败次数（对齐 epay admin/login.php:23 防爆破计数）。
+func (s *LogService) CountFailByIPLastDay(ip string) int64 {
+	n, err := s.repo.CountRecentFailByIP(ip, "登录失败", time.Now().Add(-24*time.Hour))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // List 登录日志列表（只读）。
 func (s *LogService) List(q dto.LogQuery) ([]dto.LogView, int64, error) {
 	q.Normalize()

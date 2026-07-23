@@ -46,7 +46,7 @@ func main() {
 			// 绑定商户1 + mock 通道(mode=0) → 分账成功从商户1余额扣款
 			Channel: int(mockCh.ID), SubChannel: 0, UID: &uid1,
 			Account: "2088001", Name: "推广渠道商A",
-			Rate: dec("10"), MinMoney: dec("0"), Status: 1, AddTime: time.Now(),
+			Rate: "10", MinMoney: dec("0"), Status: 1, AddTime: time.Now(),
 		},
 	}
 

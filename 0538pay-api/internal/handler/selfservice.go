@@ -2,6 +2,7 @@ package handler
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/0538pay/api/internal/dto"
 	"github.com/0538pay/api/internal/service"
@@ -21,7 +22,7 @@ func NewPaypageHandler(svc *service.MerchantSelfService) *PaypageHandler {
 // Info GET /api/paypage/info?merchant=xxx 收款页信息（收款方 + 可选支付方式）
 func (h *PaypageHandler) Info(c *gin.Context) {
 	merchant := c.Query("merchant")
-	out, err := h.svc.PaypageInfo(merchant)
+	out, err := h.svc.PaypageInfo(merchant, deviceFromUA(c))
 	if err != nil {
 		resp.Fail(c, 1102, errMsg(err))
 		return
@@ -91,6 +92,18 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"id": id})
+}
+
+// deviceFromUA 从请求 User-Agent 粗判是否移动端，返回 service 侧 isMobileDevice 认得的标识
+// （"mobile" 或 ""=PC），用于收银可选支付方式列表的设备过滤（B1-63，对齐 epay checkmobile()）。
+func deviceFromUA(c *gin.Context) string {
+	ua := strings.ToLower(c.GetHeader("User-Agent"))
+	for _, kw := range []string{"android", "iphone", "ipad", "ipod", "windows phone", "mobile", "micromessenger", "alipayclient"} {
+		if strings.Contains(ua, kw) {
+			return "mobile"
+		}
+	}
+	return ""
 }
 
 // errMsg 提取 service 业务错误消息（MerchantAuthError/RiskError 携带友好提示）。

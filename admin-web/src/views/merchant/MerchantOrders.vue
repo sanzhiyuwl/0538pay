@@ -141,17 +141,36 @@ async function doRenotify(o: Order) {
 // ===== 退款弹窗（后端为全额退款）=====
 const refundOpen = ref(false)
 const refundTarget = ref<Order | null>(null)
+const refundMoney = ref('')     // 退款金额（空=全额退实付）
+const refundPassword = ref('')  // 登录密码二次校验
+// 剩余可退 = 实付 - 已退（refundmoney）
+const refundMax = computed(() => {
+  const o = refundTarget.value
+  if (!o) return 0
+  const real = +(o.realmoney ?? o.money ?? 0)
+  const refunded = +(o.refundmoney ?? 0)
+  return Math.max(0, +(real - refunded).toFixed(2))
+})
 function openRefund(o: Order) {
   refundTarget.value = o
+  refundMoney.value = ''
+  refundPassword.value = ''
   refundOpen.value = true
 }
 async function submitRefund() {
   const o = refundTarget.value
   if (!o || busy.value) return
+  if (!refundPassword.value) { toast.error('请输入登录密码'); return }
+  const money = refundMoney.value.trim()
+  if (money) {
+    const n = +money
+    if (!(n > 0)) { toast.error('金额输入错误'); return }
+    if (n > refundMax.value) { toast.error(`退款金额不能超过剩余可退 ¥${refundMax.value}`); return }
+  }
   busy.value = true
   try {
-    await refundOrder(o.trade_no)
-    toast.success(`订单 ${o.trade_no} 已全额退款`)
+    await refundOrder(o.trade_no, refundPassword.value, money || undefined)
+    toast.success(money ? `订单 ${o.trade_no} 已退款 ¥${money}` : `订单 ${o.trade_no} 已全额退款`)
     refundOpen.value = false
     await loadOrders()
   } catch (e) {
@@ -323,15 +342,35 @@ async function submitRefund() {
         <div class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           订单号 <span class="font-mono text-foreground">{{ refundTarget.trade_no }}</span> · 订单金额
           <b class="text-foreground">¥{{ refundTarget.money }}</b>
+          · 剩余可退 <b class="text-foreground tabular-nums">¥{{ refundMax }}</b>
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-sm text-muted-foreground">退款金额</label>
+          <input
+            v-model="refundMoney"
+            :placeholder="`留空按全额退 ¥${refundMax}`"
+            class="field-input w-full"
+            inputmode="decimal"
+          />
+          <p class="text-xs text-muted-foreground">支持部分退款，最多可退 ¥{{ refundMax }}；留空则全额退款。</p>
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-sm text-muted-foreground">登录密码</label>
+          <input
+            v-model="refundPassword"
+            type="password"
+            placeholder="请输入登录密码确认"
+            class="field-input w-full"
+            autocomplete="off"
+          />
         </div>
         <p class="text-sm text-muted-foreground">
-          确认对该订单发起<b class="text-foreground">全额退款</b>？退款后订单状态转为「已退款」，
-          已入账的分成将从可用余额扣回，此操作不可恢复。
+          退款后订单状态转为「已退款」，已入账的分成将按规则从可用余额扣回，此操作不可恢复。
         </p>
       </div>
       <template #footer>
         <Button variant="outline" size="sm" @click="refundOpen = false">取消</Button>
-        <Button variant="destructive" size="sm" :disabled="busy" @click="submitRefund"><Undo2 />确认全额退款</Button>
+        <Button variant="destructive" size="sm" :disabled="busy" @click="submitRefund"><Undo2 />确认退款</Button>
       </template>
     </Modal>
   </div>

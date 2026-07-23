@@ -93,6 +93,7 @@ import ClassicPayok from '@/views/site/templates/classic/ClassicPayok.vue'
 import ClassicPayerr from '@/views/site/templates/classic/ClassicPayerr.vue'
 import CashierMock from '@/views/site/CashierMock.vue'
 import ClassicNews from '@/views/site/templates/classic/ClassicNews.vue'
+import ClassicNewsList from '@/views/site/templates/classic/ClassicNewsList.vue'
 import { allLeaves, consoleLeaves, merchantLeaves } from '@/config/nav'
 import { useAuthStore } from '@/stores/auth'
 import { useMerchantAuthStore } from '@/stores/merchantAuth'
@@ -241,6 +242,8 @@ const router = createRouter({
         { path: '', name: 'site-home', component: SiteHome },
         { path: 'about', name: 'site-about', component: ClassicAbout },
         { path: 'agreement', name: 'site-agreement', component: ClassicAgreement },
+        { path: 'news', name: 'site-news-list', component: ClassicNewsList },
+        { path: 'news/category/:id', name: 'site-news-category', component: ClassicNewsList },
         { path: 'news/:id', name: 'site-news', component: ClassicNews },
       ],
     },
@@ -251,6 +254,8 @@ const router = createRouter({
     { path: '/payerr', name: 'payerr', component: ClassicPayerr },
     // 收银台中间页（mock 渠道，下单后 pay_url 跳转至此）
     { path: '/pay/mock/cashier/:trade_no', name: 'cashier-mock', component: CashierMock },
+    // B1-04：空 type 下单跳收银台聚合选方式页（复用收银台组件，带 paytypes 时渲染选方式）
+    { path: '/pay/cashier/:trade_no', name: 'cashier', component: CashierMock },
     // 公开聚合收款页（扫码进入，输金额→选方式→走收单链）
     { path: '/paypage', name: 'paypage', component: Paypage },
     // 后台登录页（独立，无侧栏）

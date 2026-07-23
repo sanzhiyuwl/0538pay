@@ -121,11 +121,19 @@ func (r *ProfitRepo) ExistOrderByTradeNo(tradeNo string) (bool, error) {
 	return n > 0, err
 }
 
-// ListPendingIDs 取待分账(status=0)订单 id 列表（自动执行用），按 id 升序，限 limit 条。
+// ListPendingIDs 取到期可提交的待分账(status=0)订单 id 列表（自动执行用），按 id 升序，限 limit 条。
+// B1-42/B1-70：加提交时间窗口，1:1 对齐 epay ProfitSharing\CommUtil::task()：
+//
+//	(add_time<=NOW-60秒 AND delay=0) OR (add_time<=NOW-24小时 AND delay=1)
+//
+// 即普通分账(delay=0)建单后需等 60 秒冷却、延迟分账(delay=1)需等 24 小时才可提交，
+// 避免订单尚未稳定(如可能退款)就分账。时间基准用 DB 的 NOW() 与 epay 对齐。
 func (r *ProfitRepo) ListPendingIDs(limit int) ([]uint, error) {
 	var ids []uint
 	err := r.db.Model(&model.ProfitOrder{}).
-		Where("status = 0").Order("id ASC").Limit(limit).Pluck("id", &ids).Error
+		Where("status = 0").
+		Where("(add_time <= DATE_SUB(NOW(), INTERVAL 60 SECOND) AND delay = 0) OR (add_time <= DATE_SUB(NOW(), INTERVAL 24 HOUR) AND delay = 1)").
+		Order("id ASC").Limit(limit).Pluck("id", &ids).Error
 	return ids, err
 }
 
@@ -246,6 +254,15 @@ func (r *ProfitRepo) MarkSuccessWithDebit(id uint, settleNo string) (bool, error
 		if o.PsUID == nil || *o.PsUID == 0 || o.Debited == 1 || o.Money.LessThanOrEqual(decimal.Zero) {
 			return nil
 		}
+		// B1-44：扣款与否在【执行期】按当时通道 mode==0 现场判定（对齐 epay process_item），
+		// 而非建单期定死。mode!=0（商户直清）不从商户余额扣分账，仅置成功。
+		mode, err := currentOrderChannelMode(tx, o.TradeNo)
+		if err != nil {
+			return err
+		}
+		if mode != 0 {
+			return nil
+		}
 		if err := debitMerchant(tx, *o.PsUID, o.Money, "订单分账", o.TradeNo); err != nil {
 			return err
 		}
@@ -284,6 +301,31 @@ func (r *ProfitRepo) CancelOrRefund(id uint, fromStatuses []int, changeType stri
 		return tx.Model(&model.ProfitOrder{}).Where("id = ?", id).Update("debited", 0).Error
 	})
 	return flipped, err
+}
+
+// currentOrderChannelMode 事务内按订单号解析当前所属通道的 mode（0=平台代收 1=商户直清）。
+// 对齐 epay process_item：subchannel>0 用 getSub、否则 get(channel)，两者 mode 均取自父通道
+//（pay_subchannel 无独立 mode），故直接查订单 channel 对应 pay_channel.mode 即可 1:1。
+// 订单/通道查不到时返回 mode=1（非代收），保守不扣商户余额，避免误扣。
+func currentOrderChannelMode(tx *gorm.DB, tradeNo string) (int8, error) {
+	var channelID int
+	err := tx.Model(&model.Order{}).Where("trade_no = ?", tradeNo).
+		Limit(1).Pluck("channel", &channelID).Error
+	if err != nil {
+		return 1, err
+	}
+	if channelID <= 0 {
+		return 1, nil
+	}
+	var ch model.Channel
+	err = tx.Select("id, mode").Where("id = ?", channelID).First(&ch).Error
+	if err == gorm.ErrRecordNotFound {
+		return 1, nil // 通道已删/查不到：保守不扣
+	}
+	if err != nil {
+		return 1, err
+	}
+	return ch.Mode, nil
 }
 
 // debitMerchant 事务内从商户余额扣款并写出账流水（行锁+余额校验）。

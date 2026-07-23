@@ -335,6 +335,15 @@ func (r *SettleRepo) ListByMerchant(uid uint, status *int, page, pageSize int) (
 	return r.List(q)
 }
 
+// ListByMerchantOffset 按商户取结算记录，原生行偏移分页（对齐 epay api.php act=settle）。
+// B1-59：epay `order by id desc limit {offset},{limit}` 用精确行偏移，不折算 page（整除丢精度会错位/漏读）。
+func (r *SettleRepo) ListByMerchantOffset(uid uint, limit, offset int) ([]model.SettleRecord, error) {
+	var list []model.SettleRecord
+	err := r.db.Where("uid = ?", uid).
+		Order("id DESC").Limit(limit).Offset(offset).Find(&list).Error
+	return list, err
+}
+
 // ListByBatch 取某批次内的结算记录（C-4 银行导出用）。types 非空则按结算方式过滤（1支付宝2微信…）。
 // 按 type,id 升序（对齐 epay download.php settle 各模板的排序）。
 func (r *SettleRepo) ListByBatch(batch string, types []int8) ([]model.SettleRecord, error) {

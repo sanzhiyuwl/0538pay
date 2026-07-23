@@ -204,7 +204,7 @@ func (h *MerchantCenterHandler) Refund(c *gin.Context) {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
 		return
 	}
-	if err := h.svc.Refund(uid, req.TradeNo); err != nil {
+	if err := h.svc.Refund(uid, req); err != nil {
 		failMC(c, err)
 		return
 	}
@@ -588,11 +588,12 @@ func (h *MerchantCenterHandler) Renotify(c *gin.Context) {
 
 // TestPayInfo GET /api/merchant/test 测试支付页信息
 func (h *MerchantCenterHandler) TestPayInfo(c *gin.Context) {
-	if _, ok := currentUID(c); !ok {
+	uid, ok := currentUID(c)
+	if !ok {
 		resp.Fail(c, 401, "登录态异常")
 		return
 	}
-	resp.OK(c, h.selfSvc.TestPayInfo())
+	resp.OK(c, h.selfSvc.TestPayInfo(uid, deviceFromUA(c)))
 }
 
 // TestPay POST /api/merchant/test 测试支付下单（走收单链，返回收银台信息）

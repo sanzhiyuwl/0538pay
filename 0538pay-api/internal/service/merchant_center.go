@@ -27,6 +27,7 @@ type MerchantCenterService struct {
 	accounts  *repository.AccountRepo
 	channels  *repository.ChannelRepo
 	groups    *repository.GroupRepo
+	refunds   *repository.RefundOrderRepo // 部分退款落 pay_refundorder（对齐 epay Order::refund api=1）
 	pay       *PayService        // 复用商户通知重发
 	certVerify *CertVerifyService // 实名第三方核验（可空；SetCertVerify 注入）
 	notice    *NoticeService     // 提现待处理管理员通知（可空；SetNoticeService 注入）
@@ -37,6 +38,9 @@ func (s *MerchantCenterService) SetCertVerify(c *CertVerifyService) { s.certVeri
 
 // SetNoticeService 注入对外通知中枢（K-1）。商户申请提现后发 apply 场景管理员通知。
 func (s *MerchantCenterService) SetNoticeService(n *NoticeService) { s.notice = n }
+
+// SetRefundRepo 注入退款单仓储（商户端部分退款写 pay_refundorder，对齐 epay Order::refund api=1）。
+func (s *MerchantCenterService) SetRefundRepo(r *repository.RefundOrderRepo) { s.refunds = r }
 
 func NewMerchantCenterService(
 	merchants *repository.MerchantRepo,
@@ -670,36 +674,138 @@ func (s *MerchantCenterService) Apply(uid uint, req dto.ApplyReq) error {
 
 // ===== 订单退款（余额层逆向）=====
 
-// Refund 商户端订单退款（全额）：校验归属+状态 → 幂等改单(status→2) → 退回已入账分成 + 退款流水。
-// 渠道侧真实退款(调第三方)待真实凭证，此处为余额层逆向，对齐 epay 退款的资金语义。
-func (s *MerchantCenterService) Refund(uid uint, tradeNo string) error {
-	o, err := s.orders.FindByTradeNoAndUID(tradeNo, uid)
+// Refund 商户端订单退款（1:1 对齐 epay user/ajax2.php refund_submit → Order::refund api=1）。
+// 支持部分退款(money)：校验登录密码 → 归属/状态[1,2,3]/可退金额 → reducemoney 四分支扣商户余额
+// → 幂等改单(status→2 累加 refundmoney) → 写 pay_refundorder。money 空则默认全额退（订单实付）。
+// 渠道侧真实原路退款待真实凭证；此处为余额层逆向，资金语义与 epay 一致。
+func (s *MerchantCenterService) Refund(uid uint, req dto.RefundReq) error {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return maErr("商户不存在")
+	}
+	// 登录密码二次校验（对齐 epay getMd5Pwd($pwd)==userrow['pwd']）。
+	if m.Password == "" {
+		return maErr("请先设置登录密码后再退款")
+	}
+	if bcrypt.CompareHashAndPassword([]byte(m.Password), []byte(req.Password)) != nil {
+		return maErr("登录密码输入错误")
+	}
+
+	o, err := s.orders.FindByTradeNoAndUID(req.TradeNo, uid)
 	if err != nil {
 		return err
 	}
 	if o == nil {
 		return maErr("订单不存在或不属于当前商户")
 	}
-	if o.Status != 1 {
-		return maErr("仅已支付订单可退款")
+	// 状态支持 [1已付, 2已退部分, 3冻结]（对齐 epay in_array(status,[1,2,3])）。
+	if o.Status != 1 && o.Status != 2 && o.Status != 3 {
+		return maErr("该订单状态不支持退款")
 	}
-	// 幂等改单：status 1→2，写全额退款金额
-	ok, err := s.orders.MarkRefunded(tradeNo, o.Money)
+
+	// 订单实付（realmoney，空则回落 money）。
+	real := o.Money
+	if o.RealMoney != nil && o.RealMoney.GreaterThan(decimal.Zero) {
+		real = *o.RealMoney
+	}
+	// 退款金额：空则默认全额退实付；否则解析并校验。
+	amount := real
+	if strings.TrimSpace(req.Money) != "" {
+		amount, err = decimal.NewFromString(strings.TrimSpace(req.Money))
+		if err != nil || amount.LessThanOrEqual(decimal.Zero) {
+			return maErr("金额输入错误")
+		}
+	}
+	if amount.GreaterThan(real) {
+		return maErr("退款金额不能大于订单金额")
+	}
+	// 已退部分校验（对齐 epay refundmoney 累加逻辑）。
+	if o.Status == 2 && o.RefundMoney.LessThanOrEqual(decimal.Zero) {
+		return maErr("该订单已退款")
+	}
+	if o.RefundMoney.GreaterThan(decimal.Zero) {
+		if o.RefundMoney.GreaterThanOrEqual(real) {
+			return maErr("该订单已全额退款")
+		}
+		if amount.GreaterThan(real.Sub(o.RefundMoney).Round(2)) {
+			return maErr("退款金额不能超过该订单剩余可退款金额")
+		}
+	}
+
+	// reducemoney 四分支（对齐 epay Order::refund L85-93）。
+	reduce := s.calcRefundReduce(o, amount, real)
+	if reduce.GreaterThan(m.Money) {
+		return maErr("商户余额不足，请先充值")
+	}
+
+	// 幂等改单：status→2 累加 refundmoney（条件 UPDATE 防并发重复）。
+	ok, err := s.orders.MarkRefundedPartial(req.TradeNo, amount)
 	if err != nil {
 		return err
 	}
 	if !ok {
 		return maErr("订单状态已变更，退款未执行")
 	}
-	// 逆向退回入账金额（入账时入的是 getmoney，无费率时为 money，与 pay_notify.settle 对称）
-	refundAmount := o.GetMoney
-	if refundAmount.LessThanOrEqual(decimal.Zero) {
-		refundAmount = o.Money
+	// 扣商户余额（reduce=0 时 ChangeUserMoney 内跳过；记录级幂等防重复）。
+	if reduce.GreaterThan(decimal.Zero) {
+		if err := s.accounts.ChangeUserMoney(uid, reduce, false, "订单退款", req.TradeNo); err != nil {
+			return err
+		}
 	}
-	if err := s.accounts.ChangeUserMoney(uid, refundAmount, false, "订单退款", tradeNo); err != nil {
-		return err
+	// 写 pay_refundorder（对齐 epay Order::refund api=1 INSERT refundorder）。
+	if s.refunds != nil {
+		now := time.Now()
+		refundNo := genTradeNo(now)
+		if e := s.refunds.Create(&model.RefundOrder{
+			RefundNo:    refundNo,
+			OutRefundNo: refundNo,
+			TradeNo:     o.TradeNo,
+			OutTradeNo:  o.OutTradeNo,
+			UID:         uid,
+			Money:       amount,
+			ReduceMoney: reduce,
+			Status:      1,
+			AddTime:     now,
+			EndTime:     &now,
+		}); e != nil {
+			return e
+		}
 	}
 	return nil
+}
+
+// calcRefundReduce 计算退款需从商户余额扣回的金额（四分支，对齐 epay Order::refund L85-93）。
+//
+//	① status==3(冻结) 或 通道 mode==1(直清) → 0（款项未入商户余额）
+//	② refund_fee_type==1(商户担手续费) 且 全额退 → realmoney
+//	③ refund_fee_type==0(平台担) 且 (全额退 或 退款额≥getmoney) → getmoney
+//	④ 其余(部分退) → 按退款额扣
+func (s *MerchantCenterService) calcRefundReduce(o *model.Order, amount, real decimal.Decimal) decimal.Decimal {
+	if o.Status == 3 || s.channelIsDirect(o.Channel) {
+		return decimal.Zero
+	}
+	if refundFeeType && amount.Equal(real) {
+		return real
+	}
+	if !refundFeeType && (amount.Equal(real) || amount.GreaterThanOrEqual(o.GetMoney)) {
+		return o.GetMoney
+	}
+	return amount
+}
+
+// channelIsDirect 判断通道是否商户直清模式(mode==1)。查不到按非直清处理。
+func (s *MerchantCenterService) channelIsDirect(channelID int) bool {
+	if s.channels == nil || channelID == 0 {
+		return false
+	}
+	c, err := s.channels.FindByID(uint(channelID))
+	if err != nil || c == nil {
+		return false
+	}
+	return c.Mode == 1
 }
 
 // ===== API 信息 / 资料 / 密码 =====

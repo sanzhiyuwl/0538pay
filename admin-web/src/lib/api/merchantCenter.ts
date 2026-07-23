@@ -68,8 +68,16 @@ export function fetchMerchantOrders(
 }
 
 /** 订单退款（全额） */
-export function refundOrder(tradeNo: string): Promise<{ trade_no: string; status: number }> {
-  return request('/merchant/order/refund', { method: 'POST', body: { trade_no: tradeNo } })
+/** 订单退款：支持部分退款(money 空则全额) + 登录密码二次校验（对齐 epay refund_submit）。 */
+export function refundOrder(
+  tradeNo: string,
+  password: string,
+  money?: string,
+): Promise<{ trade_no: string; status: number }> {
+  return request('/merchant/order/refund', {
+    method: 'POST',
+    body: { trade_no: tradeNo, password, money: money ?? '' },
+  })
 }
 
 /** 重新通知（补单/重发回调） */

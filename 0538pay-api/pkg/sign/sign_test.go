@@ -43,11 +43,13 @@ func TestVerifyMD5(t *testing.T) {
 	if !VerifyMD5(p, testKey) {
 		t.Fatal("VerifyMD5 应通过")
 	}
-	// 大写签名也应通过
+	// B1-20：大写签名应被拒（对齐 epay 严格全等，md5 恒小写，大写不匹配）。
 	p["sign"] = "119872168C9C25E06B30FF8D0B580614"
-	if !VerifyMD5(p, testKey) {
-		t.Fatal("VerifyMD5 大写十六进制应通过")
+	if VerifyMD5(p, testKey) {
+		t.Fatal("VerifyMD5 大写十六进制应被拒（对齐 epay ===）")
 	}
+	// 恢复小写正确签名，供后续错误密钥/缺 sign 用例。
+	p["sign"] = "119872168c9c25e06b30ff8d0b580614"
 	// 错误密钥应失败
 	if VerifyMD5(p, "wrongkey") {
 		t.Fatal("VerifyMD5 错误密钥应失败")

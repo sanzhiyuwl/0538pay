@@ -7,6 +7,7 @@
 import { onMounted } from 'vue'
 import { useSiteContentStore } from '@/stores/siteContent'
 import ClassicSections from './ClassicSections.vue'
+import FloatingContact from '@/components/site/FloatingContact.vue'
 
 const store = useSiteContentStore()
 const content = store.content
@@ -16,4 +17,6 @@ onMounted(() => { store.hydrate() })
 
 <template>
   <ClassicSections :content="content" />
+  <!-- 右侧悬浮联系栏（客服/公众号/邮箱/返回顶部）-->
+  <FloatingContact />
 </template>

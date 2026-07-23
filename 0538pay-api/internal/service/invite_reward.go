@@ -131,7 +131,7 @@ func groupConfStr(m map[string]interface{}, key string) (string, bool) {
 // SettleOnPaid 订单支付成功后结算邀请返现（实时发放，对齐 epay functions.php 结算钩子）。
 // uid=下单商户；money=订单金额；getMoney=商户实得(分成)；reduceMoney=手续费(平台+商户差额)。
 // 返现发到该商户上级(upid)的余额并写流水。任一环节不满足则静默跳过（不影响主链）。
-func (s *InviteRewardService) SettleOnPaid(uid uint, money, getMoney decimal.Decimal, tradeNo string) {
+func (s *InviteRewardService) SettleOnPaid(uid uint, money, getMoney, profitMoney decimal.Decimal, tradeNo string) {
 	buyer, err := s.merchants.FindByUID(uid)
 	if err != nil || buyer == nil || buyer.UpID <= 0 {
 		return
@@ -156,8 +156,10 @@ func (s *InviteRewardService) SettleOnPaid(uid uint, money, getMoney decimal.Dec
 			reduceMoney = decimal.Zero
 		}
 	}
-
-	reward := s.calcReward(ic, money, reduceMoney)
+	// 平台利润 profitmoney 由回调侧 calcProfitMoney 算好传入（可为负，成本高于毛利时）。
+	// 直接使用，不回落手续费——对齐 epay functions.php:638 invite_order_type==2 用 $profitmoney 原值，
+	// 负值经末尾 invite_money>0 门槛（calcReward 返回后 reward<=0 即跳过）自然丢弃。
+	reward := s.calcReward(ic, money, reduceMoney, profitMoney)
 	if reward.LessThanOrEqual(decimal.Zero) {
 		return
 	}
@@ -169,15 +171,15 @@ func (s *InviteRewardService) SettleOnPaid(uid uint, money, getMoney decimal.Dec
 //
 //	0(默认)：按订单金额 money × rate/100，且 invite_order_fee=0 时封顶不超过手续费 reduceMoney
 //	1：按订单手续费 reduceMoney × rate/100
-//	2：按平台利润 profit(=reduceMoney，我方无独立利润字段，等同手续费) × rate/100
-func (s *InviteRewardService) calcReward(ic inviteConf, money, reduceMoney decimal.Decimal) decimal.Decimal {
+//	2：按平台真实利润 profitMoney(=手续费 - 通道成本 costrate) × rate/100（对齐 epay functions.php:638-639）
+func (s *InviteRewardService) calcReward(ic inviteConf, money, reduceMoney, profitMoney decimal.Decimal) decimal.Decimal {
 	hundred := decimal.NewFromInt(100)
 	switch ic.orderType {
 	case 1:
 		return reduceMoney.Mul(ic.rate).Div(hundred).Round(2)
 	case 2:
-		// 平台利润：我方口径 = 手续费（无独立成本字段可扣，对齐 epay profitmoney 缺省行为）。
-		return reduceMoney.Mul(ic.rate).Div(hundred).Round(2)
+		// 平台真实利润 = 手续费扣除通道成本 costrate 后的余额（回调侧算好传入）。
+		return profitMoney.Mul(ic.rate).Div(hundred).Round(2)
 	default:
 		reward := money.Mul(ic.rate).Div(hundred).Round(2)
 		// invite_order_fee=0：返现不超过手续费（对齐 epay "分成金额最多不超过订单手续费"）。

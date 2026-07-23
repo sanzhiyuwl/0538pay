@@ -58,7 +58,11 @@ type CreateReq struct {
 	SubOpenID string // JSAPI 场景买家 openid
 	SubAppID  string // 微信 JSAPI 场景公众号/小程序 appid
 	AuthCode  string // 付款码支付的 auth_code（付款码前缀判定支付方式）
-	Extra     map[string]string
+	// ProfitSharing 标记本单需分账（L-7，对齐 epay wxpayn/adapay 下单时 $order['profits']>0 → settle_info.profit_sharing）。
+	// 由收单主链据 order.Profits>0 置位；支持分账的渠道下单时据此带渠道分账标记（把资金冻结在渠道待后续分账），
+	// 不支持则忽略（走本地余额层分账，对齐 K-5 未接渠道时的降级）。
+	ProfitSharing bool
+	Extra         map[string]string
 }
 
 // CreateResp 统一下单出参。
@@ -148,11 +152,19 @@ type FieldInput struct {
 	Tip     string   `json:"tip"`     // 输入提示/说明
 }
 
-// ProductType 描述渠道支持的一种支付产品/形态（对齐 epay $info['transtypes']，
+// ProductType 描述渠道支持的一种支付产品/形态（对齐 epay $info['select']/select_xxx，
 // 如 支付宝当面付/网页/APP，微信 Native/JSAPI/H5）。供后台选择通道产品。
+//
+// Group/NeedSign 为 L-10 扩展（向后兼容，扁平列表留空即可）：
+//   - Group：按支付方式分组，对齐 ltzf 的 select_wxpay/select_alipay（"该通道走微信时可选哪些子形态"）。
+//     留空表示不分组（扁平列表，多数渠道如此）。
+//   - NeedSign：该子产品需在渠道侧签约后才可用，对齐 alipay note「只能选择已经签约的产品」。
+//     前端对 NeedSign 的项给出「需签约」提示，避免选了未签约产品导致支付失败。
 type ProductType struct {
-	Code string `json:"code"` // 产品编码
-	Name string `json:"name"` // 产品显示名
+	Code     string `json:"code"`                // 产品编码
+	Name     string `json:"name"`                // 产品显示名
+	Group    string `json:"group,omitempty"`     // 所属支付方式分组（alipay/wxpay/qqpay/bank；空=不分组）
+	NeedSign bool   `json:"need_sign,omitempty"` // 是否需渠道侧签约才可选
 }
 
 // Configurable 可选能力：渠道声明自己的配置字段与支持产品（元数据驱动后台表单）。

@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -92,6 +94,7 @@ type SettleService struct {
 	admins       *repository.AdminRepo // 支付密码二次校验（可空；SetAdminRepo 注入）
 	cfg          *ConfigService        // 打款备注 transfer_desc（可空；SetConfigService 注入）
 	notice       *NoticeService        // 结算完成通知（可空；SetNoticeService 注入）
+	groups       *repository.GroupRepo // 组级 settle_open/settle_rate 覆盖（可空；SetGroupRepo 注入）
 }
 
 func NewSettleService(repo *repository.SettleRepo, merchantRepo *repository.MerchantRepo) *SettleService {
@@ -117,6 +120,75 @@ func (s *SettleService) notifySettleDone(rec *model.SettleRecord) {
 
 // SetConfigService 注入配置域（银行结算导出取 transfer_desc 打款备注）。
 func (s *SettleService) SetConfigService(c *ConfigService) { s.cfg = c }
+
+// SetGroupRepo 注入用户组仓储，使自动结算按商户所在组的 settle_open/settle_rate 覆盖全局
+// （对齐 epay cron.php:32-36 getGroupConfig）。
+func (s *SettleService) SetGroupRepo(g *repository.GroupRepo) { s.groups = g }
+
+// resolveSettleConf 计算某商户所在组(gid)生效的自动结算配置，1:1 对齐 epay cron.php:31-36：
+//   - settle_rate：默认取全局 settleRate；组级 settle_rate 非空则覆盖
+//   - skip：是否跳过该商户不结算。逻辑对齐 epay——
+//     若组级 settle_open 已设置且 >0：仅当组级 ==2（组显式关停）跳过；
+//     否则回落全局：全局 settle_open 不在 {1,3} 则跳过。
+func (s *SettleService) resolveSettleConf(gid int) (rate decimal.Decimal, skip bool) {
+	rate = settleRate
+	// 全局 settle_open：1=开启且商户可提现 / 3=开启且强制自动结算；其余(0/2)视为全局关闭自动结算。
+	globalOpen := 1
+	if s.cfg != nil {
+		globalOpen = s.cfg.Int("settle_open", 1)
+	}
+	globalAllow := globalOpen == 1 || globalOpen == 3
+
+	if s.groups == nil {
+		return rate, !globalAllow
+	}
+	g, err := s.groups.FindByID(gid)
+	if err != nil || g == nil || strings.TrimSpace(g.Config) == "" {
+		return rate, !globalAllow
+	}
+	var gc map[string]interface{}
+	if json.Unmarshal([]byte(g.Config), &gc) != nil {
+		return rate, !globalAllow
+	}
+	// 组级 settle_open：>0 时以组为准（==2 关停），否则回落全局判定（对齐 epay 的 if/elseif）。
+	if v, ok := groupConfStr(gc, "settle_open"); ok {
+		if n, e := strconv.Atoi(v); e == nil && n > 0 {
+			if n == 2 {
+				return rate, true // 组显式关停自动结算
+			}
+			// 组开启(1/3)：不回落全局，直接放行；下面继续取组级费率
+		} else if !globalAllow {
+			return rate, true
+		}
+	} else if !globalAllow {
+		return rate, true
+	}
+	// 组级 settle_rate 覆盖全局费率（非空才覆盖，对齐 epay isset($group['settle_rate'])）。
+	if v, ok := groupConfStr(gc, "settle_rate"); ok {
+		if d, e := decimal.NewFromString(v); e == nil {
+			rate = d
+		}
+	}
+	return rate, false
+}
+
+// calcFeeWithRate 用指定费率计算结算手续费（组级费率覆盖时用），其余封顶/兜底逻辑同 calcFee。
+func calcFeeWithRate(money, rate decimal.Decimal) (decimal.Decimal, decimal.Decimal) {
+	if rate.LessThanOrEqual(decimal.Zero) {
+		return decimal.Zero, money
+	}
+	fee := money.Mul(rate).Div(hundred).Round(2)
+	if fee.LessThan(settleFeeMin) {
+		fee = settleFeeMin
+	}
+	if fee.GreaterThan(settleFeeMax) {
+		fee = settleFeeMax
+	}
+	if fee.GreaterThan(money) {
+		fee = money
+	}
+	return fee, money.Sub(fee)
+}
 
 // ExportBatch 生成某批次的银行专用打款文件（C-4，对齐 epay download.php?act=settle）。
 // tmpl: mybank(网商:支付宝+银行卡) / alipay(支付宝批量转账) / wxpay(微信付款到零钱) / common(通用明细)。
@@ -438,6 +510,12 @@ func (s *SettleService) RunAutoSettle(ctx context.Context, limit int) (int, erro
 		if certForce && m.Cert == 0 {
 			continue // 强制实名下未实名商户跳过结算
 		}
+		// 组级 settle_open 关停 / 全局未开启自动结算 → 跳过；组级 settle_rate 覆盖费率
+		// （对齐 epay cron.php:31-36 getGroupConfig）。
+		rate, skip := s.resolveSettleConf(m.GID)
+		if skip {
+			continue
+		}
 		// remain_money 预留余额：自动结算不结算预留部分（B-8，对齐 epay remain_money）。
 		money := m.Money
 		if rm := parseRemainMoney(m.RemainMoney); rm.GreaterThan(decimal.Zero) {
@@ -446,7 +524,7 @@ func (s *SettleService) RunAutoSettle(ctx context.Context, limit int) (int, erro
 		if money.LessThan(settleMoney) {
 			continue
 		}
-		_, realmoney := calcFee(money)
+		_, realmoney := calcFeeWithRate(money, rate)
 		rec := &model.SettleRecord{
 			UID:       m.UID,
 			Auto:      1,

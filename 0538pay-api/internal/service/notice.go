@@ -198,6 +198,14 @@ func (s *NoticeService) mailTemplate(scene string, p map[string]string) (title, 
 		return "商户余额不足提醒 - " + site,
 			fmt.Sprintf("尊敬的商户，您的手续费余额不足%s元，为避免造成订单失败请及时充值。<br/>当前余额：%s元",
 				p["msgmoney"], p["money"])
+	case "complain":
+		return "支付交易投诉通知 - " + site,
+			fmt.Sprintf("尊敬的商户，%s！<br/>系统订单号：%s<br/>投诉原因：%s<br/>投诉详情：%s<br/>商品名称：%s<br/>订单金额：¥%s<br/>投诉时间：%s",
+				p["type"], p["trade_no"], p["title"], p["content"], p["ordername"], p["money"], p["time"])
+	case "mchrisk":
+		return "渠道商户违规处置通知 - " + site,
+			fmt.Sprintf("尊敬的商户，您有新的渠道商户违规处置记录！<br/>渠道子商户号：%s<br/>商户名称：%s<br/>风险类型：%s<br/>处罚方案：%s（%s）<br/>记录时间：%s",
+				p["mchid"], p["mchname"], p["risk_desc"], p["punish_type"], p["punish_desc"], p["punish_time"])
 	}
 	return "", ""
 }

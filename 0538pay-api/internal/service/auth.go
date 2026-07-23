@@ -13,11 +13,15 @@ import (
 
 var ErrInvalidCredential = errors.New("用户名或密码错误")
 
+// ErrLoginLocked 登录失败次数超限（对齐 epay 防爆破锁定）。
+var ErrLoginLocked = errors.New("多次登录失败，账号已被暂时锁定，请 24 小时后重试或联系管理员")
+
 // AuthService 处理后台登录。
 type AuthService struct {
 	repo *repository.AdminRepo
 	jm   *jwtauth.Manager
-	log  *LogService // 登录日志（可空）
+	log  *LogService    // 登录日志（可空）
+	cfg  *ConfigService // 登录失败次数上限 login_limit_count（可空，默认 5）
 }
 
 func NewAuthService(repo *repository.AdminRepo, jm *jwtauth.Manager) *AuthService {
@@ -27,8 +31,25 @@ func NewAuthService(repo *repository.AdminRepo, jm *jwtauth.Manager) *AuthServic
 // SetLogService 注入登录日志服务。
 func (s *AuthService) SetLogService(l *LogService) { s.log = l }
 
+// SetConfigService 注入配置域（读取 login_limit_count 登录失败次数上限）。
+func (s *AuthService) SetConfigService(c *ConfigService) { s.cfg = c }
+
+// loginLimitCount 登录失败次数上限（对齐 epay login_limit_count，默认 5；0 或负=不限）。
+func (s *AuthService) loginLimitCount() int {
+	if s.cfg == nil {
+		return 5
+	}
+	return s.cfg.Int("login_limit_count", 5)
+}
+
 // Login 校验凭据并签发 token。ip 用于登录日志。
+// 防爆破：同 IP 近 24h 登录失败达 login_limit_count 次即锁定（对齐 epay admin/login.php:23-26）。
 func (s *AuthService) Login(req dto.LoginReq, ip string) (*dto.LoginResp, error) {
+	if limit := s.loginLimitCount(); limit > 0 && s.log != nil {
+		if s.log.CountFailByIPLastDay(ip) >= int64(limit) {
+			return nil, ErrLoginLocked
+		}
+	}
 	admin, err := s.repo.FindByUsername(req.Username)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

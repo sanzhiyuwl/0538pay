@@ -2,22 +2,51 @@
 import { request } from './client'
 
 /** 收银台中间页所需的公开订单信息（对齐后端 dto.CashierView） */
+/** 收银台可选支付方式（B1-04 裸单聚合选方式） */
+export interface CashierPayType {
+  type: string // 渠道插件 key（复发起下单时作 type 传入）
+  showname: string // 支付方式友好名
+}
 export interface CashierOrder {
   trade_no: string
   out_trade_no: string
   name: string
-  money: string
+  money: string // 需支付金额（含加费/随机微调）
+  order_money: string // 原始订单金额（B1-65：money≠order_money 时显示'含X元手续费'）
   plugin: string
   pay_type: string // qrcode/redirect/html（真实渠道）；mock 为空
   qrcode: string // 二维码内容/支付链接（真实渠道）；mock 为空
   status: number // 0未付 1已付…
   addtime: string
   return_url: string
+  paytypes?: CashierPayType[] // B1-04：裸单(空 type 未定通道)时的可选支付方式；已定通道单为空
 }
 
 /** 按系统订单号查收银台订单信息 */
 export function fetchCashierOrder(tradeNo: string): Promise<CashierOrder> {
   return request<CashierOrder>(`/pay/order/${encodeURIComponent(tradeNo)}`)
+}
+
+/** 收银台下单返回（对齐后端 dto.SubmitResp） */
+export interface CashierSubmitResp {
+  trade_no: string
+  out_trade_no: string
+  pay_type: string
+  pay_url?: string
+  qrcode?: string
+  html?: string
+  money: string
+}
+
+/**
+ * B1-04 收银台选定支付方式：对既有裸单(空 type 单)按 trade_no 补选通道下单，无需商户签名
+ * （订单在空 type 下单时已验签建号）。返回选定通道后的下单信息（二维码/跳转等）。
+ */
+export function cashierChoosePay(tradeNo: string, type: string): Promise<CashierSubmitResp> {
+  return request<CashierSubmitResp>('/pay/choose', {
+    method: 'POST',
+    body: { trade_no: tradeNo, type },
+  })
 }
 
 /**

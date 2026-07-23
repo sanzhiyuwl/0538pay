@@ -24,6 +24,12 @@ const newsColumns = computed(() =>
 function goNews(id: number) {
   router.push(`/news/${id}`)
 }
+function goCategory(id: number) {
+  router.push(`/news/category/${id}`)
+}
+function goAllNews() {
+  router.push('/news')
+}
 // 发布日期取月-日（列表左侧显示）
 function mmdd(date: string) {
   const parts = date.split('-')
@@ -48,8 +54,8 @@ function mmdd(date: string) {
           :key="col.category.id"
           class="flex flex-col bg-background shadow-[0_1px_3px_rgba(0,0,0,0.04),0_10px_30px_-14px_rgba(0,0,0,0.15)]"
         >
-          <!-- 深色头图：英文小标题 + 中文大标题 + | 分类名 -->
-          <div class="group relative aspect-[21/9] overflow-hidden">
+          <!-- 深色头图：英文小标题 + 中文大标题 + | 分类名（点击进分类归档页）-->
+          <button class="group relative block aspect-[21/9] w-full overflow-hidden text-left" @click="goCategory(col.category.id)">
             <img
               v-if="col.category.cover"
               :src="col.category.cover"
@@ -64,10 +70,10 @@ function mmdd(date: string) {
               <div class="text-xs font-medium uppercase tracking-wider text-white/60">{{ col.category.enName }}</div>
               <div class="mt-1 flex items-baseline gap-2">
                 <span class="text-2xl font-bold text-white">{{ col.category.name }}</span>
-                <span class="text-sm text-white/50">|&nbsp;{{ col.category.name }}</span>
+                <span class="text-sm text-white/50 transition-colors group-hover:text-white/80">查看更多&nbsp;›</span>
               </div>
             </div>
-          </div>
+          </button>
 
           <!-- 头条：标题（带 new 标）+ 摘要 -->
           <div class="border-b border-border/60 px-6 py-6">
@@ -94,6 +100,14 @@ function mmdd(date: string) {
             </li>
           </ul>
         </div>
+      </div>
+
+      <!-- 查看全部动态 -->
+      <div v-reveal class="mt-12 flex justify-center">
+        <button
+          class="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-7 py-2.5 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+          @click="goAllNews"
+        >查看全部动态&nbsp;›</button>
       </div>
     </div>
   </section>

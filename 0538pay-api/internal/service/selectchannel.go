@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -27,13 +28,16 @@ func NewChannelSelector(ch *repository.ChannelRepo, rl *repository.RollRepo, sc 
 	return &ChannelSelector{channels: ch, rolls: rl, subchannels: sc, groups: gr, randIntn: rand.Intn}
 }
 
-// SelectResult 选通道结果（对齐 epay getSubmitInfo 返回的 channel/subchannel/rate）。
+// SelectResult 选通道结果（对齐 epay getSubmitInfo 返回的 channel/subchannel/rate/apptype）。
 type SelectResult struct {
 	ChannelID  int             // 命中主通道ID
 	Subchannel int             // 命中子通道ID（0=无）
 	Plugin     string          // 主通道插件
 	Rate       decimal.Decimal // 最终费率%（组覆盖优先，空则通道默认）
 	SubInfo    string          // 子通道自定义参数 JSON（占位替换用，无则空）
+	AppType    string          // 通道支持的子形态(apptype)，子通道 info 有 apptype 则覆盖（对齐 epay getSub L44-46）
+	PayMin     string          // 选定通道单笔最小限额（选后硬拒绝用，对齐 epay submitData['paymin']）
+	PayMax     string          // 选定通道单笔最大限额（选后硬拒绝用，对齐 epay submitData['paymax']）
 }
 
 // GroupAssign 用户组 info 里单个支付方式的分配配置（对齐 epay pre_group.info 的值对象）。
@@ -75,6 +79,41 @@ func (s *ChannelSelector) Select(uid uint, gid, typeID int, money decimal.Decima
 	default:
 		// (D) 正整数：固定通道 或 轮询组（由 type 字段判定）。
 		return s.pickFixedOrRoll(assign, channelVal, money, rateOverride, hasRate)
+	}
+}
+
+// IsTypeAvailable 判断某商户(uid/gid)对某支付方式(typeID)在收银可选列表里是否可见（B1-64）。
+// 1:1 对齐 epay Channel::getTypes:226-270 的每 type 分支，但**只读不写**（不推进子通道 use_time /
+// 轮询组游标），因为列表阶段只判可见性，真正下单选通道才走 Select 产生调度副作用。
+//   channel==0 隐藏；-1 该 type 有启用通道否则隐藏；-2 该商户有可用子通道否则隐藏；
+//   正整数 roll 校验轮询组 status，否则校验通道 status。无组 info 时该 type 有启用通道即可见。
+func (s *ChannelSelector) IsTypeAvailable(uid uint, gid, typeID int) bool {
+	assign, hasGroup, err := s.loadAssign(gid, typeID)
+	if err != nil {
+		return false
+	}
+	if !hasGroup {
+		// 无组 info：该 type 下存在启用通道即可见（对齐 epay else 分支的 status=1 探测）。
+		list, err := s.channels.ListEnabledByType(typeID)
+		return err == nil && len(list) > 0
+	}
+	channelVal, _ := strconv.Atoi(strings.TrimSpace(assign.Channel))
+	switch {
+	case channelVal == 0:
+		return false
+	case channelVal == -1:
+		list, err := s.channels.ListEnabledByType(typeID)
+		return err == nil && len(list) > 0
+	case channelVal == -2:
+		rows, err := s.subchannels.FindPickable(uid, typeID)
+		return err == nil && len(rows) > 0
+	default:
+		if assign.Type == "roll" {
+			roll, err := s.rolls.FindByID(uint(channelVal))
+			return err == nil && roll != nil && roll.Status == 1
+		}
+		ch, err := s.channels.FindByID(uint(channelVal))
+		return err == nil && ch != nil && ch.Status == 1 && ch.DayStatus == 0
 	}
 }
 
@@ -161,6 +200,11 @@ func (s *ChannelSelector) pickSubChannel(uid uint, typeID int, money, rateOverri
 		rate = rateOverride.String()
 	}
 	rateDec, _ := decimal.NewFromString(rate)
+	// apptype：默认取主通道 apptype，子通道 info.apptype 非空则覆盖（对齐 epay getSub L44-46）。
+	appType := chosen.AppType
+	if v := subInfoAppType(chosen.Info); v != "" {
+		appType = v
+	}
 	// 命中后刷新调度时间（尽力而为，失败不阻断下单）。
 	_ = s.subchannels.TouchUseTime(chosen.SubID, timeNow())
 	return &SelectResult{
@@ -169,7 +213,25 @@ func (s *ChannelSelector) pickSubChannel(uid uint, typeID int, money, rateOverri
 		Plugin:     chosen.Plugin,
 		Rate:       rateDec,
 		SubInfo:    chosen.Info,
+		AppType:    appType,
+		PayMin:     chosen.PayMin,
+		PayMax:     chosen.PayMax,
 	}, nil
+}
+
+// subInfoAppType 从子通道 info JSON 里取 apptype（非空才返回，对齐 epay getSub 的 apptype 覆盖）。
+func subInfoAppType(info string) string {
+	if strings.TrimSpace(info) == "" {
+		return ""
+	}
+	var m map[string]interface{}
+	if json.Unmarshal([]byte(info), &m) != nil {
+		return ""
+	}
+	if v, ok := groupConfStr(m, "apptype"); ok {
+		return v
+	}
+	return ""
 }
 
 // pickFixedOrRoll 对齐 epay (D) 分支：type=roll 时正整数是轮询组ID，先经 getChannelFromRoll
@@ -190,7 +252,10 @@ func (s *ChannelSelector) pickFixedOrRoll(assign GroupAssign, channelVal int, mo
 	if err != nil {
 		return nil, err
 	}
-	if ch == nil || ch.Status != 1 || ch.DayStatus != 0 {
+	// B1-31：固定正整数通道分支只校验 status（对齐 epay getSubmitInfo:197-198 SELECT 无 daystatus 列，
+	// $row['daystatus']==0 因键缺失恒真 → 组固定指定的通道不受 daytop 单日熔断影响）。
+	// roll 分支的 daystatus 过滤已在 getChannelFromRoll 池内做过，此处沿用 status 校验即可。
+	if ch == nil || ch.Status != 1 {
 		return nil, selErr("指定支付通道不可用")
 	}
 	return s.buildResult(ch, 0, "", rateOverride, hasRate), nil
@@ -208,6 +273,9 @@ func (s *ChannelSelector) buildResult(ch *model.Channel, subID int, subInfo stri
 		Plugin:     ch.Plugin,
 		Rate:       rate,
 		SubInfo:    subInfo,
+		AppType:    ch.AppType, // 通道默认 apptype（子通道 info 覆盖在 pickSubChannel 处理）
+		PayMin:     ch.PayMin,
+		PayMax:     ch.PayMax,
 	}
 }
 

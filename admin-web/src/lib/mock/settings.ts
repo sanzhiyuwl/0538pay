@@ -35,10 +35,19 @@ export const siteConfig = {
   copyright: 'Copyright © 2026 0538Pay 版权所有',
   icp: '鲁ICP备2026000538号-1',
   police: '鲁公网安备 37098202000538号',
+  qingsuan: '中国支付清算协会会员',
   policeLink: 'https://beian.mps.gov.cn/',
   marketLink: 'https://www.gsxt.gov.cn/',
+  qingsuanLink: 'https://www.paymentclearing.org.cn/',
   // 合规声明：显示在官网导航下方告示条 + 页脚
   disclaimer: '本平台是收单外包服务机构，俗称支付机构代理商，不涉及资金清算，不触碰用户资金。资金由持牌支付机构与您直接清算，望知晓！',
+  // 官网首页右侧悬浮联系栏（FloatingContact）
+  floatBarOn: true, // 悬浮栏总开关
+  floatKf: true, // 显示「在线客服」(走客服QQ)
+  floatQr: true, // 显示「公众号」(走公众号二维码 mpQrcode)
+  floatMail: true, // 显示「邮箱」(走联系邮箱)
+  floatTop: true, // 显示「返回顶部」
+  mpQrcode: '', // 官方公众号二维码图（悬浮栏 + 资讯页侧栏共用）
 }
 
 /** 注册登录设置（set.php mod=reg 相关项精简，对齐 epay 真实字段） */

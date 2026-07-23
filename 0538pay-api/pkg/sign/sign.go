@@ -58,12 +58,12 @@ func MakeMD5(params map[string]string, key string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// VerifyMD5 校验 MD5 签名。epay 用 === 严格比较（md5 输出小写），
-// 这里用 EqualFold 放宽大小写，容忍部分客户端上送大写十六进制。
+// VerifyMD5 校验 MD5 签名。严格全等比较（对齐 epay Payment.php:verifySign `$sign === $data['sign']`，
+// B1-20）：md5 输出恒小写，大写签名会被拒——与 epay 行为 1:1 一致，不放宽大小写。
 func VerifyMD5(params map[string]string, key string) bool {
 	got := params["sign"]
 	if got == "" {
 		return false
 	}
-	return strings.EqualFold(got, MakeMD5(params, key))
+	return got == MakeMD5(params, key)
 }
