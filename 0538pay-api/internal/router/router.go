@@ -164,6 +164,7 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.PUT("/weworks/:id", d.Wework.Update)
 			authed.PUT("/weworks/:id/status", d.Wework.SetStatus)
 			authed.DELETE("/weworks/:id", d.Wework.Delete)
+			authed.POST("/weworks/:id/kf/refresh", d.Wework.RefreshKf) // K-4 同步客服账号列表
 
 			// 结算管理（C2 结算域）
 			authed.GET("/settles", d.Settle.List)

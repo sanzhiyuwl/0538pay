@@ -463,3 +463,19 @@ func (h *WeworkHandler) Delete(c *gin.Context) {
 	}
 	resp.OK(c, gin.H{"id": id})
 }
+
+// RefreshKf POST /api/admin/weworks/:id/kf/refresh 从企业微信同步客服账号列表（K-4）。
+// 需真实 corpid/secret 凭证；无凭证时返回明确提示（不假成功）。
+func (h *WeworkHandler) RefreshKf(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "账号 ID 不合法")
+		return
+	}
+	list, err := h.svc.SyncKfList(c.Request.Context(), id)
+	if err != nil {
+		failFromWeworkErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"id": id, "count": len(list), "list": list})
+}

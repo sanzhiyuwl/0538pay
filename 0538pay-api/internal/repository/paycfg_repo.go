@@ -158,6 +158,46 @@ func (r *WeworkRepo) CountKfByWork() (map[uint]int64, error) {
 	return out, nil
 }
 
+// ListKfByWork 列出某企微下的客服账号（K-4 刷新后展示）。
+func (r *WeworkRepo) ListKfByWork(wid uint) ([]model.WxKfAccount, error) {
+	var list []model.WxKfAccount
+	err := r.db.Where("wid = ?", wid).Order("id ASC").Find(&list).Error
+	return list, err
+}
+
+// UpsertKf 按 openkfid 唯一键 upsert 客服账号（K-4 从企微 API 同步；已存在则更新名称/URL）。
+func (r *WeworkRepo) UpsertKf(m *model.WxKfAccount) error {
+	var exist model.WxKfAccount
+	err := r.db.Where("openkfid = ?", m.OpenKfID).First(&exist).Error
+	if err == gorm.ErrRecordNotFound {
+		return r.db.Create(m).Error
+	}
+	if err != nil {
+		return err
+	}
+	return r.db.Model(&exist).Updates(map[string]interface{}{
+		"wid": m.WID, "name": m.Name, "url": m.URL,
+	}).Error
+}
+
+// FindKfByOpenID 按 openkfid 查客服账号（K-4 lockGetMsg 取 cursor）。
+func (r *WeworkRepo) FindKfByOpenID(openKfID string) (*model.WxKfAccount, error) {
+	var m model.WxKfAccount
+	err := r.db.Where("openkfid = ?", openKfID).First(&m).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// UpdateKfCursor 回写客服账号消息游标（K-4 syncMsg 后持久化 next_cursor）。
+func (r *WeworkRepo) UpdateKfCursor(id uint, cursor string) error {
+	return r.db.Model(&model.WxKfAccount{}).Where("id = ?", id).Update("cursor", cursor).Error
+}
+
 // countUnique 通用唯一计数：某列等值计数，excludeID>0 时排除自身主键 id。
 func countUnique(db *gorm.DB, model interface{}, col, val string, excludeID uint) (int64, error) {
 	tx := db.Model(model).Where(col+" = ?", val)
