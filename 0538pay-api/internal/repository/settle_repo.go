@@ -25,9 +25,8 @@ type SettleRepo struct{ db *gorm.DB }
 
 func NewSettleRepo(db *gorm.DB) *SettleRepo { return &SettleRepo{db: db} }
 
-// List 分页查询结算明细，支持 结算账号/姓名 关键词、商户号、方式、状态、批次筛选。
-func (r *SettleRepo) List(q dto.SettleQuery) ([]model.SettleRecord, int64, error) {
-	tx := r.db.Model(&model.SettleRecord{})
+// applySettleFilters 把 SettleQuery 的筛选条件统一挂到查询上（List/Stats/ExportRows 共用，避免口径漂移）。
+func applySettleFilters(tx *gorm.DB, q dto.SettleQuery) *gorm.DB {
 	if q.Keyword != "" {
 		tx = tx.Where("account LIKE ? OR username LIKE ?", "%"+q.Keyword+"%", "%"+q.Keyword+"%")
 	}
@@ -43,6 +42,18 @@ func (r *SettleRepo) List(q dto.SettleQuery) ([]model.SettleRecord, int64, error
 	if q.Batch != "" {
 		tx = tx.Where("batch = ?", q.Batch)
 	}
+	if q.StartTime != "" {
+		tx = tx.Where("add_time >= ?", q.StartTime+" 00:00:00")
+	}
+	if q.EndTime != "" {
+		tx = tx.Where("add_time <= ?", q.EndTime+" 23:59:59")
+	}
+	return tx
+}
+
+// List 分页查询结算明细，支持 结算账号/姓名 关键词、商户号、方式、状态、批次、创建时间范围筛选。
+func (r *SettleRepo) List(q dto.SettleQuery) ([]model.SettleRecord, int64, error) {
+	tx := applySettleFilters(r.db.Model(&model.SettleRecord{}), q)
 
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
@@ -57,6 +68,55 @@ func (r *SettleRepo) List(q dto.SettleQuery) ([]model.SettleRecord, int64, error
 		return nil, 0, err
 	}
 	return list, total, nil
+}
+
+// Stats 按与 List 完全相同的筛选条件（不分页）做全量聚合，供结算明细页概况卡使用。
+// 修正旧版前端仅对当前页/前 100 条统计的口径问题——概况须覆盖全部匹配记录。
+func (r *SettleRepo) Stats(q dto.SettleQuery) (dto.SettleStats, error) {
+	tx := applySettleFilters(r.db.Model(&model.SettleRecord{}), q)
+
+	var row struct {
+		TotalCount      int64
+		TotalMoney      decimal.Decimal
+		RealMoney       decimal.Decimal
+		DoneCount       int64
+		DoneMoney       decimal.Decimal
+		PendingCount    int64
+		ProcessingCount int64
+		FailCount       int64
+	}
+	err := tx.Select(
+		"COUNT(*) AS total_count",
+		"COALESCE(SUM(money),0) AS total_money",
+		"COALESCE(SUM(real_money),0) AS real_money",
+		"COALESCE(SUM(CASE WHEN status=1 THEN 1 ELSE 0 END),0) AS done_count",
+		"COALESCE(SUM(CASE WHEN status=1 THEN money ELSE 0 END),0) AS done_money",
+		"COALESCE(SUM(CASE WHEN status=0 THEN 1 ELSE 0 END),0) AS pending_count",
+		"COALESCE(SUM(CASE WHEN status=2 THEN 1 ELSE 0 END),0) AS processing_count",
+		"COALESCE(SUM(CASE WHEN status=3 THEN 1 ELSE 0 END),0) AS fail_count",
+	).Scan(&row).Error
+	if err != nil {
+		return dto.SettleStats{}, err
+	}
+	return dto.SettleStats{
+		TotalMoney:      row.TotalMoney.StringFixed(2),
+		RealMoney:       row.RealMoney.StringFixed(2),
+		DoneMoney:       row.DoneMoney.StringFixed(2),
+		TotalCount:      row.TotalCount,
+		DoneCount:       row.DoneCount,
+		PendingCount:    row.PendingCount,
+		ProcessingCount: row.ProcessingCount,
+		FailCount:       row.FailCount,
+	}, nil
+}
+
+// ExportRows 按与 List 相同的筛选（不分页）返回全部匹配的结算明细，供服务端 CSV 导出。
+// 修正旧版前端仅导出前 100 条的截断问题。
+func (r *SettleRepo) ExportRows(q dto.SettleQuery) ([]model.SettleRecord, error) {
+	tx := applySettleFilters(r.db.Model(&model.SettleRecord{}), q)
+	var list []model.SettleRecord
+	err := tx.Order("id DESC").Find(&list).Error
+	return list, err
 }
 
 // FindByID 按主键查结算记录。未找到返回 (nil, nil)。

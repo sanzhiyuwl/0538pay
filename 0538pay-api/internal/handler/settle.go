@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/csv"
 	"errors"
 	"strconv"
 	"time"
@@ -52,6 +53,63 @@ func (h *SettleHandler) List(c *gin.Context) {
 		return
 	}
 	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// Stats GET /api/admin/settle/stats 结算明细概况（全量聚合，与列表同筛选）
+func (h *SettleHandler) Stats(c *gin.Context) {
+	var q dto.SettleQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	stats, err := h.svc.Stats(q)
+	if err != nil {
+		resp.Fail(c, 1105, "统计失败: "+err.Error())
+		return
+	}
+	resp.OK(c, stats)
+}
+
+var settleTypeText = map[int8]string{1: "支付宝", 2: "微信", 3: "QQ钱包", 4: "银行卡", 5: "支付机构"}
+var settleStatusText = map[int8]string{0: "待结算", 1: "已完成", 2: "正在结算", 3: "结算失败"}
+
+// Export GET /api/admin/settle/export 结算明细服务端 CSV 导出（与列表同筛选，全量不分页）
+func (h *SettleHandler) Export(c *gin.Context) {
+	var q dto.SettleQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	rows, err := h.svc.ExportRows(q)
+	if err != nil {
+		resp.Fail(c, 1105, "导出失败: "+err.Error())
+		return
+	}
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", `attachment; filename="settles.csv"`)
+	c.Writer.Write([]byte{0xEF, 0xBB, 0xBF}) // UTF-8 BOM
+	w := csv.NewWriter(c.Writer)
+	_ = w.Write([]string{
+		"ID", "批次号", "商户号", "商户", "结算方式", "是否自动",
+		"结算账号", "结算姓名", "结算金额", "实际到账", "创建时间", "完成时间", "状态", "失败原因",
+	})
+	for i := range rows {
+		r := &rows[i]
+		endTime := ""
+		if r.EndTime != nil {
+			endTime = *r.EndTime
+		}
+		auto := "手动"
+		if r.Auto == 1 {
+			auto = "自动"
+		}
+		_ = w.Write([]string{
+			strconv.FormatUint(uint64(r.ID), 10), r.Batch, strconv.FormatUint(uint64(r.UID), 10), r.Merchant,
+			settleTypeText[r.Type], auto, r.Account, r.Username, r.Money, r.RealMoney,
+			r.AddTime, endTime, settleStatusText[r.Status], r.Result,
+		})
+	}
+	w.Flush()
 }
 
 // Batches GET /api/admin/settle/batches 结算批次列表

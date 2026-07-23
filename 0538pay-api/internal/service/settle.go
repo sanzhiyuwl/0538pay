@@ -261,6 +261,25 @@ func (s *SettleService) List(q dto.SettleQuery) ([]dto.SettleView, int64, error)
 	return views, total, nil
 }
 
+// Stats 结算明细概况（全量聚合，按与列表相同筛选，供概况卡使用）。
+func (s *SettleService) Stats(q dto.SettleQuery) (dto.SettleStats, error) {
+	q.Normalize()
+	return s.repo.Stats(q)
+}
+
+// ExportRows 按与列表相同筛选返回全部匹配明细（转 View），供服务端 CSV 导出。
+func (s *SettleService) ExportRows(q dto.SettleQuery) ([]dto.SettleView, error) {
+	list, err := s.repo.ExportRows(q)
+	if err != nil {
+		return nil, err
+	}
+	views := make([]dto.SettleView, 0, len(list))
+	for i := range list {
+		views = append(views, toSettleView(&list[i]))
+	}
+	return views, nil
+}
+
 // ListBatches 返回分页结算批次（转对外 View）。
 func (s *SettleService) ListBatches(page, pageSize int) ([]dto.SettleBatchView, int64, error) {
 	if page <= 0 {

@@ -171,11 +171,13 @@ type ChannelQuery struct {
 }
 
 // Normalize 补默认分页值并做安全上限。
+// 通道数量本就有限（epay pay_channel 全量返回、无服务端分页），故上限放宽到 500，
+// 允许前端一次拉全后客户端分页 + 概况全量统计，对齐 epay 行为；仍设上限防异常大值。
 func (q *ChannelQuery) Normalize() {
 	if q.Page <= 0 {
 		q.Page = 1
 	}
-	if q.PageSize <= 0 || q.PageSize > 100 {
+	if q.PageSize <= 0 || q.PageSize > 500 {
 		q.PageSize = 20
 	}
 }
@@ -440,8 +442,22 @@ type SettleQuery struct {
 	Keyword  string `form:"keyword"` // 结算账号/姓名 模糊
 	UID      *uint  `form:"uid"`     // 商户号
 	Type     *int   `form:"type"`    // 结算方式（0/空=全部）
-	Status   *int   `form:"status"`  // 状态（-1/空=全部）
-	Batch    string `form:"batch"`   // 所属批次
+	Status    *int   `form:"status"`    // 状态（-1/空=全部）
+	Batch     string `form:"batch"`     // 所属批次
+	StartTime string `form:"starttime"` // 创建时间起（YYYY-MM-DD，按 add_time 闭区间）
+	EndTime   string `form:"endtime"`   // 创建时间止（YYYY-MM-DD）
+}
+
+// SettleStats 结算明细概况（全量聚合，按与列表相同筛选，不分页）。
+type SettleStats struct {
+	TotalMoney      string `json:"totalMoney"`      // 结算金额合计
+	RealMoney       string `json:"realMoney"`       // 实际到账合计
+	DoneMoney       string `json:"doneMoney"`       // 已完成金额合计
+	TotalCount      int64  `json:"totalCount"`      // 总笔数
+	DoneCount       int64  `json:"doneCount"`       // 已完成笔数
+	PendingCount    int64  `json:"pendingCount"`    // 待结算笔数
+	ProcessingCount int64  `json:"processingCount"` // 正在结算笔数
+	FailCount       int64  `json:"failCount"`       // 结算失败笔数
 }
 
 // Normalize 补默认分页值并做安全上限。

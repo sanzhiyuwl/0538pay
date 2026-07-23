@@ -164,6 +164,8 @@ func Setup(r *gin.Engine, d Deps) {
 
 			// 结算管理（C2 结算域）
 			authed.GET("/settles", d.Settle.List)
+			authed.GET("/settle/stats", d.Settle.Stats)
+			authed.GET("/settle/export", d.Settle.Export)
 			authed.PUT("/settles/:id/status", d.Settle.SetStatus)
 			authed.GET("/settle/batches", d.Settle.Batches)
 			authed.POST("/settle/batch", d.Settle.CreateBatch)
