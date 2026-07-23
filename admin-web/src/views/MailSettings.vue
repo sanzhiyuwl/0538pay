@@ -8,12 +8,13 @@ import {
   smsConfig,
   smsApiOptions,
 } from '@/lib/mock/sysconfig'
-import { fetchConfig, saveConfig } from '@/lib/api/config'
+import { fetchConfig, saveConfig, testMail } from '@/lib/api/config'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 
 const toast = useToast()
 const saving = ref(false)
+const testing = ref(false)
 const mail = reactive({ ...mailConfig })
 const sms = reactive({ ...smsConfig })
 // SMTP 与云推送字段互斥显隐
@@ -41,6 +42,20 @@ async function save() {
     toast.error(e instanceof ApiError ? e.message : '保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+// 发送测试邮件：先存当前配置再发（对齐 epay set.php 测试逻辑），收件人默认为管理员收信邮箱。
+async function sendTest() {
+  testing.value = true
+  try {
+    await saveConfig('mail', { ...mail, ...sms })
+    const r = await testMail()
+    toast.success(`测试邮件已发送至 ${r.to}`)
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '发送失败')
+  } finally {
+    testing.value = false
   }
 }
 </script>
@@ -93,7 +108,7 @@ async function save() {
       </div>
       <div class="mt-5 flex items-center gap-2 border-t border-border/60 pt-4">
         <Button :disabled="saving" @click="save"><Save />保存设置</Button>
-        <Button variant="outline" disabled><Send />发送测试邮件</Button>
+        <Button variant="outline" :disabled="testing || saving" @click="sendTest"><Send />发送测试邮件</Button>
       </div>
     </Panel>
 

@@ -13,3 +13,8 @@ export function fetchConfig(group: string): Promise<ConfigKV> {
 export function saveConfig(group: string, kv: ConfigKV): Promise<{ group: string }> {
   return request<{ group: string }>(`/admin/config/${group}`, { method: 'PUT', body: kv })
 }
+
+/** 用当前邮件配置发送一封测试邮件（K-3，对齐 epay set.php 测试邮件）。to 留空则发到管理员收信邮箱。 */
+export function testMail(to?: string): Promise<{ to: string }> {
+  return request<{ to: string }>('/admin/config/mail/test', { method: 'POST', body: { to: to || '' } })
+}
