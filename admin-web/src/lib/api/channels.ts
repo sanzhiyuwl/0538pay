@@ -72,3 +72,34 @@ export function saveChannelConfig(id: number, config: string): Promise<{ id: num
     body: { config },
   })
 }
+
+/** 插件配置字段元数据（对齐后端 channel.FieldInput，驱动密钥表单动态渲染） */
+export interface PluginFieldInput {
+  name: string
+  label: string
+  type: string // text/password/textarea/select
+  options: string[] | null
+  require: boolean
+  tip: string
+}
+
+/** 插件支持的支付产品形态（对齐后端 channel.ProductType） */
+export interface PluginProduct {
+  code: string
+  name: string
+}
+
+/** 插件能力与配置元数据（对齐后端 channel.PluginMeta） */
+export interface PluginMeta {
+  key: string
+  inputs: PluginFieldInput[] | null
+  products: PluginProduct[] | null
+  can_refund: boolean
+  can_transfer: boolean
+  configurable: boolean
+}
+
+/** 拉取所有已注册渠道插件的能力/配置元数据（后台按插件动态渲染密钥表单） */
+export function fetchPluginMeta(): Promise<PluginMeta[]> {
+  return request<PluginMeta[]>('/admin/channels/plugins')
+}

@@ -54,46 +54,8 @@ export const pluginsByType: Record<number, { name: string; showname: string }[]>
   ],
 }
 
-/** 密钥配置字段定义（配置密钥抽屉据此渲染专用表单） */
-export interface ConfigField {
-  key: string // config JSON 的键名（与后端 buildChannelConfig 的通用键对齐）
-  label: string // 表单显示名
-  placeholder?: string
-  type?: 'text' | 'textarea' // textarea 用于 PEM 私钥/公钥
-  required?: boolean
-  hint?: string
-}
-
-/**
- * 各插件的密钥字段预设。有预设的插件走专用表单，未列出的插件退回通用 key-value 编辑。
- * 微信 Native (wxnative) 字段对齐后端 pkg/channel/wxnative 与 buildChannelConfig 的通用键。
- */
-export const pluginConfigFields: Record<string, ConfigField[]> = {
-  alipayf2f: [
-    { key: 'appid', label: '应用 APPID', placeholder: '支付宝开放平台应用 appid', required: true },
-    { key: 'private_key', label: '应用私钥', placeholder: '-----BEGIN PRIVATE KEY-----', type: 'textarea', required: true, hint: '应用私钥（PKCS8/PKCS1 或裸 Base64），用于请求签名' },
-    { key: 'public_key', label: '支付宝公钥', placeholder: '-----BEGIN PUBLIC KEY-----', type: 'textarea', required: true, hint: '支付宝公钥，用于回调验签；填错可支付成功但无法回调' },
-    { key: 'seller_id', label: '卖家 ID', placeholder: '卖家支付宝用户ID（可留空，默认签约账号）' },
-    { key: 'notify_url', label: '回调基址', placeholder: 'https://你的域名/api/pay/notify', required: true, hint: '系统会自动拼接 /系统订单号 作为支付宝回调地址' },
-  ],
-  wxnative: [
-    { key: 'appid', label: 'AppID', placeholder: '公众号/应用 appid', required: true },
-    { key: 'mch_id', label: '商户号', placeholder: '微信支付商户号 mchid', required: true },
-    { key: 'serial_no', label: '证书序列号', placeholder: '商户 API 证书序列号', required: true },
-    { key: 'api_v3_key', label: 'APIv3 密钥', placeholder: '32 位 APIv3 密钥', required: true, hint: '商户平台设置的 32 字节 APIv3 密钥，用于回调解密' },
-    { key: 'private_key', label: '商户私钥', placeholder: '-----BEGIN PRIVATE KEY-----', type: 'textarea', required: true, hint: 'apiclient_key.pem 内容，用于请求签名' },
-    { key: 'public_key', label: '微信支付公钥', placeholder: '-----BEGIN PUBLIC KEY-----', type: 'textarea', hint: '平台公钥/证书公钥，用于回调与应答验签' },
-    { key: 'public_key_id', label: '公钥 ID', placeholder: 'PUB_KEY_ID_xxxx（可选）' },
-    { key: 'notify_url', label: '回调基址', placeholder: 'https://你的域名/api/pay/notify', required: true, hint: '系统会自动拼接 /系统订单号 作为微信回调地址' },
-  ],
-}
-
-// 支付宝网页/H5 与当面付同源（同一开放平台密钥），共用 alipayf2f 的字段预设。
-pluginConfigFields.alipaypage = pluginConfigFields.alipayf2f
-pluginConfigFields.alipaywap = pluginConfigFields.alipayf2f
-// 微信 JSAPI/H5 与 Native 同源（同一 APIv3 商户凭证），共用 wxnative 的字段预设。
-pluginConfigFields.wxjsapi = pluginConfigFields.wxnative
-pluginConfigFields.wxh5 = pluginConfigFields.wxnative
+// 密钥字段定义已搬到后端（各渠道 Configurable.Inputs()），前端密钥抽屉改为消费
+// GET /admin/channels/plugins 动态渲染，不再前端硬编码。见 lib/api/channels.ts PluginMeta。
 
 const typeMeta: Record<number, { name: string; showname: string }> = {
   1: { name: 'alipay', showname: '支付宝' },

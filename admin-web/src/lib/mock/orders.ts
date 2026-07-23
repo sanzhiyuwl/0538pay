@@ -24,9 +24,15 @@ export interface Order {
   buyer: string // 支付账号
   addtime: string // 创建时间
   endtime: string | null // 完成时间
+  refundtime?: string | null // 退款时间（status=2 时有值，对齐 epay 详情）
   status: 0 | 1 | 2 | 3 | 4 // 状态
   settle: 0 | 1 | 2 | 3 // 结算子状态
   combine: 0 | 1 // 是否合单
+  // 详情抽屉补充字段（对齐 epay showOrder 弹窗，列表不展示）
+  bill_trade_no?: string // 用户交易单号
+  mobile?: string // 下单手机号
+  param?: string // 商户自定义透传参数
+  notify?: number // 通知状态：0成功/无需，>0失败已通知N次，-1放弃
 }
 
 /** 状态字典（列表/详情通用） */

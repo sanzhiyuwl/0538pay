@@ -18,8 +18,8 @@ const form = reactive({
   check_sucrate_value: '30',
   auto_check_channel: '0',
   check_channel_second: '600',
-  check_channel_count: '20',
-  check_channel_value: '30',
+  check_channel_failcount: '0',
+  check_channel_ids: '',
 })
 
 const loading = ref(false)
@@ -96,7 +96,7 @@ async function save() {
           </div>
         </div>
 
-        <div class="row-switch border-t border-border/60 pt-3.5"><span>通道成功率自动关停</span><Switch v-model="channelOn" /></div>
+        <div class="row-switch border-t border-border/60 pt-3.5"><span>通道/子通道连续未支付自动关停</span><Switch v-model="channelOn" /></div>
         <div class="row-field">
           <label class="lbl">统计窗口</label>
           <div class="flex flex-1 items-center gap-2">
@@ -104,15 +104,15 @@ async function save() {
           </div>
         </div>
         <div class="row-field">
-          <label class="lbl">最小样本订单数</label>
+          <label class="lbl">连续未支付订单数</label>
           <div class="flex flex-1 items-center gap-2">
-            <input v-model="form.check_channel_count" class="field-input w-28" /><span class="text-sm text-muted-foreground">单</span>
+            <input v-model="form.check_channel_failcount" class="field-input w-28" /><span class="text-sm text-muted-foreground">单内全部未支付则关停（0=不启用）</span>
           </div>
         </div>
         <div class="row-field">
-          <label class="lbl">成功率阈值</label>
+          <label class="lbl">限定通道ID</label>
           <div class="flex flex-1 items-center gap-2">
-            <input v-model="form.check_channel_value" class="field-input w-28" /><span class="text-sm text-muted-foreground">% 以下关停该通道</span>
+            <input v-model="form.check_channel_ids" class="field-input flex-1" placeholder="逗号分隔，留空为全部通道" />
           </div>
         </div>
       </div>
@@ -120,7 +120,8 @@ async function save() {
         <Button :disabled="saving" @click="save"><Save />保存设置</Button>
       </div>
       <p class="mt-3 text-xs text-muted-foreground">
-        触发关停后会将商户支付权限置为关闭并记录一条风控记录（风控管理 → 风控记录可查）。投诉率风控依赖真实渠道投诉数据，暂不提供。
+        商户维度关停（通知失败/成功率）会将支付权限置为关闭并记录一条风控记录（风控管理 → 风控记录可查）；
+        通道/子通道关停仅置为停用，不写商户风控记录。投诉率风控依赖真实渠道投诉数据，暂不提供。
       </p>
     </Panel>
   </div>

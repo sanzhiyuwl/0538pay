@@ -17,10 +17,8 @@ import {
   channelMode,
   typeOptions,
   pluginsByType,
-  pluginConfigFields,
   calcChannelStats,
   type Channel,
-  type ConfigField,
 } from '@/lib/mock/channels'
 import {
   fetchChannels,
@@ -30,7 +28,10 @@ import {
   setChannelStatus,
   fetchChannelConfig,
   saveChannelConfig,
+  fetchPluginMeta,
   type ChannelSaveReq,
+  type PluginFieldInput,
+  type PluginMeta,
 } from '@/lib/api/channels'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
@@ -121,9 +122,24 @@ function toggleMenu(id: number, ev?: MouseEvent) {
 function closeMenu() {
   openMenu.value = null
 }
+// 插件元数据（后端 /channels/plugins 自声明的密钥字段/能力），驱动密钥表单动态渲染
+const pluginMeta = ref<Record<string, PluginMeta>>({})
+async function loadPluginMeta() {
+  try {
+    const list = await fetchPluginMeta()
+    const map: Record<string, PluginMeta> = {}
+    for (const m of list) map[m.key] = m
+    pluginMeta.value = map
+  } catch {
+    // 元数据拉取失败不阻塞列表；密钥抽屉会退回通用 key-value 编辑
+    pluginMeta.value = {}
+  }
+}
+
 onMounted(() => {
   window.addEventListener('click', closeMenu)
   loadChannels()
+  loadPluginMeta()
 })
 onUnmounted(() => window.removeEventListener('click', closeMenu))
 
@@ -261,15 +277,15 @@ async function confirmDelete() {
 }
 
 // ===== 密钥配置抽屉 =====
-// 有插件预设(pluginConfigFields)的走专用表单，否则退回通用 key-value 编辑。
+// 插件元数据(pluginMeta)声明了 inputs 字段的走专用表单，否则退回通用 key-value 编辑。
 const configDrawer = ref(false)
 const configTarget = ref<Channel | null>(null)
 const configLoading = ref(false)
 const configSaving = ref(false)
 // 通用模式：key-value 行编辑
 const configRows = ref<{ key: string; value: string }[]>([])
-// 预设模式：字段定义 + 值表
-const presetFields = ref<ConfigField[]>([])
+// 预设模式：字段定义(来自后端插件元数据) + 值表
+const presetFields = ref<PluginFieldInput[]>([])
 const presetForm = ref<Record<string, string>>({})
 
 // 把 config JSON 字符串解析为 key-value 行（值统一转字符串展示）
@@ -314,7 +330,7 @@ async function openConfig(c: Channel) {
   configTarget.value = c
   configRows.value = []
   presetForm.value = {}
-  presetFields.value = pluginConfigFields[c.plugin] || []
+  presetFields.value = pluginMeta.value[c.plugin]?.inputs ?? []
   configDrawer.value = true
   openMenu.value = null
   configLoading.value = true
@@ -347,12 +363,12 @@ async function saveConfig() {
     // 预设模式：先以已回填对象为底（保留未知键），再覆盖预设字段值
     obj = { ...presetForm.value }
     for (const f of presetFields.value) {
-      const v = (presetForm.value[f.key] ?? '').trim()
-      if (f.required && !v) {
+      const v = (presetForm.value[f.name] ?? '').trim()
+      if (f.require && !v) {
         toast.error(`请填写「${f.label}」`)
         return
       }
-      obj[f.key] = presetForm.value[f.key] ?? ''
+      obj[f.name] = presetForm.value[f.name] ?? ''
     }
   } else {
     // 通用模式：忽略空 key，key 去重（后者覆盖前者）
@@ -611,25 +627,33 @@ async function saveConfig() {
           按 {{ configTarget?.plugin }} 插件所需字段填写密钥参数，保存后即可用于真实收款。
           私钥/公钥请粘贴完整 PEM 内容。
         </p>
-        <div v-for="f in presetFields" :key="f.key" class="row-field items-start">
+        <div v-for="f in presetFields" :key="f.name" class="row-field items-start">
           <label class="lbl pt-2">
-            {{ f.label }}<span v-if="f.required" class="text-destructive">*</span>
+            {{ f.label }}<span v-if="f.require" class="text-destructive">*</span>
           </label>
           <div class="flex-1 space-y-1">
             <textarea
               v-if="f.type === 'textarea'"
-              v-model="presetForm[f.key]"
-              :placeholder="f.placeholder"
+              v-model="presetForm[f.name]"
+              :placeholder="f.tip"
               rows="4"
               class="field-input w-full resize-y font-mono text-xs"
             />
+            <select
+              v-else-if="f.type === 'select'"
+              v-model="presetForm[f.name]"
+              class="field-input w-full"
+            >
+              <option v-for="opt in f.options ?? []" :key="opt" :value="opt">{{ opt }}</option>
+            </select>
             <input
               v-else
-              v-model="presetForm[f.key]"
-              :placeholder="f.placeholder"
+              v-model="presetForm[f.name]"
+              :type="f.type === 'password' ? 'password' : 'text'"
+              :placeholder="f.tip"
               class="field-input w-full"
             />
-            <p v-if="f.hint" class="text-xs text-muted-foreground">{{ f.hint }}</p>
+            <p v-if="f.tip" class="text-xs text-muted-foreground">{{ f.tip }}</p>
           </div>
         </div>
       </div>

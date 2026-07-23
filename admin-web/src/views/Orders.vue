@@ -12,6 +12,9 @@ import {
   deleteOrder,
   batchOrders,
   exportOrders,
+  fetchOrderStats,
+  type OrderStats,
+  type OrderListParams,
 } from '@/lib/api/orders'
 import { ApiError } from '@/lib/api/client'
 import {
@@ -26,6 +29,7 @@ import {
   Sun,
   Bell,
   FilePlus2,
+  FileText,
   Trash2,
 } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, DateRange, Pagination, Drawer, Modal } from '@/components/ui'
@@ -33,7 +37,6 @@ import {
   orderStatus,
   payTypes,
   searchColumns,
-  calcStats,
   type Order,
 } from '@/lib/mock/orders'
 import { formatMoney } from '@/lib/utils'
@@ -65,8 +68,33 @@ const filters = ref({
   dstatus: -1,
 })
 
-// ===== 数据源：从后端 API 加载 =====
-const allOrders = ref<Order[]>([])
+// ===== 分页（服务端）=====
+const page = ref(1)
+const pageSize = 15
+const total = ref(0)
+const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
+const safePage = computed(() => Math.min(page.value, pageCount.value))
+
+// 把当前筛选映射为后端 OrderListParams（筛选与分页整体下推后端，对齐 epay 服务端筛选，
+// 修正旧版仅对前 100 条前端筛选、列表/统计在 >100 单或 type/channel/时间筛选时不准的问题）。
+function buildParams(): OrderListParams {
+  const f = filters.value
+  const p: OrderListParams = { page: page.value, pageSize }
+  if (f.value.trim()) {
+    p.column = f.column
+    p.keyword = f.value.trim()
+  }
+  if (f.uid.trim()) p.uid = Number(f.uid.trim()) || 0
+  if (f.type) p.type = f.type
+  if (f.channel.trim()) p.channel = Number(f.channel.trim()) || 0
+  if (f.dstatus > -1) p.status = f.dstatus
+  if (f.starttime) p.starttime = f.starttime
+  if (f.endtime) p.endtime = f.endtime
+  return p
+}
+
+// ===== 数据源：从后端 API 加载（服务端分页 + 筛选）=====
+const pageRows = ref<Order[]>([])
 const loading = ref(false)
 const loadError = ref('')
 
@@ -74,31 +102,18 @@ async function loadOrders() {
   loading.value = true
   loadError.value = ''
   try {
-    // 起步阶段后端返回全量分页，客户端仍做筛选；后续可把筛选下推到后端
-    const res = await fetchOrders({ page: 1, pageSize: 100 })
-    allOrders.value = res.list
+    const res = await fetchOrders(buildParams())
+    pageRows.value = res.list
+    total.value = res.total
+    if (showStats.value) await loadStats()
   } catch (e) {
     loadError.value = e instanceof ApiError ? e.message : '加载订单失败'
-    allOrders.value = []
+    pageRows.value = []
+    total.value = 0
   } finally {
     loading.value = false
   }
 }
-
-const filtered = computed(() => {
-  return allOrders.value.filter((o) => {
-    if (filters.value.uid && String(o.uid) !== filters.value.uid.trim()) return false
-    if (filters.value.type && o.type !== filters.value.type) return false
-    if (filters.value.channel && String(o.channel) !== filters.value.channel.trim()) return false
-    if (filters.value.dstatus > -1 && o.status !== filters.value.dstatus) return false
-    if (filters.value.value.trim()) {
-      const v = filters.value.value.trim()
-      const field = (o as any)[filters.value.column]
-      if (field == null || !String(field).includes(v)) return false
-    }
-    return true
-  })
-})
 
 function resetFilters() {
   filters.value = {
@@ -112,25 +127,38 @@ function resetFilters() {
     dstatus: -1,
   }
   page.value = 1
+  loadOrders()
 }
 
-// ===== 分页 =====
-const page = ref(1)
-const pageSize = 15
-const total = computed(() => filtered.value.length)
-const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
-// 当前页做 clamp，避免筛选后结果变少、page 停留在旧页导致表格空白
-const safePage = computed(() => Math.min(page.value, pageCount.value))
-const pageRows = computed(() =>
-  filtered.value.slice((safePage.value - 1) * pageSize, safePage.value * pageSize),
-)
+// 搜索/翻页/重置都重新拉后端
+function search() {
+  page.value = 1
+  loadOrders()
+}
 function go(p: number) {
   page.value = Math.min(Math.max(1, p), pageCount.value)
+  loadOrders()
 }
 
-// ===== 统计 =====
+// ===== 统计（后端全量聚合，非当前页）=====
 const showStats = ref(false)
-const stats = computed(() => calcStats(filtered.value))
+const stats = ref<OrderStats>({
+  totalMoney: 0, successMoney: 0, unpaidMoney: 0, refundMoney: 0, platformProfit: 0,
+  totalCount: 0, successCount: 0, unpaidCount: 0, refundCount: 0, successRate: 0,
+})
+async function loadStats() {
+  try {
+    // 统计与列表同筛选，但不带分页（后端按全部匹配订单聚合，对齐 epay 统计按钮）
+    const { page: _p, pageSize: _ps, ...f } = buildParams()
+    stats.value = await fetchOrderStats(f)
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '统计加载失败')
+  }
+}
+async function toggleStats() {
+  showStats.value = !showStats.value
+  if (showStats.value) await loadStats()
+}
 
 // ===== 行操作菜单 =====
 const openMenu = ref<string | null>(null)
@@ -151,16 +179,17 @@ onMounted(() => {
 onUnmounted(() => window.removeEventListener('click', closeMenu))
 
 function actionsFor(o: Order): string[] {
-  if (o.status === 1) return ['改未完成', 'API退款', '手动退款', '冻结订单', '-', '重新通知', '删除订单']
-  if (o.status === 2) return ['改未完成', 'API退款', '改已完成', '-', '重新通知', '删除订单']
-  if (o.status === 3) return ['解冻订单', 'API退款', '-', '重新通知', '删除订单']
-  const base = ['改已完成', '-', '手动补单', '删除订单']
-  if (o.status === 4) return ['授权资金支付', '授权资金解冻', '-', ...base]
+  if (o.status === 1) return ['订单详情', '-', '改未完成', 'API退款', '手动退款', '冻结订单', '-', '重新通知', '删除订单']
+  if (o.status === 2) return ['订单详情', '-', '改未完成', 'API退款', '改已完成', '-', '重新通知', '删除订单']
+  if (o.status === 3) return ['订单详情', '-', '解冻订单', 'API退款', '-', '重新通知', '删除订单']
+  const base = ['订单详情', '-', '改已完成', '-', '手动补单', '删除订单']
+  if (o.status === 4) return ['订单详情', '-', '授权资金支付', '授权资金解冻', '-', '改已完成', '-', '手动补单', '删除订单']
   return base
 }
 
 // 操作项 → 图标
 const actionIcons: Record<string, any> = {
+  订单详情: FileText,
   改未完成: RotateCcw,
   改已完成: CheckCircle2,
   'API退款': Undo2,
@@ -268,9 +297,18 @@ function notYet() {
   toast.info('预授权资金操作依赖真实渠道凭证，待接入')
 }
 
+// ===== 订单详情抽屉（对齐 epay order.php 行展开：看列表放不下的完整字段）=====
+// 纯展示已加载行数据，无需额外接口。合单子订单列表依赖合单收单能力(我方未实现，不产生 combine=1 单)，暂不展示。
+const detailOrder = ref<Order | null>(null)
+function openDetail(o: Order) {
+  openMenu.value = null
+  detailOrder.value = o
+}
+
 // 菜单项点击调度
 function onAction(label: string, o: Order) {
   switch (label) {
+    case '订单详情': openDetail(o); break
     case 'API退款': openRefund(o, true); break
     case '手动退款': openRefund(o, false); break
     case '授权资金支付':
@@ -331,25 +369,6 @@ const exportForm = ref({
   channel: '',
   dstatus: -1,
 })
-// 按导出条件过滤订单（count 与实际导出共用同一套逻辑，避免"预估≠导出"）
-function filterForExport(): Order[] {
-  const f = exportForm.value
-  const start = f.starttime // 'YYYY-MM-DD'
-  const end = f.endtime
-  return allOrders.value.filter((o) => {
-    // 时间范围：按 addtime 的日期部分闭区间比较（含起止当天）
-    const day = (o.addtime || '').slice(0, 10)
-    if (start && day < start) return false
-    if (end && day > end) return false
-    if (f.uid && String(o.uid) !== f.uid.trim()) return false
-    if (f.type && o.type !== f.type) return false
-    if (f.channel && String(o.channel) !== f.channel.trim()) return false
-    if (f.dstatus > -1 && o.status !== f.dstatus) return false
-    return true
-  })
-}
-// 导出预估命中条数（给用户导出前的量级参考）
-const exportCount = computed(() => filterForExport().length)
 function openExport() {
   // 带入当前列表筛选条件作为默认导出条件，减少重复输入
   exportForm.value = {
@@ -362,64 +381,33 @@ function openExport() {
   }
   exportOpen.value = true
 }
-// CSV 单元格转义：含逗号/引号/换行时用双引号包裹并转义内部引号
-function csvCell(v: string | number | null | undefined): string {
-  const s = v == null ? '' : String(v)
-  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
-  return s
-}
-// 服务端全量导出：按当前列表筛选(字段/关键词/状态)从后端流式下载，不受已加载 ≤100 限制。
+// 服务端全量导出：按抽屉筛选条件从后端流式下载 CSV（不受列表分页限制，筛选整套下推后端）。
 const serverExporting = ref(false)
 async function serverExport() {
   if (serverExporting.value) return
+  const f = exportForm.value
   serverExporting.value = true
   try {
-    await exportOrders({
-      column: filters.value.column,
-      keyword: filters.value.value || undefined,
-      status: filters.value.dstatus > -1 ? filters.value.dstatus : undefined,
-    })
-    toast.success('已导出全部订单（服务端）')
+    const p: OrderListParams = {}
+    // 导出抽屉无搜索字段/关键词，沿用列表当前搜索条件
+    if (filters.value.value.trim()) {
+      p.column = filters.value.column
+      p.keyword = filters.value.value.trim()
+    }
+    if (f.uid.trim()) p.uid = Number(f.uid.trim()) || 0
+    if (f.type) p.type = f.type
+    if (f.channel.trim()) p.channel = Number(f.channel.trim()) || 0
+    if (f.dstatus > -1) p.status = f.dstatus
+    if (f.starttime) p.starttime = f.starttime
+    if (f.endtime) p.endtime = f.endtime
+    await exportOrders(p)
+    toast.success('已导出全部匹配订单（服务端）')
+    exportOpen.value = false
   } catch (e) {
     toast.error(e instanceof Error ? e.message : '导出失败')
   } finally {
     serverExporting.value = false
   }
-}
-function submitExport() {
-  const rows = filterForExport()
-  if (rows.length === 0) {
-    toast.info('当前条件下没有可导出的订单')
-    return
-  }
-  const headers = [
-    '系统订单号', '商户订单号', '接口订单号', '商户号', '商品名称',
-    '订单金额', '实际支付', '商户分成', '已退款', '手续费利润',
-    '支付方式', '通道ID', '插件', '支付IP', '支付账号',
-    '创建时间', '完成时间', '订单状态',
-  ]
-  const lines = rows.map((o) =>
-    [
-      o.trade_no, o.out_trade_no, o.api_trade_no, o.uid, o.name,
-      o.money, o.realmoney ?? '', o.getmoney, o.refundmoney, o.profitmoney,
-      o.typeshowname, o.channel, o.plugin, o.ip, o.buyer,
-      o.addtime, o.endtime ?? '', orderStatus[o.status]?.text ?? o.status,
-    ].map(csvCell).join(','),
-  )
-  // 加 BOM，保证 Excel 打开中文不乱码
-  const csv = '﻿' + [headers.join(','), ...lines].join('\r\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  const range = `${exportForm.value.starttime}_${exportForm.value.endtime}`
-  a.href = url
-  a.download = `订单导出_${range}.csv`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-  toast.success(`已导出 ${rows.length} 条订单`)
-  exportOpen.value = false
 }
 </script>
 
@@ -428,7 +416,7 @@ function submitExport() {
     <!-- 筛选（标题即页面标题，参考图“标签+控件”横排样式） -->
     <Panel title="订单管理" :subtitle="`共 ${total} 笔订单`">
       <template #actions>
-        <Button variant="outline" size="sm" @click="showStats = !showStats">
+        <Button variant="outline" size="sm" @click="toggleStats">
           <BarChart3 />统计
         </Button>
         <Button variant="outline" size="sm" @click="openExport"><Download />导出订单</Button>
@@ -465,7 +453,7 @@ function submitExport() {
             <DateRange v-model:start="filters.starttime" v-model:end="filters.endtime" class="w-[328px]" />
           </div>
           <div class="ml-auto flex items-center gap-2">
-            <Button size="sm" @click="page = 1"><Search />搜索</Button>
+            <Button size="sm" @click="search"><Search />搜索</Button>
             <Button variant="outline" size="sm" @click="resetFilters"><RotateCcw />重置</Button>
           </div>
         </div>
@@ -473,7 +461,7 @@ function submitExport() {
     </Panel>
 
     <!-- 统计概况（可展开） -->
-    <Panel v-if="showStats" title="订单统计概况" subtitle="按当前筛选条件">
+    <Panel v-if="showStats" title="订单统计概况" subtitle="按当前筛选条件全量聚合（服务端，非当前页）">
       <div class="grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
         <div>
           <div class="text-[13px] text-muted-foreground">订单总金额</div>
@@ -642,22 +630,101 @@ function submitExport() {
           <Select v-model="exportForm.dstatus" :options="statusOptions" class="flex-1" />
         </div>
         <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          时间范围为必填。按当前条件（前端已加载数据）预计导出
-          <b class="text-foreground tabular-nums">{{ exportCount }}</b> 条订单。
-        </p>
-        <p class="rounded bg-primary/[0.06] px-3 py-2 text-xs text-muted-foreground">
-          需导出全部数据（不受当前页 ≤100 限制）请用「服务端全量导出」，按列表筛选（字段/关键词/状态）从后端直接生成 CSV。
+          按上述条件从服务端全量导出匹配订单为 CSV（不受列表分页限制）。搜索字段/关键词沿用列表筛选。
         </p>
       </div>
       <template #footer>
         <Button variant="outline" size="sm" @click="exportOpen = false">取消</Button>
-        <Button variant="outline" size="sm" :disabled="serverExporting" @click="serverExport">
+        <Button size="sm" :disabled="serverExporting" @click="serverExport">
           <Download />服务端全量导出
         </Button>
-        <Button size="sm" :disabled="!exportForm.starttime || !exportForm.endtime" @click="submitExport">
-          <Download />导出当前页 CSV
-        </Button>
       </template>
+    </Drawer>
+
+    <!-- 订单详情抽屉（对齐 epay order.php 行展开：看列表放不下的完整字段）-->
+    <Drawer
+      :model-value="!!detailOrder"
+      title="订单详情"
+      :subtitle="detailOrder?.trade_no"
+      width="max-w-lg"
+      @update:model-value="(v) => { if (!v) detailOrder = null }"
+    >
+      <div v-if="detailOrder" class="space-y-4 text-sm">
+        <div class="rounded bg-muted/40 px-3.5 py-3">
+          <div class="flex items-center justify-between">
+            <span class="text-muted-foreground">订单状态</span>
+            <Badge :variant="orderStatus[detailOrder.status].variant">{{ orderStatus[detailOrder.status].text }}</Badge>
+          </div>
+        </div>
+
+        <div>
+          <div class="mb-2 text-xs font-medium text-muted-foreground">订单标识</div>
+          <dl class="space-y-2">
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">系统订单号</dt><dd class="text-right font-mono">{{ detailOrder.trade_no }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">商户订单号</dt><dd class="text-right font-mono">{{ detailOrder.out_trade_no || '—' }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">接口订单号</dt><dd class="text-right font-mono">{{ detailOrder.api_trade_no || '—' }}</dd></div>
+            <div v-if="detailOrder.bill_trade_no" class="flex justify-between gap-4"><dt class="dim shrink-0">用户交易单号</dt><dd class="text-right font-mono break-all">{{ detailOrder.bill_trade_no }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">合单</dt><dd class="text-right">{{ detailOrder.combine ? '是（子订单列表依赖合单收单，暂未实现）' : '否' }}</dd></div>
+          </dl>
+        </div>
+
+        <div>
+          <div class="mb-2 text-xs font-medium text-muted-foreground">商户 / 商品</div>
+          <dl class="space-y-2">
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">商户 UID</dt><dd class="text-right">{{ detailOrder.uid }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">来源域名</dt><dd class="text-right break-all">{{ detailOrder.domain || '—' }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">商品名称</dt><dd class="text-right break-all">{{ detailOrder.name }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">买家标识</dt><dd class="text-right break-all">{{ detailOrder.buyer || '—' }}</dd></div>
+            <div v-if="detailOrder.mobile" class="flex justify-between gap-4"><dt class="dim shrink-0">手机号码</dt><dd class="text-right">{{ detailOrder.mobile }}</dd></div>
+          </dl>
+        </div>
+
+        <div>
+          <div class="mb-2 text-xs font-medium text-muted-foreground">金额</div>
+          <dl class="space-y-2 tabular-nums">
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">订单金额</dt><dd class="text-right">¥{{ detailOrder.money }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">实付金额</dt><dd class="text-right">{{ detailOrder.realmoney ? '¥' + detailOrder.realmoney : '—' }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">商户分成</dt><dd class="text-right">¥{{ detailOrder.getmoney }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">已退金额</dt><dd class="text-right" :class="+detailOrder.refundmoney > 0 ? 'text-destructive' : ''">¥{{ detailOrder.refundmoney }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">已分账</dt><dd class="text-right">¥{{ detailOrder.profitmoney }}</dd></div>
+          </dl>
+        </div>
+
+        <div>
+          <div class="mb-2 text-xs font-medium text-muted-foreground">支付方式 / 通道</div>
+          <dl class="space-y-2">
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">支付方式</dt><dd class="text-right">{{ detailOrder.typeshowname }}（{{ detailOrder.typename }}）</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">通道 ID</dt><dd class="text-right">{{ detailOrder.channel }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">插件</dt><dd class="text-right font-mono">{{ detailOrder.plugin }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">结算状态</dt><dd class="text-right">{{ detailOrder.settle ? '已结算' : '未结算' }}</dd></div>
+          </dl>
+        </div>
+
+        <div>
+          <div class="mb-2 text-xs font-medium text-muted-foreground">时间 / 网络</div>
+          <dl class="space-y-2">
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">下单时间</dt><dd class="text-right">{{ detailOrder.addtime }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">完成时间</dt><dd class="text-right">{{ detailOrder.endtime ?? '—' }}</dd></div>
+            <div v-if="detailOrder.status === 2" class="flex justify-between gap-4"><dt class="dim shrink-0">退款时间</dt><dd class="text-right">{{ detailOrder.refundtime || '—' }}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">下单 IP</dt><dd class="text-right font-mono">{{ detailOrder.ip || '—' }}</dd></div>
+          </dl>
+        </div>
+
+        <div>
+          <div class="mb-2 text-xs font-medium text-muted-foreground">通知 / 扩展</div>
+          <dl class="space-y-2">
+            <div class="flex justify-between gap-4">
+              <dt class="dim shrink-0">通知状态</dt>
+              <dd class="text-right">
+                <Badge v-if="!detailOrder.notify" variant="success">通知成功</Badge>
+                <Badge v-else-if="detailOrder.notify === -1" variant="muted">已放弃</Badge>
+                <Badge v-else variant="destructive">通知失败（已通知 {{ detailOrder.notify }} 次）</Badge>
+              </dd>
+            </div>
+            <div class="flex justify-between gap-4"><dt class="dim shrink-0">扩展参数</dt><dd class="text-right break-all">{{ detailOrder.param || '—' }}</dd></div>
+          </dl>
+        </div>
+      </div>
     </Drawer>
 
     <!-- 操作确认弹窗（改状态/冻结/解冻/补单/重新通知/删除）-->

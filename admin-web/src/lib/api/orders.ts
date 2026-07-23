@@ -8,11 +8,35 @@ export interface OrderListParams {
   column?: string
   keyword?: string
   status?: number
+  type?: number // 支付方式ID（0/省略=全部）
+  channel?: number // 通道ID（0/省略=全部）
+  uid?: number // 商户号（0/省略=全部）
+  starttime?: string // 时间范围起 YYYY-MM-DD
+  endtime?: string // 时间范围止 YYYY-MM-DD
 }
 
 /** 拉取订单列表（分页） */
 export function fetchOrders(params: OrderListParams = {}): Promise<PageResult<Order>> {
   return request<PageResult<Order>>('/admin/orders', { query: { ...params } })
+}
+
+/** 订单统计概况（后端全量聚合，非当前页）。对齐 epay ajax_order.php?act=statistics。 */
+export interface OrderStats {
+  totalMoney: number
+  successMoney: number
+  unpaidMoney: number
+  refundMoney: number
+  platformProfit: number
+  totalCount: number
+  successCount: number
+  unpaidCount: number
+  refundCount: number
+  successRate: number
+}
+
+/** 拉取订单统计概况：按当前筛选条件在后端全量聚合，不受列表 ≤100 限制。 */
+export function fetchOrderStats(params: OrderListParams = {}): Promise<OrderStats> {
+  return request<OrderStats>('/admin/orders/stats', { query: { ...params } })
 }
 
 /**
