@@ -87,3 +87,7 @@ export function setWeworkStatus(id: number, status: number): Promise<{ id: numbe
 export function deleteWework(id: number): Promise<{ id: number }> {
   return request<{ id: number }>(`/admin/weworks/${id}`, { method: 'DELETE' })
 }
+/** 从企业微信同步客服账号列表（K-4，需真实 corpid/secret 凭证）。 */
+export function refreshWeworkKf(id: number): Promise<{ id: number; count: number }> {
+  return request<{ id: number; count: number }>(`/admin/weworks/${id}/kf/refresh`, { method: 'POST' })
+}

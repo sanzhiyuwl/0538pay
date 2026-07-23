@@ -9,6 +9,7 @@ import {
   updateWework,
   setWeworkStatus,
   deleteWework,
+  refreshWeworkKf,
   type WeworkView,
   type WeworkSaveReq,
 } from '@/lib/api/paycfg'
@@ -64,8 +65,19 @@ async function toggleStatus(w: WeworkView) {
   }
 }
 
-function refreshKf() {
-  toast.info('刷新客服账号需调用企业微信接口，依赖真实企业ID/Secret 凭证')
+const refreshingId = ref(0)
+async function refreshKf(w: WeworkView) {
+  if (refreshingId.value) return
+  refreshingId.value = w.id
+  try {
+    const r = await refreshWeworkKf(w.id)
+    w.kfnum = r.count
+    toast.success(`已同步 ${r.count} 个客服账号`)
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '刷新失败')
+  } finally {
+    refreshingId.value = 0
+  }
 }
 function testWework() {
   toast.info('测试需调用企业微信接口换取 access_token，依赖真实凭证')
@@ -174,8 +186,8 @@ async function confirmDelete() {
               <td class="font-mono text-[13px] text-primary">{{ w.appid }}</td>
               <td class="num tabular-nums">
                 {{ w.kfnum }}
-                <button class="ml-1 text-xs text-primary hover:underline" title="刷新客服账号" @click="refreshKf">
-                  <RefreshCw class="inline size-3" />
+                <button class="ml-1 text-xs text-primary hover:underline disabled:opacity-50" title="刷新客服账号" :disabled="refreshingId === w.id" @click="refreshKf(w)">
+                  <RefreshCw class="inline size-3" :class="refreshingId === w.id ? 'animate-spin' : ''" />
                 </button>
               </td>
               <td class="col-center">
