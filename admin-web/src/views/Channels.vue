@@ -40,11 +40,13 @@ import { formatMoney } from '@/lib/utils'
 
 const toast = useToast()
 
-// 通道数据（真接口，一次拉取 pageSize=100，客户端筛选/分页）
+// 通道数据（真接口，一次拉取全部后客户端筛选/分页）。
+// 对齐 epay：pay_channel 列表本就全量返回、无服务端分页；通道数量有限，
+// 全量拉取才能保证概况卡（总数/开启/今昨收款）统计准确。pageSize=500 覆盖实际规模上限。
 const allChannels = ref<Channel[]>([])
 async function loadChannels() {
   try {
-    const res = await fetchChannels({ page: 1, pageSize: 100 })
+    const res = await fetchChannels({ page: 1, pageSize: 500 })
     allChannels.value = res.list
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '通道加载失败')

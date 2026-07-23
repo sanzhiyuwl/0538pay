@@ -37,6 +37,7 @@ import {
   ssoMerchant,
   type MerchantCreateReq,
   type MerchantEditReq,
+  type MerchantListParams,
 } from '@/lib/api/merchants'
 import { setMerchantToken } from '@/lib/api/client'
 import { fetchGroups, type GroupView } from '@/lib/api/groups'
@@ -92,53 +93,67 @@ const settleIdOptions = [
 // ===== 筛选 =====
 const filters = ref({ column: 'uid', value: '', gid: -1, dstatus: '0' })
 
-// ===== 数据源：从后端 API 加载 =====
-const allMerchants = ref<Merchant[]>([])
+// ===== 分页（服务端）=====
+const page = ref(1)
+const pageSize = 15
+const total = ref(0)
+const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
+const safePage = computed(() => Math.min(page.value, pageCount.value))
+
+// 把当前筛选映射为后端 MerchantListParams（筛选与分页整体下推后端，对齐 epay ajax_user.php
+// 服务端筛选，修正旧版仅拉前 100 条前端筛选、超 100 商户搜不到/统计不准的问题）。
+// dstatus 复合值 field_value（status_1/pay_2/settle_0…）拆到对应的后端参数。
+function buildParams(): MerchantListParams {
+  const f = filters.value
+  const p: MerchantListParams = { page: page.value, pageSize }
+  if (f.value.trim()) {
+    p.column = f.column
+    p.keyword = f.value.trim()
+  }
+  if (f.gid > -1) p.gid = f.gid
+  if (f.dstatus !== '0') {
+    const [field, val] = f.dstatus.split('_')
+    const v = Number(val)
+    if (field === 'status') p.status = v
+    else if (field === 'pay') p.pay = v
+    else if (field === 'settle') p.settle = v
+  }
+  return p
+}
+
+// ===== 数据源：从后端 API 加载（服务端分页 + 筛选）=====
+const pageRows = ref<Merchant[]>([])
 const loading = ref(false)
 
 async function loadMerchants() {
   loading.value = true
   try {
-    const res = await fetchMerchants({ page: 1, pageSize: 100 })
-    allMerchants.value = res.list
+    const res = await fetchMerchants(buildParams())
+    pageRows.value = res.list
+    total.value = res.total
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '加载商户失败')
-    allMerchants.value = []
+    pageRows.value = []
+    total.value = 0
   } finally {
     loading.value = false
   }
 }
 
-const filtered = computed(() =>
-  allMerchants.value.filter((m) => {
-    if (filters.value.gid > -1 && m.gid !== filters.value.gid) return false
-    if (filters.value.dstatus !== '0') {
-      const [field, val] = filters.value.dstatus.split('_')
-      if (String((m as any)[field]) !== val) return false
-    }
-    if (filters.value.value.trim()) {
-      const v = filters.value.value.trim()
-      const f = (m as any)[filters.value.column]
-      if (f == null || !String(f).includes(v)) return false
-    }
-    return true
-  }),
-)
-
 function resetFilters() {
   filters.value = { column: 'uid', value: '', gid: -1, dstatus: '0' }
   page.value = 1
+  loadMerchants()
 }
 
-// ===== 分页 =====
-const page = ref(1)
-const pageSize = 15
-const total = computed(() => filtered.value.length)
-const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
-const safePage = computed(() => Math.min(page.value, pageCount.value))
-const pageRows = computed(() => filtered.value.slice((safePage.value - 1) * pageSize, safePage.value * pageSize))
+// 搜索/翻页/重置都重新拉后端
+function search() {
+  page.value = 1
+  loadMerchants()
+}
 function go(p: number) {
   page.value = Math.min(Math.max(1, p), pageCount.value)
+  loadMerchants()
 }
 
 // ===== 行操作菜单 =====
@@ -314,7 +329,7 @@ async function openSubChannels(m: Merchant) {
   await loadSubChannels()
   if (!subChannels.value.length) {
     try {
-      const res = await fetchChannels({ pageSize: 100 })
+      const res = await fetchChannels({ pageSize: 500 })
       subChannels.value = res.list
     } catch { /* 忽略 */ }
   }
@@ -513,7 +528,7 @@ async function confirmDelete() {
           <Select v-model="filters.dstatus" :options="statusOptions" class="w-36" />
         </div>
         <div class="ml-auto flex items-center gap-2">
-          <Button size="sm" @click="page = 1"><Search />搜索</Button>
+          <Button size="sm" @click="search"><Search />搜索</Button>
           <Button variant="outline" size="sm" @click="resetFilters"><RotateCcw />重置</Button>
         </div>
       </div>

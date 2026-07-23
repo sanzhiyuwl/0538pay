@@ -17,6 +17,45 @@ export function fetchSettles(params: SettleListParams = {}): Promise<PageResult<
   return request<PageResult<SettleRecord>>('/admin/settles', { query: { ...params } })
 }
 
+/** 结算明细概况（全量聚合，与列表同筛选，不分页） */
+export interface SettleStats {
+  totalMoney: string
+  realMoney: string
+  doneMoney: string
+  totalCount: number
+  doneCount: number
+  pendingCount: number
+  processingCount: number
+  failCount: number
+}
+export function fetchSettleStats(
+  params: Omit<SettleListParams, 'page' | 'pageSize'> = {},
+): Promise<SettleStats> {
+  return request<SettleStats>('/admin/settle/stats', { query: { ...params } })
+}
+
+/** 结算明细服务端 CSV 导出（与列表同筛选，全量不分页；修正旧版前端仅导出前 100 条） */
+export async function exportSettles(
+  params: Omit<SettleListParams, 'page' | 'pageSize'> = {},
+): Promise<void> {
+  const token = localStorage.getItem('admin_token') || ''
+  const qs = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, String(v))
+  }
+  const res = await fetch(`/api/admin/settle/export?${qs.toString()}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new Error(`导出失败(${res.status})`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `结算明细_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 /** 拉取结算批次列表（分页） */
 export function fetchSettleBatches(
   params: { page?: number; pageSize?: number } = {},

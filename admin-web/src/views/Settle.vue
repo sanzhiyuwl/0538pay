@@ -17,12 +17,15 @@ import {
   settleTypes,
   settleStatus,
   batchStatus,
-  calcSettleStats,
   type SettleRecord,
   type SettleBatch,
 } from '@/lib/mock/settle'
 import {
   fetchSettles,
+  fetchSettleStats,
+  exportSettles,
+  type SettleListParams,
+  type SettleStats,
   fetchSettleBatches,
   createSettleBatch,
   completeSettleBatch,
@@ -36,9 +39,11 @@ import { formatMoney } from '@/lib/utils'
 
 const toast = useToast()
 
-// ===== 真接口数据（一次拉取，客户端筛选/分页，对齐 Channels.vue 模式）=====
+// ===== 真接口数据 =====
+// 批次列表：epay 批次数量本就少（settle.php 批次表全量），一次拉取即可。
+// 明细列表：改服务端分页/筛选（对齐 epay ajax_settle settleList 的 offset/limit + WHERE 下推），
+// 概况另走全量聚合接口（epay 明细列表本身无金额合计，我方概况须覆盖全部匹配记录而非当前页）。
 const batches = ref<SettleBatch[]>([])
-const settleRecords = ref<SettleRecord[]>([])
 
 async function loadBatches() {
   try {
@@ -47,15 +52,6 @@ async function loadBatches() {
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '批次加载失败')
     batches.value = []
-  }
-}
-async function loadRecords() {
-  try {
-    const res = await fetchSettles({ page: 1, pageSize: 100 })
-    settleRecords.value = res.list
-  } catch (e) {
-    toast.error(e instanceof ApiError ? e.message : '结算明细加载失败')
-    settleRecords.value = []
   }
 }
 async function reload() {
@@ -86,51 +82,67 @@ const filters = ref({
   dstatus: -1,
 })
 
-const filtered = computed(() => {
-  return settleRecords.value.filter((r) => {
-    if (filters.value.uid && String(r.uid) !== filters.value.uid.trim()) return false
-    if (filters.value.batch && r.batch !== filters.value.batch) return false
-    if (filters.value.type && r.type !== filters.value.type) return false
-    if (filters.value.dstatus > -1 && r.status !== filters.value.dstatus) return false
-    if (filters.value.value.trim()) {
-      const v = filters.value.value.trim()
-      if (!`${r.account}${r.username}`.includes(v)) return false
-    }
-    return true
-  })
+// ===== 分页（服务端）=====
+const page = ref(1)
+const pageSize = 15
+const total = ref(0)
+const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
+const safePage = computed(() => Math.min(page.value, pageCount.value))
+
+// 把当前筛选映射为后端 SettleListParams（列表分页与筛选整体下推，对齐 epay ajax_settle）。
+function buildParams(): SettleListParams {
+  const f = filters.value
+  const p: SettleListParams = { page: page.value, pageSize }
+  if (f.value.trim()) p.keyword = f.value.trim()
+  if (f.uid.trim()) p.uid = Number(f.uid.trim()) || 0
+  if (f.batch) p.batch = f.batch
+  if (f.type) p.type = f.type
+  if (f.dstatus > -1) p.status = f.dstatus
+  return p
+}
+
+// ===== 数据源：明细列表（服务端分页）+ 概况（全量聚合，同筛选）=====
+const pageRows = ref<SettleRecord[]>([])
+const stats = ref<SettleStats>({
+  totalMoney: '0', realMoney: '0', doneMoney: '0',
+  totalCount: 0, doneCount: 0, pendingCount: 0, processingCount: 0, failCount: 0,
 })
+async function loadRecords() {
+  try {
+    const p = buildParams()
+    const res = await fetchSettles(p)
+    pageRows.value = res.list
+    total.value = res.total
+    const { page: _p, pageSize: _ps, ...f } = p
+    stats.value = await fetchSettleStats(f)
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '结算明细加载失败')
+    pageRows.value = []
+    total.value = 0
+  }
+}
 
 function resetFilters() {
   filters.value = { value: '', uid: '', batch: '', type: 0, dstatus: -1 }
   page.value = 1
   selected.value.clear()
+  loadRecords()
 }
-
-// ===== 分页 =====
-const page = ref(1)
-const pageSize = 15
-const total = computed(() => filtered.value.length)
-const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
-const safePage = computed(() => Math.min(page.value, pageCount.value))
-const pageRows = computed(() =>
-  filtered.value.slice((safePage.value - 1) * pageSize, safePage.value * pageSize),
-)
 function go(p: number) {
   page.value = Math.min(Math.max(1, p), pageCount.value)
+  loadRecords()
 }
 
-// 搜索 / 切换筛选：回到第一页并清空跨筛选的选中，避免误批量操作不可见记录
+// 搜索 / 切换筛选：回到第一页、清空跨筛选选中、重新拉后端
 function applySearch() {
   page.value = 1
   selected.value.clear()
+  loadRecords()
 }
 function viewBatch(batch: string) {
   filters.value.batch = batch
   applySearch()
 }
-
-// ===== 明细汇总 =====
-const stats = computed(() => calcSettleStats(filtered.value))
 
 // ===== 多选（批量修改状态）=====
 const selected = ref<Set<number>>(new Set())
@@ -148,12 +160,6 @@ function toggleOne(id: number) {
   if (selected.value.has(id)) selected.value.delete(id)
   else selected.value.add(id)
 }
-
-// 筛选即时变化时回到第1页并清空选中，避免批量操作命中不可见行
-watch(filters, () => {
-  page.value = 1
-  selected.value.clear()
-}, { deep: true })
 
 // ===== 行操作菜单 =====
 const openMenu = ref<number | null>(null)
@@ -293,8 +299,10 @@ async function bulkStatus(status: number) {
   }
 }
 
-// ===== 高级导出抽屉（按时间范围/商户/方式/状态组合导出 CSV，对齐 Orders.vue）=====
+// ===== 高级导出抽屉（服务端全量导出 CSV，按时间范围/商户/方式/状态组合，对齐 Orders.vue）=====
+// 导出走后端流式接口，覆盖全部匹配记录（修正旧版仅导出前端已加载的前 100 条）。
 const exportOpen = ref(false)
+const exporting = ref(false)
 const exportForm = ref({
   starttime: '',
   endtime: '',
@@ -302,21 +310,29 @@ const exportForm = ref({
   type: 0,
   dstatus: -1,
 })
-// 按导出条件过滤（预估条数与实际导出共用，避免"预估≠导出"）
-function filterForExport(): SettleRecord[] {
-  const f = exportForm.value
-  return settleRecords.value.filter((r) => {
-    // 时间范围：按 addtime 日期部分闭区间（含起止当天）
-    const day = (r.addtime || '').slice(0, 10)
-    if (f.starttime && day < f.starttime) return false
-    if (f.endtime && day > f.endtime) return false
-    if (f.uid && String(r.uid) !== f.uid.trim()) return false
-    if (f.type && r.type !== f.type) return false
-    if (f.dstatus > -1 && r.status !== f.dstatus) return false
-    return true
-  })
+// 预估条数：向后端概况接口按导出筛选取 totalCount（与实际导出同口径）。
+const exportCount = ref(0)
+async function refreshExportCount() {
+  try {
+    const s = await fetchSettleStats(exportParams())
+    exportCount.value = s.totalCount
+  } catch {
+    exportCount.value = 0
+  }
 }
-const exportCount = computed(() => filterForExport().length)
+function exportParams(): Omit<SettleListParams, 'page' | 'pageSize'> & {
+  starttime?: string
+  endtime?: string
+} {
+  const f = exportForm.value
+  const p: Omit<SettleListParams, 'page' | 'pageSize'> & { starttime?: string; endtime?: string } = {}
+  if (f.starttime) p.starttime = f.starttime
+  if (f.endtime) p.endtime = f.endtime
+  if (f.uid.trim()) p.uid = Number(f.uid.trim()) || 0
+  if (f.type) p.type = f.type
+  if (f.dstatus > -1) p.status = f.dstatus
+  return p
+}
 function openExport() {
   // 带入当前列表筛选作为默认导出条件，减少重复输入
   exportForm.value = {
@@ -327,45 +343,21 @@ function openExport() {
     dstatus: filters.value.dstatus,
   }
   exportOpen.value = true
+  refreshExportCount()
 }
-function csvCell(v: string | number | null | undefined): string {
-  const s = v == null ? '' : String(v)
-  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
-  return s
-}
-function submitExport() {
-  const rows = filterForExport()
-  if (rows.length === 0) {
-    toast.info('当前条件下没有可导出的结算记录')
-    return
+// 导出筛选变化时刷新预估条数
+watch(exportForm, refreshExportCount, { deep: true })
+async function submitExport() {
+  exporting.value = true
+  try {
+    await exportSettles(exportParams())
+    toast.success('已开始导出结算明细')
+    exportOpen.value = false
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : '导出失败')
+  } finally {
+    exporting.value = false
   }
-  const headers = [
-    'ID', '批次号', '商户号', '商户', '结算方式', '是否自动',
-    '结算账号', '结算姓名', '结算金额', '实际到账',
-    '创建时间', '完成时间', '状态', '失败原因',
-  ]
-  const lines = rows.map((r) =>
-    [
-      r.id, r.batch, r.uid, r.merchant,
-      settleTypes[r.type]?.showname ?? r.type, r.auto ? '自动' : '手动',
-      r.account, r.username, r.money, r.realmoney,
-      r.addtime, r.endtime ?? '', settleStatus[r.status]?.text ?? r.status, r.result,
-    ].map(csvCell).join(','),
-  )
-  // 加 BOM，保证 Excel 打开中文不乱码
-  const csv = '﻿' + [headers.join(','), ...lines].join('\r\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  const range = `${exportForm.value.starttime}_${exportForm.value.endtime}`
-  a.href = url
-  a.download = `结算明细_${range}.csv`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-  toast.success(`已导出 ${rows.length} 条结算记录`)
-  exportOpen.value = false
 }
 </script>
 
@@ -497,15 +489,15 @@ function submitExport() {
         </div>
         <div class="filter-item">
           <label class="whitespace-nowrap text-sm text-muted-foreground">批次</label>
-          <Select v-model="filters.batch" :options="batchOptions" class="w-44" />
+          <Select v-model="filters.batch" :options="batchOptions" class="w-44" @change="applySearch" />
         </div>
         <div class="filter-item">
           <label class="whitespace-nowrap text-sm text-muted-foreground">结算方式</label>
-          <Select v-model="filters.type" :options="typeOptions" class="w-32" />
+          <Select v-model="filters.type" :options="typeOptions" class="w-32" @change="applySearch" />
         </div>
         <div class="filter-item">
           <label class="whitespace-nowrap text-sm text-muted-foreground">状态</label>
-          <Select v-model="filters.dstatus" :options="statusOptions" class="w-28" />
+          <Select v-model="filters.dstatus" :options="statusOptions" class="w-28" @change="applySearch" />
         </div>
         <div class="ml-auto flex items-center gap-2">
           <Button size="sm" @click="applySearch"><Search />搜索</Button>
@@ -658,13 +650,13 @@ function submitExport() {
           <Select v-model="exportForm.dstatus" :options="statusOptions" class="flex-1" />
         </div>
         <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          创建时间范围为必填。按当前条件预计导出
+          时间范围留空则导出全部。按当前条件预计导出
           <b class="text-foreground tabular-nums">{{ exportCount }}</b> 条结算记录。
         </p>
       </div>
       <template #footer>
         <Button variant="outline" size="sm" @click="exportOpen = false">取消</Button>
-        <Button size="sm" :disabled="!exportForm.starttime || !exportForm.endtime" @click="submitExport">
+        <Button size="sm" :disabled="exporting || exportCount === 0" @click="submitExport">
           <Download />导出 CSV
         </Button>
       </template>
