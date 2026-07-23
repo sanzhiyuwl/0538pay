@@ -113,3 +113,22 @@ export function deleteMerchant(uid: number): Promise<{ uid: number }> {
 export function ssoMerchant(uid: number): Promise<{ token: string; uid: number; name: string }> {
   return request(`/admin/merchants/${uid}/sso`)
 }
+
+/** 商户实名详情（对齐后端 dto.AdminCertDetail / epay user_cert 弹窗） */
+export interface AdminCertDetail {
+  uid: number
+  cert: number // 0未认证/审核中 1已认证
+  certtype: number // 0个人 1企业
+  certmethod: number
+  certmethodname: string
+  certname: string
+  certno: string
+  certcorpname: string
+  certcorpno: string
+  certtime: string
+}
+
+/** 拉取商户实名详情（管理员可见明文全字段） */
+export function fetchCertDetail(uid: number): Promise<AdminCertDetail> {
+  return request<AdminCertDetail>(`/admin/merchants/${uid}/cert`)
+}

@@ -103,3 +103,24 @@ export interface PluginMeta {
 export function fetchPluginMeta(): Promise<PluginMeta[]> {
   return request<PluginMeta[]>('/admin/channels/plugins')
 }
+
+/** 通道测试支付返回（对齐后端 dto.SubmitResp，收银台据 trade_no 渲染） */
+export interface ChannelTestPayResp {
+  trade_no: string
+  out_trade_no: string
+  pay_type: string
+  pay_url: string
+  qrcode: string
+  html: string
+  money: string
+}
+
+/** 后台通道测试支付：定向指定通道(+可选子通道)下一笔真实测试单，返回收银台可用下单信息 */
+export function channelTestPay(body: {
+  channel: number
+  subchannel?: number
+  name?: string
+  money: string
+}): Promise<ChannelTestPayResp> {
+  return request<ChannelTestPayResp>('/admin/channels/testpay', { method: 'POST', body })
+}

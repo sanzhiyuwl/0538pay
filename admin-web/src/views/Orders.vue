@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   fetchOrders,
   setOrderStatus,
@@ -17,6 +18,7 @@ import {
   type OrderListParams,
 } from '@/lib/api/orders'
 import { ApiError } from '@/lib/api/client'
+import { addBlacklist } from '@/lib/api/risk'
 import {
   Search,
   RotateCcw,
@@ -31,6 +33,7 @@ import {
   FilePlus2,
   FileText,
   Trash2,
+  Ban,
 } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, DateRange, Pagination, Drawer, Modal } from '@/components/ui'
 import {
@@ -172,8 +175,15 @@ function toggleMenu(id: string, ev?: MouseEvent) {
 function closeMenu() {
   openMenu.value = null
 }
+const route = useRoute()
 onMounted(() => {
   window.addEventListener('click', closeMenu)
+  // 从通道页「订单」按钮跳转而来：预置通道 ID 筛选（对齐 epay pay_channel「订单」→ order.php?channel=id）
+  const qc = route.query.channel
+  if (qc != null && String(qc).trim()) filters.value.channel = String(qc).trim()
+  // 从商户页「查看订单」快捷跳转而来：预置商户号筛选
+  const qu = route.query.uid
+  if (qu != null && String(qu).trim()) filters.value.uid = String(qu).trim()
   loadOrders()
 })
 onUnmounted(() => window.removeEventListener('click', closeMenu))
@@ -201,6 +211,46 @@ const actionIcons: Record<string, any> = {
   删除订单: Trash2,
   授权资金支付: CheckCircle2,
   授权资金解冻: Sun,
+}
+
+// ===== 一键拉黑（对齐 epay order.php addBlackList：stype 1=IP / 0=支付账号，days=0 永久）=====
+const blackDialog = ref(false)
+const blackForm = reactive({ type: 1, content: '', days: 0, remark: '' })
+const blackSubmitting = ref(false)
+const blackTitle = computed(() => (blackForm.type === 1 ? 'IP 地址' : '支付账号'))
+function openBlacklist(type: number, content: string) {
+  if (!content) {
+    toast.error(type === 1 ? '该订单无支付 IP' : '该订单无支付账号')
+    return
+  }
+  openMenu.value = null
+  blackForm.type = type
+  blackForm.content = content
+  blackForm.days = 0
+  blackForm.remark = ''
+  blackDialog.value = true
+}
+async function submitBlacklist() {
+  if (blackSubmitting.value) return
+  if (!blackForm.content.trim()) {
+    toast.error('拉黑内容不能为空')
+    return
+  }
+  blackSubmitting.value = true
+  try {
+    await addBlacklist({
+      type: blackForm.type,
+      content: blackForm.content.trim(),
+      days: Number(blackForm.days) || 0,
+      remark: blackForm.remark.trim(),
+    })
+    toast.success('已加入黑名单')
+    blackDialog.value = false
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加入黑名单失败')
+  } finally {
+    blackSubmitting.value = false
+  }
 }
 
 // ===== 行操作调度 =====
@@ -337,12 +387,64 @@ const batchOptions = [
   { value: 0, label: '批量改未完成' },
   { value: 2, label: '批量冻结' },
   { value: 3, label: '批量解冻' },
+  { value: 5, label: '批量API退款' },
   { value: 4, label: '批量删除' },
 ]
 const batchConfirm = ref(false)
 function askBatch() {
   if (selected.value.size === 0) return toast.info('请先勾选订单')
+  // API退款走独立流程（逐条 + 支付密码，对齐 epay batch_apirefund）
+  if (batchAction.value === 5) return openBatchRefund()
   batchConfirm.value = true
+}
+
+// ===== 批量 API 退款（对齐 epay order.php batch_apirefund：逐条调 apirefund，带支付密码，
+// 可退状态=已完成(1)/解冻(3)，退款额取每单 realmoney）=====
+const batchRefundDialog = ref(false)
+const batchRefundPwd = ref('')
+const batchRefundRunning = ref(false)
+// 选中订单里可退的（status 1 或 3，且有 realmoney）
+const refundableSelected = computed(() =>
+  pageRows.value.filter(
+    (o) => selected.value.has(o.trade_no) && (o.status === 1 || o.status === 3) && !!o.realmoney,
+  ),
+)
+function openBatchRefund() {
+  if (refundableSelected.value.length === 0) {
+    return toast.info('选中订单中没有可 API 退款的订单（仅已完成/解冻订单可退）')
+  }
+  batchRefundPwd.value = ''
+  batchRefundDialog.value = true
+}
+async function runBatchRefund() {
+  if (batchRefundRunning.value) return
+  if (!batchRefundPwd.value) return toast.error('请输入支付密码')
+  batchRefundRunning.value = true
+  let ok = 0
+  let fail = 0
+  try {
+    // 逐条串行退款（对齐 epay batch_apirefund_order 递归逐条），退款额取该单 realmoney
+    for (const o of refundableSelected.value) {
+      try {
+        await refundOrder({
+          trade_no: o.trade_no,
+          money: String(o.realmoney),
+          api: true,
+          password: batchRefundPwd.value,
+        })
+        ok++
+      } catch {
+        fail++
+      }
+    }
+    if (ok > 0) toast.success(`成功退款 ${ok} 条${fail > 0 ? `，失败 ${fail} 条` : ''}`)
+    else toast.error(`退款失败 ${fail} 条`)
+    batchRefundDialog.value = false
+    selected.value = new Set()
+    await loadOrders()
+  } finally {
+    batchRefundRunning.value = false
+  }
 }
 async function runBatch() {
   busy.value = true
@@ -509,14 +611,15 @@ async function serverExport() {
               <th class="w-[4%] pl-1">
                 <input type="checkbox" :checked="allChecked" class="align-middle" @change="toggleSelectAll" />
               </th>
-              <th class="w-[14%]">订单号 / 商户单号</th>
-              <th class="w-[12%]">商户 / 域名</th>
-              <th class="w-[13%]">商品 / 金额</th>
-              <th class="w-[11%]">实付 / 分成</th>
-              <th class="w-[13%]">支付方式</th>
-              <th class="w-[14%]">创建 / 完成时间</th>
-              <th class="col-center w-[9%]">状态</th>
-              <th class="col-center w-[8%]">操作</th>
+              <th class="w-[13%]">订单号 / 商户单号</th>
+              <th class="w-[10%]">商户 / 域名</th>
+              <th class="w-[12%]">商品 / 金额</th>
+              <th class="w-[10%]">实付 / 分成</th>
+              <th class="w-[11%]">支付方式</th>
+              <th class="w-[13%]">支付IP / 账号</th>
+              <th class="w-[12%]">创建 / 完成时间</th>
+              <th class="col-center w-[8%]">状态</th>
+              <th class="col-center w-[7%]">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -557,6 +660,29 @@ async function serverExport() {
                 <div class="text-xs dim">{{ o.plugin }}</div>
               </td>
               <td>
+                <div v-if="o.ip" class="group flex items-center gap-1">
+                  <span class="truncate font-mono text-xs">{{ o.ip }}</span>
+                  <button
+                    class="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                    title="拉黑此 IP"
+                    @click.stop="openBlacklist(1, o.ip)"
+                  >
+                    <Ban class="size-3.5" />
+                  </button>
+                </div>
+                <div v-if="o.buyer" class="group flex items-center gap-1">
+                  <span class="truncate text-xs dim">{{ o.buyer }}</span>
+                  <button
+                    class="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                    title="拉黑此账号"
+                    @click.stop="openBlacklist(0, o.buyer)"
+                  >
+                    <Ban class="size-3.5" />
+                  </button>
+                </div>
+                <span v-if="!o.ip && !o.buyer" class="dim">—</span>
+              </td>
+              <td>
                 <div class="text-xs">{{ o.addtime }}</div>
                 <div class="text-xs dim">{{ o.endtime ?? '—' }}</div>
               </td>
@@ -594,7 +720,7 @@ async function serverExport() {
               </td>
             </tr>
             <tr v-if="!pageRows.length">
-              <td colspan="9" class="py-10 text-center dim">没有符合条件的订单</td>
+              <td colspan="10" class="py-10 text-center dim">没有符合条件的订单</td>
             </tr>
           </tbody>
         </table>
@@ -674,8 +800,20 @@ async function serverExport() {
             <div class="flex justify-between gap-4"><dt class="dim shrink-0">商户 UID</dt><dd class="text-right">{{ detailOrder.uid }}</dd></div>
             <div class="flex justify-between gap-4"><dt class="dim shrink-0">来源域名</dt><dd class="text-right break-all">{{ detailOrder.domain || '—' }}</dd></div>
             <div class="flex justify-between gap-4"><dt class="dim shrink-0">商品名称</dt><dd class="text-right break-all">{{ detailOrder.name }}</dd></div>
-            <div class="flex justify-between gap-4"><dt class="dim shrink-0">买家标识</dt><dd class="text-right break-all">{{ detailOrder.buyer || '—' }}</dd></div>
-            <div v-if="detailOrder.mobile" class="flex justify-between gap-4"><dt class="dim shrink-0">手机号码</dt><dd class="text-right">{{ detailOrder.mobile }}</dd></div>
+            <div class="flex justify-between gap-4">
+              <dt class="dim shrink-0">买家标识</dt>
+              <dd class="flex items-center justify-end gap-1.5 text-right break-all">
+                <span>{{ detailOrder.buyer || '—' }}</span>
+                <button v-if="detailOrder.buyer" class="shrink-0 text-muted-foreground hover:text-destructive" title="拉黑此账号" @click="openBlacklist(0, detailOrder.buyer)"><Ban class="size-3.5" /></button>
+              </dd>
+            </div>
+            <div v-if="detailOrder.mobile" class="flex justify-between gap-4">
+              <dt class="dim shrink-0">手机号码</dt>
+              <dd class="flex items-center justify-end gap-1.5 text-right">
+                <span>{{ detailOrder.mobile }}</span>
+                <button class="shrink-0 text-muted-foreground hover:text-destructive" title="拉黑此手机号" @click="openBlacklist(0, detailOrder.mobile)"><Ban class="size-3.5" /></button>
+              </dd>
+            </div>
           </dl>
         </div>
 
@@ -706,7 +844,13 @@ async function serverExport() {
             <div class="flex justify-between gap-4"><dt class="dim shrink-0">下单时间</dt><dd class="text-right">{{ detailOrder.addtime }}</dd></div>
             <div class="flex justify-between gap-4"><dt class="dim shrink-0">完成时间</dt><dd class="text-right">{{ detailOrder.endtime ?? '—' }}</dd></div>
             <div v-if="detailOrder.status === 2" class="flex justify-between gap-4"><dt class="dim shrink-0">退款时间</dt><dd class="text-right">{{ detailOrder.refundtime || '—' }}</dd></div>
-            <div class="flex justify-between gap-4"><dt class="dim shrink-0">下单 IP</dt><dd class="text-right font-mono">{{ detailOrder.ip || '—' }}</dd></div>
+            <div class="flex justify-between gap-4">
+              <dt class="dim shrink-0">下单 IP</dt>
+              <dd class="flex items-center justify-end gap-1.5 text-right font-mono">
+                <span>{{ detailOrder.ip || '—' }}</span>
+                <button v-if="detailOrder.ip" class="shrink-0 text-muted-foreground hover:text-destructive" title="拉黑此 IP" @click="openBlacklist(1, detailOrder.ip)"><Ban class="size-3.5" /></button>
+              </dd>
+            </div>
           </dl>
         </div>
 
@@ -793,6 +937,45 @@ async function serverExport() {
       <template #footer>
         <Button variant="outline" size="sm" @click="batchConfirm = false">取消</Button>
         <Button :variant="batchAction === 4 ? 'destructive' : 'default'" size="sm" :disabled="busy" @click="runBatch">执行</Button>
+      </template>
+    </Modal>
+
+    <!-- 批量 API 退款（对齐 epay batch_apirefund：逐条退款 + 支付密码）-->
+    <Modal :model-value="batchRefundDialog" title="批量 API 退款" @update:model-value="(v) => { if (!v) batchRefundDialog = false }">
+      <p class="mb-3 text-sm text-muted-foreground">
+        将对选中订单中 <b class="text-foreground">{{ refundableSelected.length }}</b> 条可退订单（已完成/解冻）逐条发起原路退款，
+        退款金额为各订单实付金额。此操作不可撤销。
+      </p>
+      <div>
+        <label class="mb-1 block text-sm text-muted-foreground">支付密码</label>
+        <input v-model="batchRefundPwd" type="password" placeholder="请输入管理员支付密码" class="field-input w-full" />
+      </div>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="batchRefundDialog = false">取消</Button>
+        <Button variant="destructive" size="sm" :disabled="batchRefundRunning" @click="runBatchRefund">确认退款</Button>
+      </template>
+    </Modal>
+
+    <!-- 一键拉黑（对齐 epay order.php addBlackList：type 1=IP/0=账号，days=0 永久）-->
+    <Modal :model-value="blackDialog" :title="`加入黑名单 · ${blackTitle}`" @update:model-value="(v) => { if (!v) blackDialog = false }">
+      <div class="space-y-3">
+        <div>
+          <label class="mb-1 block text-sm text-muted-foreground">{{ blackTitle }}</label>
+          <input v-model="blackForm.content" class="field-input w-full font-mono" />
+        </div>
+        <div>
+          <label class="mb-1 block text-sm text-muted-foreground">有效期（天）</label>
+          <input v-model.number="blackForm.days" type="number" min="0" placeholder="0" class="field-input w-full tabular-nums" />
+          <p class="mt-1 text-xs dim">0 为永久拉黑</p>
+        </div>
+        <div>
+          <label class="mb-1 block text-sm text-muted-foreground">备注</label>
+          <input v-model="blackForm.remark" placeholder="选填" class="field-input w-full" />
+        </div>
+      </div>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="blackDialog = false">取消</Button>
+        <Button variant="destructive" size="sm" :disabled="blackSubmitting" @click="submitBlacklist">加入黑名单</Button>
       </template>
     </Modal>
   </div>

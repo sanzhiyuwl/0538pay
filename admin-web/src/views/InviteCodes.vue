@@ -123,6 +123,23 @@ async function doClearUsed() {
     busy.value = false
   }
 }
+// 清空全部邀请码（对齐 epay 清空全部，含未使用）
+const clearAllOpen = ref(false)
+async function doClearAll() {
+  if (busy.value) return
+  busy.value = true
+  try {
+    const res = await clearInviteCodes('all')
+    toast.success(`已清空全部 ${res.deleted} 个邀请码`)
+    clearAllOpen.value = false
+    page.value = 1
+    await load()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '清空失败')
+  } finally {
+    busy.value = false
+  }
+}
 </script>
 
 <template>
@@ -201,6 +218,9 @@ async function doClearUsed() {
         <Button variant="ghost" size="sm" class="ml-auto shrink-0 text-destructive hover:text-destructive" @click="clearOpen = true">
           <Eraser class="size-4" />清空已使用
         </Button>
+        <Button variant="ghost" size="sm" class="shrink-0 text-destructive hover:text-destructive" @click="clearAllOpen = true">
+          <Eraser class="size-4" />清空全部
+        </Button>
       </p>
     </Panel>
 
@@ -234,6 +254,17 @@ async function doClearUsed() {
       <template #footer>
         <Button variant="outline" size="sm" @click="clearOpen = false">取消</Button>
         <Button size="sm" :disabled="busy" @click="doClearUsed">确认清空</Button>
+      </template>
+    </Modal>
+
+    <!-- 清空全部确认（含未使用，对齐 epay 清空全部）-->
+    <Modal v-model="clearAllOpen" title="清空全部邀请码" width="max-w-md">
+      <p class="text-sm text-muted-foreground">
+        确认清空<b class="text-destructive">全部</b>邀请码（含尚未使用的）？此操作不可撤销，未分发的邀请码也会一并删除。
+      </p>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="clearAllOpen = false">取消</Button>
+        <Button variant="destructive" size="sm" :disabled="busy" @click="doClearAll">确认清空全部</Button>
       </template>
     </Modal>
   </div>

@@ -138,19 +138,71 @@ function closeMenu() {
 onMounted(() => window.addEventListener('click', closeMenu))
 onUnmounted(() => window.removeEventListener('click', closeMenu))
 
+// ===== 多选 + 批量操作（对齐 epay transfer.php operation：改成功(1)/改失败(2)/删除(3)，裸改状态不退款）=====
+const selected = ref<Set<string>>(new Set())
+const pageAllChecked = computed(
+  () => rows.value.length > 0 && rows.value.every((r) => selected.value.has(r.biz_no)),
+)
+function toggleAll() {
+  if (pageAllChecked.value) rows.value.forEach((r) => selected.value.delete(r.biz_no))
+  else rows.value.forEach((r) => selected.value.add(r.biz_no))
+  selected.value = new Set(selected.value)
+}
+function toggleOne(biz: string) {
+  if (selected.value.has(biz)) selected.value.delete(biz)
+  else selected.value.add(biz)
+  selected.value = new Set(selected.value)
+}
+const bulkAction = ref<'success' | 'fail' | 'delete'>('success')
+const bulkOptions = [
+  { value: 'success', label: '改为成功' },
+  { value: 'fail', label: '改为失败' },
+  { value: 'delete', label: '删除' },
+]
+const bulkLabels: Record<string, string> = { success: '改为成功', fail: '改为失败', delete: '删除' }
+const bulkConfirm = ref(false)
+function askBulk() {
+  if (!selected.value.size) return toast.info('请先勾选付款记录')
+  bulkConfirm.value = true
+}
+async function runBulk() {
+  if (busy.value) return
+  busy.value = true
+  const bizNos = [...selected.value]
+  let ok = 0
+  try {
+    for (const biz of bizNos) {
+      try {
+        if (bulkAction.value === 'success') await setTransferStatus(biz, 1)
+        else if (bulkAction.value === 'fail') await setTransferStatus(biz, 2, '后台批量置为失败')
+        else await deleteTransfer(biz)
+        ok++
+      } catch {
+        /* 单条失败继续 */
+      }
+    }
+    toast.success(`${bulkLabels[bulkAction.value]}完成：${ok}/${bizNos.length} 条成功`)
+    bulkConfirm.value = false
+    selected.value = new Set()
+    await reload()
+  } finally {
+    busy.value = false
+  }
+}
+
 /** 状态可执行操作（对齐 epay transfer.php 操作列 + 后端能力） */
 function rowActions(r: TransferRecord): string[] {
-  if (r.status === 1) return ['改为失败', '复制', '删除']
-  if (r.status === 2) return ['改为成功', '复制', '删除']
+  if (r.status === 1) return ['改为失败', '复制交易号', '删除']
+  if (r.status === 2) return ['改为成功', '复制交易号', '删除']
   // 处理中：商户发起可退回（退款），管理员发起可删除
-  return r.uid > 0 ? ['退回', '复制', '删除'] : ['查询状态', '复制', '删除']
+  return r.uid > 0 ? ['退回', '复制交易号', '删除'] : ['查询状态', '复制交易号', '删除']
 }
 const actionIcons: Record<string, any> = {
   改为成功: CheckCircle2,
   改为失败: XCircle,
   退回: Undo2,
   查询状态: Search,
-  复制: Copy,
+  复制交易号: Copy,
   删除: Trash2,
 }
 
@@ -180,7 +232,7 @@ const confirmText = computed(() => {
 
 function onAction(r: TransferRecord, action: string) {
   openMenu.value = null
-  if (action === '复制') {
+  if (action === '复制交易号') {
     navigator.clipboard?.writeText(r.biz_no)
     toast.success('已复制交易号')
     return
@@ -283,15 +335,24 @@ async function doConfirm() {
     </Panel>
 
     <!-- 列表 -->
-    <Panel title="付款记录列表" :subtitle="`${total} 条`">
+    <Panel title="付款记录列表" :subtitle="selected.size ? `已选 ${selected.size} 条` : `${total} 条`">
+      <template v-if="selected.size" #actions>
+        <span class="text-sm text-muted-foreground">批量操作：</span>
+        <Select v-model="bulkAction" :options="bulkOptions" class="w-28" />
+        <Button size="sm" :disabled="busy" @click="askBulk">执行</Button>
+        <Button variant="ghost" size="sm" @click="selected = new Set()">清空选择</Button>
+      </template>
       <div>
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
-              <th class="w-[17%]">交易号 / 第三方号</th>
-              <th class="w-[9%]">商户号</th>
-              <th class="w-[15%]">付款方式 / 备注</th>
-              <th class="w-[16%]">收款账号 / 姓名</th>
+              <th class="w-[4%] col-center">
+                <input type="checkbox" :checked="pageAllChecked" class="align-middle" @change="toggleAll" />
+              </th>
+              <th class="w-[16%]">交易号 / 第三方号</th>
+              <th class="w-[8%]">商户号</th>
+              <th class="w-[14%]">付款方式 / 备注</th>
+              <th class="w-[15%]">收款账号 / 姓名</th>
               <th class="w-[13%]">付款 / 花费</th>
               <th class="w-[14%]">提交 / 付款时间</th>
               <th class="col-center w-[8%]">状态</th>
@@ -300,6 +361,9 @@ async function doConfirm() {
           </thead>
           <tbody>
             <tr v-for="r in rows" :key="r.biz_no">
+              <td class="col-center">
+                <input type="checkbox" :checked="selected.has(r.biz_no)" class="align-middle" @change="toggleOne(r.biz_no)" />
+              </td>
               <td>
                 <div class="truncate font-medium tabular-nums">{{ r.biz_no }}</div>
                 <div class="truncate text-xs dim">{{ r.pay_order_no || '—' }}</div>
@@ -356,10 +420,10 @@ async function doConfirm() {
               </td>
             </tr>
             <tr v-if="loading">
-              <td colspan="8" class="py-10 text-center dim">加载中…</td>
+              <td colspan="9" class="py-10 text-center dim">加载中…</td>
             </tr>
             <tr v-else-if="!rows.length">
-              <td colspan="8" class="py-10 text-center dim">没有符合条件的付款记录</td>
+              <td colspan="9" class="py-10 text-center dim">没有符合条件的付款记录</td>
             </tr>
           </tbody>
         </table>
@@ -376,6 +440,20 @@ async function doConfirm() {
       <template #footer>
         <Button variant="outline" size="sm" @click="confirmOpen = false">取消</Button>
         <Button size="sm" :disabled="busy" @click="doConfirm">确认{{ confirmAction }}</Button>
+      </template>
+    </Modal>
+
+    <!-- 批量操作确认（对齐 epay transfer.php operation：裸改状态不退款）-->
+    <Modal :model-value="bulkConfirm" title="批量操作确认" @update:model-value="(v) => { if (!v) bulkConfirm = false }">
+      <p class="text-sm text-muted-foreground">
+        将对已选的 <b class="text-foreground">{{ selected.size }}</b> 条付款记录执行
+        「<b class="text-foreground">{{ bulkOptions.find((o) => o.value === bulkAction)?.label }}</b>」。
+        <span v-if="bulkAction === 'delete'" class="text-destructive">删除不退款且不可恢复。</span>
+        <span v-else>仅修改状态，不产生资金变动。</span>
+      </p>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="bulkConfirm = false">取消</Button>
+        <Button :variant="bulkAction === 'delete' ? 'destructive' : 'default'" size="sm" :disabled="busy" @click="runBulk">执行</Button>
       </template>
     </Modal>
   </div>

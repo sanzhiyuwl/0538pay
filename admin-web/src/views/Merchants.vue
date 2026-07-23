@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   Search,
   RotateCcw,
@@ -16,6 +17,9 @@ import {
   Network,
   Plus,
   LogIn,
+  ReceiptText,
+  ScrollText,
+  Landmark,
 } from 'lucide-vue-next'
 import { Panel, Button, Select, Pagination, Drawer, Modal, Switch } from '@/components/ui'
 import {
@@ -35,6 +39,8 @@ import {
   resetMerchantKey,
   deleteMerchant,
   ssoMerchant,
+  fetchCertDetail,
+  type AdminCertDetail,
   type MerchantCreateReq,
   type MerchantEditReq,
   type MerchantListParams,
@@ -167,12 +173,41 @@ function toggleMenu(id: number, ev?: MouseEvent) {
 function closeMenu() {
   openMenu.value = null
 }
+const route = useRoute()
 onMounted(() => {
   window.addEventListener('click', closeMenu)
+  // 从用户组页「商户」按钮跳转而来：预置用户组筛选（对齐 epay glist「用户」→ ulist.php?gid=）
+  const qg = route.query.gid
+  if (qg != null && String(qg).trim() !== '') {
+    const g = Number(String(qg).trim())
+    if (!Number.isNaN(g)) filters.value.gid = g
+  }
   loadGroups()
   loadMerchants()
 })
 onUnmounted(() => window.removeEventListener('click', closeMenu))
+
+// ===== 行内快捷跳转（J-7，对齐 epay 商户→订单/流水/结算 带 uid 预筛）=====
+const router = useRouter()
+function jumpTo(path: string, m: Merchant) {
+  openMenu.value = null
+  router.push({ path, query: { uid: String(m.uid) } })
+}
+
+// ===== 商户实名详情弹窗（J-6，对齐 epay ajax_user.php act=user_cert）=====
+const certDetail = ref<AdminCertDetail | null>(null)
+const certLoading = ref(false)
+async function showCert(m: Merchant) {
+  certLoading.value = true
+  certDetail.value = null
+  try {
+    certDetail.value = await fetchCertDetail(m.uid)
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '获取实名详情失败')
+  } finally {
+    certLoading.value = false
+  }
+}
 
 function settlePrefix(m: Merchant) {
   return settleTypes[m.settle_id]?.prefix ?? ''
@@ -581,9 +616,14 @@ async function confirmDelete() {
                   <span v-if="m.status === 1" class="inline-flex items-center gap-1 text-xs text-success"><CheckCircle2 class="size-3.5" />正常</span>
                   <span v-else-if="m.status === 2" class="inline-flex items-center gap-1 text-xs text-warning"><AlertCircle class="size-3.5" />未审核</span>
                   <span v-else class="inline-flex items-center gap-1 text-xs text-destructive"><XCircle class="size-3.5" />封禁</span>
-                  <span :class="['inline-flex items-center gap-1 text-xs', m.cert === 1 ? 'text-success' : 'text-muted-foreground']">
+                  <button
+                    type="button"
+                    :class="['inline-flex items-center gap-1 text-xs transition-colors hover:underline', m.cert === 1 ? 'text-success' : 'text-muted-foreground']"
+                    title="查看实名详情"
+                    @click="showCert(m)"
+                  >
                     <component :is="m.cert === 1 ? CheckCircle2 : XCircle" class="size-3.5" />实名
-                  </span>
+                  </button>
                 </div>
                 <div class="mt-1 flex items-center justify-center gap-3">
                   <span v-if="m.pay === 2" class="inline-flex items-center gap-1 text-xs text-warning"><AlertCircle class="size-3.5" />支付</span>
@@ -623,6 +663,16 @@ async function confirmDelete() {
                     </button>
                     <button class="menu-item" @click="ssoInto(m)">
                       <LogIn class="size-4 shrink-0 opacity-70" /><span class="flex-1">进入商户端</span>
+                    </button>
+                    <div class="menu-sep" />
+                    <button class="menu-item" @click="jumpTo('/admin/orders', m)">
+                      <ReceiptText class="size-4 shrink-0 opacity-70" /><span class="flex-1">查看订单</span>
+                    </button>
+                    <button class="menu-item" @click="jumpTo('/admin/records', m)">
+                      <ScrollText class="size-4 shrink-0 opacity-70" /><span class="flex-1">查看流水</span>
+                    </button>
+                    <button class="menu-item" @click="jumpTo('/admin/settle', m)">
+                      <Landmark class="size-4 shrink-0 opacity-70" /><span class="flex-1">查看结算</span>
                     </button>
                     <div class="menu-sep" />
                     <button class="menu-item" @click="toggle(m, 'user')">
@@ -843,6 +893,38 @@ async function confirmDelete() {
       <template #footer>
         <Button variant="outline" size="sm" @click="delTarget = null">取消</Button>
         <Button variant="destructive" size="sm" :disabled="deleting" @click="confirmDelete">删除</Button>
+      </template>
+    </Modal>
+
+    <!-- 商户实名详情（J-6，对齐 epay ajax_user.php act=user_cert 弹窗：个人/企业分支）-->
+    <Modal :model-value="!!certDetail || certLoading" title="实名认证详情" @update:model-value="(v) => { if (!v) { certDetail = null } }">
+      <div v-if="certLoading" class="py-6 text-center text-sm dim">加载中…</div>
+      <dl v-else-if="certDetail" class="space-y-2.5 text-sm">
+        <div class="flex justify-between gap-4"><dt class="dim shrink-0">商户号</dt><dd class="text-right tabular-nums">{{ certDetail.uid }}</dd></div>
+        <div class="flex justify-between gap-4">
+          <dt class="dim shrink-0">认证状态</dt>
+          <dd class="text-right" :class="certDetail.cert === 1 ? 'text-success' : 'text-muted-foreground'">
+            {{ certDetail.cert === 1 ? '已认证' : '未认证 / 审核中' }}
+          </dd>
+        </div>
+        <div class="flex justify-between gap-4"><dt class="dim shrink-0">认证类型</dt><dd class="text-right">{{ certDetail.certtype === 1 ? '企业认证' : '个人认证' }}</dd></div>
+        <div class="flex justify-between gap-4"><dt class="dim shrink-0">认证方式</dt><dd class="text-right">{{ certDetail.certmethodname }}</dd></div>
+        <!-- 企业认证：公司信息 + 法人信息 -->
+        <template v-if="certDetail.certtype === 1">
+          <div class="flex justify-between gap-4"><dt class="dim shrink-0">公司名称</dt><dd class="text-right break-all">{{ certDetail.certcorpname || '—' }}</dd></div>
+          <div class="flex justify-between gap-4"><dt class="dim shrink-0">营业执照号</dt><dd class="text-right break-all tabular-nums">{{ certDetail.certcorpno || '—' }}</dd></div>
+          <div class="flex justify-between gap-4"><dt class="dim shrink-0">法人姓名</dt><dd class="text-right">{{ certDetail.certname || '—' }}</dd></div>
+          <div class="flex justify-between gap-4"><dt class="dim shrink-0">法人身份证号</dt><dd class="text-right break-all tabular-nums">{{ certDetail.certno || '—' }}</dd></div>
+        </template>
+        <!-- 个人认证：真实姓名 + 身份证号 -->
+        <template v-else>
+          <div class="flex justify-between gap-4"><dt class="dim shrink-0">真实姓名</dt><dd class="text-right">{{ certDetail.certname || '—' }}</dd></div>
+          <div class="flex justify-between gap-4"><dt class="dim shrink-0">身份证号</dt><dd class="text-right break-all tabular-nums">{{ certDetail.certno || '—' }}</dd></div>
+        </template>
+        <div class="flex justify-between gap-4"><dt class="dim shrink-0">认证时间</dt><dd class="text-right">{{ certDetail.certtime || '—' }}</dd></div>
+      </dl>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="certDetail = null">关闭</Button>
       </template>
     </Modal>
 

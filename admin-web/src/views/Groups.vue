@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   Plus,
   Pencil,
@@ -33,6 +34,12 @@ import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 
 const toast = useToast()
+const router = useRouter()
+
+// 查看该用户组下的商户（对齐 epay glist「用户」→ ulist.php?gid=）
+function viewMerchants(g: GroupView) {
+  router.push({ path: '/admin/merchants', query: { gid: String(g.gid) } })
+}
 
 const allGroups = ref<GroupView[]>([])
 const loading = ref(false)
@@ -412,7 +419,7 @@ async function confirmDelete() {
 
           <!-- 操作 -->
           <div class="mt-4 flex items-center gap-1.5 border-t border-border/60 pt-3">
-            <Button variant="outline" size="sm"><Users />商户</Button>
+            <Button variant="outline" size="sm" @click="viewMerchants(g)"><Users />商户</Button>
             <Button variant="outline" size="sm" @click="openEdit(g)"><Pencil />编辑</Button>
             <Button v-if="g.isbuy" variant="ghost" size="sm" @click="toggleBuy(g)"><ArrowDownToLine />下架</Button>
             <Button v-else variant="ghost" size="sm" @click="toggleBuy(g)"><ArrowUpFromLine />上架</Button>

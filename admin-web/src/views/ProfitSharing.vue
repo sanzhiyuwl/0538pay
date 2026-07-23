@@ -151,16 +151,111 @@ function closeMenu() {
 onMounted(() => window.addEventListener('click', closeMenu))
 onUnmounted(() => window.removeEventListener('click', closeMenu))
 
+// ===== 多选 + 批量操作（对齐 epay ps_order batch_act：submit/return/cancel + 删除）=====
+const selected = ref<Set<number>>(new Set())
+const pageAllChecked = computed(
+  () => rows.value.length > 0 && rows.value.every((r) => selected.value.has(r.id)),
+)
+function toggleAll() {
+  if (pageAllChecked.value) rows.value.forEach((r) => selected.value.delete(r.id))
+  else rows.value.forEach((r) => selected.value.add(r.id))
+  selected.value = new Set(selected.value)
+}
+function toggleOne(id: number) {
+  if (selected.value.has(id)) selected.value.delete(id)
+  else selected.value.add(id)
+  selected.value = new Set(selected.value)
+}
+// 批量动作的可执行状态门槛（对齐后端 Operate 状态校验）
+const batchGate: Record<string, number[]> = {
+  submit: [0, 3], // 待分账/失败可提交
+  cancel: [0, 3], // 待分账/失败可取消
+  return: [2],    // 成功可回退
+  delete: [0, 3, 4], // 未扣款态可删（已扣款后端会拦）
+}
+const batchLabels: Record<string, string> = {
+  submit: '批量提交分账', cancel: '批量取消', return: '批量回退', delete: '批量删除',
+}
+const bulkAction = ref<'submit' | 'cancel' | 'return' | 'delete'>('submit')
+const bulkOptions = [
+  { value: 'submit', label: '提交分账' },
+  { value: 'return', label: '分账回退' },
+  { value: 'cancel', label: '取消' },
+  { value: 'delete', label: '删除' },
+]
+const bulkConfirm = ref(false)
+// 选中行里满足当前动作门槛的
+const bulkEligible = computed(() =>
+  rows.value.filter((r) => selected.value.has(r.id) && batchGate[bulkAction.value].includes(r.status)),
+)
+function askBulk() {
+  if (!selected.value.size) return toast.info('请先勾选分账记录')
+  if (!bulkEligible.value.length) {
+    return toast.info(`选中记录中没有可「${bulkOptions.find((o) => o.value === bulkAction.value)?.label}」的记录`)
+  }
+  bulkConfirm.value = true
+}
+async function runBulk() {
+  if (busy.value) return
+  busy.value = true
+  let ok = 0
+  const targets = bulkEligible.value
+  try {
+    for (const r of targets) {
+      try {
+        await operatePsOrder(r.id, bulkAction.value)
+        ok++
+      } catch {
+        /* 单条失败继续 */
+      }
+    }
+    toast.success(`${batchLabels[bulkAction.value]}完成：${ok}/${targets.length} 条成功`)
+    bulkConfirm.value = false
+    selected.value = new Set()
+    await reload()
+  } finally {
+    busy.value = false
+  }
+}
+
+// ===== 分账金额编辑（J-6，对齐 epay editmoney：仅 status=0 待分账可改）=====
+const editMoneyRow = ref<PsOrder | null>(null)
+const editMoneyVal = ref('')
+const editMoneySaving = ref(false)
+function openEditMoney(r: PsOrder) {
+  openMenu.value = null
+  editMoneyRow.value = r
+  editMoneyVal.value = r.money
+}
+async function saveEditMoney() {
+  const r = editMoneyRow.value
+  if (!r || editMoneySaving.value) return
+  const v = Number(editMoneyVal.value)
+  if (!(v > 0)) return toast.error('请输入有效的分账金额')
+  editMoneySaving.value = true
+  try {
+    await operatePsOrder(r.id, 'editmoney', editMoneyVal.value.trim())
+    toast.success('分账金额已更新')
+    editMoneyRow.value = null
+    await reload()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '修改失败')
+  } finally {
+    editMoneySaving.value = false
+  }
+}
+
 // 状态可执行操作（对齐 epay ps_order + 后端能力）
 function psActions(status: number): { key: string; label: string }[] {
-  if (status === 0) return [{ key: 'submit', label: '提交分账' }, { key: 'cancel', label: '取消' }]
+  if (status === 0) return [{ key: 'submit', label: '提交分账' }, { key: 'editmoney', label: '修改金额' }, { key: 'cancel', label: '取消' }, { key: 'delete', label: '删除' }]
   if (status === 1) return [{ key: 'query', label: '查询结果' }]
   if (status === 2) return [{ key: 'return', label: '分账回退' }]
-  if (status === 3) return [{ key: 'submit', label: '重试' }, { key: 'cancel', label: '取消' }]
+  if (status === 3) return [{ key: 'submit', label: '重试' }, { key: 'cancel', label: '取消' }, { key: 'delete', label: '删除' }]
+  if (status === 4) return [{ key: 'delete', label: '删除' }]
   return []
 }
 const actionIcons: Record<string, any> = {
-  submit: Send, query: RefreshCw, return: Undo2, cancel: XCircle,
+  submit: Send, query: RefreshCw, return: Undo2, cancel: XCircle, editmoney: Pencil, delete: Trash2,
 }
 
 // ===== 操作确认（资金相关：submit 扣款 / return/cancel 退回）=====
@@ -182,6 +277,8 @@ const confirmText = computed(() => {
       return `确认回退该笔已成功分账？将把 ${m} 退回原扣款商户余额，状态置为已取消。`
     case 'cancel':
       return `确认取消该笔分账？若已扣款将退回商户 ${m}，状态置为已取消。`
+    case 'delete':
+      return '确认删除该笔分账记录？已扣款的记录需先回退再删除，此操作不可恢复。'
     default:
       return ''
   }
@@ -189,6 +286,8 @@ const confirmText = computed(() => {
 
 function onAction(r: PsOrder, key: string, label: string) {
   openMenu.value = null
+  // 改金额走独立弹窗
+  if (key === 'editmoney') return openEditMoney(r)
   confirmRow.value = r
   confirmAction.value = key
   confirmLabel.value = label
@@ -364,22 +463,34 @@ onMounted(() => {
     </Panel>
 
     <!-- 列表 -->
-    <Panel title="分账列表" :subtitle="`${total} 条`">
+    <Panel title="分账列表" :subtitle="selected.size ? `已选 ${selected.size} 条` : `${total} 条`">
+      <template v-if="selected.size" #actions>
+        <span class="text-sm text-muted-foreground">批量操作：</span>
+        <Select v-model="bulkAction" :options="bulkOptions" class="w-32" />
+        <Button size="sm" :disabled="busy" @click="askBulk">执行</Button>
+        <Button variant="ghost" size="sm" @click="selected = new Set()">清空选择</Button>
+      </template>
       <div>
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
-              <th class="w-[20%]">系统订单号</th>
-              <th class="w-[17%]">分账规则 / 接收方</th>
-              <th class="w-[15%]">支付通道</th>
+              <th class="w-[4%] col-center">
+                <input type="checkbox" :checked="pageAllChecked" class="align-middle" @change="toggleAll" />
+              </th>
+              <th class="w-[18%]">系统订单号</th>
+              <th class="w-[16%]">分账规则 / 接收方</th>
+              <th class="w-[14%]">支付通道</th>
               <th class="w-[11%]">分账金额</th>
-              <th class="w-[15%]">时间</th>
+              <th class="w-[14%]">时间</th>
               <th class="col-center w-[10%]">状态</th>
               <th class="col-center w-[12%]">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="o in rows" :key="o.id">
+              <td class="col-center">
+                <input type="checkbox" :checked="selected.has(o.id)" class="align-middle" @change="toggleOne(o.id)" />
+              </td>
               <td>
                 <div class="truncate font-medium text-primary">{{ o.trade_no }}</div>
                 <div class="truncate text-xs dim">{{ o.api_trade_no || '—' }}</div>
@@ -419,7 +530,7 @@ onMounted(() => {
                       v-for="(a, ai) in psActions(o.status)"
                       :key="ai"
                       class="menu-item"
-                      :class="a.key === 'cancel' && 'menu-item-danger'"
+                      :class="(a.key === 'cancel' || a.key === 'delete') && 'menu-item-danger'"
                       @click="onAction(o, a.key, a.label)"
                     >
                       <component :is="actionIcons[a.key]" class="size-4 shrink-0 opacity-70" />
@@ -431,10 +542,10 @@ onMounted(() => {
               </td>
             </tr>
             <tr v-if="loading">
-              <td colspan="7" class="py-10 text-center dim">加载中…</td>
+              <td colspan="8" class="py-10 text-center dim">加载中…</td>
             </tr>
             <tr v-else-if="!rows.length">
-              <td colspan="7" class="py-10 text-center dim">没有符合条件的分账记录</td>
+              <td colspan="8" class="py-10 text-center dim">没有符合条件的分账记录</td>
             </tr>
           </tbody>
         </table>
@@ -451,6 +562,36 @@ onMounted(() => {
       <template #footer>
         <Button variant="outline" size="sm" @click="confirmOpen = false">取消</Button>
         <Button size="sm" :disabled="busy" @click="doConfirm">确认{{ confirmLabel }}</Button>
+      </template>
+    </Modal>
+
+    <!-- 批量操作确认（对齐 epay ps_order batch_act）-->
+    <Modal :model-value="bulkConfirm" title="批量操作确认" @update:model-value="(v) => { if (!v) bulkConfirm = false }">
+      <p class="text-sm text-muted-foreground">
+        将对选中记录中 <b class="text-foreground">{{ bulkEligible.length }}</b> 条可执行记录执行
+        「<b class="text-foreground">{{ bulkOptions.find((o) => o.value === bulkAction)?.label }}</b>」。
+        <span v-if="bulkAction === 'submit'">提交后若规则绑定商户将从其余额扣除分账金额。</span>
+        <span v-else-if="bulkAction === 'return'" class="text-destructive">回退将把已成功分账金额退回原扣款商户。</span>
+        <span v-else-if="bulkAction === 'delete'" class="text-destructive">删除不可恢复，已扣款记录会被跳过。</span>
+      </p>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="bulkConfirm = false">取消</Button>
+        <Button :variant="bulkAction === 'delete' ? 'destructive' : 'default'" size="sm" :disabled="busy" @click="runBulk">执行</Button>
+      </template>
+    </Modal>
+
+    <!-- 分账金额编辑（J-6，对齐 epay editmoney：仅待分账可改）-->
+    <Modal :model-value="!!editMoneyRow" title="修改分账金额" @update:model-value="(v) => { if (!v) editMoneyRow = null }">
+      <p class="mb-3 text-sm text-muted-foreground">
+        订单 <b class="text-foreground">{{ editMoneyRow?.trade_no }}</b>，仅待分账状态可修改。
+      </p>
+      <div class="row-field">
+        <label class="lbl">分账金额</label>
+        <input v-model="editMoneyVal" class="field-input flex-1 tabular-nums" placeholder="请输入分账金额" @keyup.enter="saveEditMoney" />
+      </div>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="editMoneyRow = null">取消</Button>
+        <Button size="sm" :disabled="editMoneySaving" @click="saveEditMoney">保存</Button>
       </template>
     </Modal>
 

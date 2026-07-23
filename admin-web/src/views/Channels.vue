@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   Search,
   RotateCcw,
@@ -11,6 +12,8 @@ import {
   ReceiptText,
   Copy,
   FlaskConical,
+  ShoppingCart,
+  Coins,
 } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, Switch, Pagination, Drawer, Modal } from '@/components/ui'
 import {
@@ -29,6 +32,7 @@ import {
   fetchChannelConfig,
   saveChannelConfig,
   fetchPluginMeta,
+  channelTestPay,
   type ChannelSaveReq,
   type PluginFieldInput,
   type PluginMeta,
@@ -39,6 +43,7 @@ import { shouldDropUp } from '@/composables/useRowMenu'
 import { formatMoney } from '@/lib/utils'
 
 const toast = useToast()
+const router = useRouter()
 
 // 通道数据（真接口，一次拉取全部后客户端筛选/分页）。
 // 对齐 epay：pay_channel 列表本就全量返回、无服务端分页；通道数量有限，
@@ -124,6 +129,49 @@ function toggleMenu(id: number, ev?: MouseEvent) {
 function closeMenu() {
   openMenu.value = null
 }
+
+// ===== 行操作：查看该通道订单（对齐 epay pay_channel「订单」→ order.php?channel=id）=====
+function viewOrders(c: Channel) {
+  openMenu.value = null
+  router.push({ path: '/admin/orders', query: { channel: String(c.id) } })
+}
+
+// ===== 行操作：测试支付（对齐 epay pay_channel「测试支付」→ ajax_pay.php act=testpay）=====
+const testDialog = ref(false)
+const testTarget = ref<Channel | null>(null)
+const testForm = reactive({ name: '支付测试', money: '1' })
+const testSubmitting = ref(false)
+function openTestPay(c: Channel) {
+  openMenu.value = null
+  testTarget.value = c
+  testForm.name = '支付测试'
+  testForm.money = '1'
+  testDialog.value = true
+}
+async function submitTestPay() {
+  if (!testTarget.value || testSubmitting.value) return
+  const money = Number(testForm.money)
+  if (!(money > 0)) {
+    toast.error('请输入有效金额')
+    return
+  }
+  testSubmitting.value = true
+  try {
+    const res = await channelTestPay({
+      channel: testTarget.value.id,
+      name: testForm.name.trim() || '支付测试',
+      money: testForm.money.trim(),
+    })
+    testDialog.value = false
+    // 下单成功 → 跳收银台（对齐 epay window.open(testsubmit.php)），mock 渠道走模拟支付页
+    router.push({ path: `/pay/mock/cashier/${res.trade_no}` })
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '测试支付下单失败')
+  } finally {
+    testSubmitting.value = false
+  }
+}
+
 // 插件元数据（后端 /channels/plugins 自声明的密钥字段/能力），驱动密钥表单动态渲染
 const pluginMeta = ref<Record<string, PluginMeta>>({})
 async function loadPluginMeta() {
@@ -513,10 +561,10 @@ async function saveConfig() {
                     <button class="menu-item" @click="openCopy(c)">
                       <Copy class="size-4 shrink-0 opacity-70" /><span class="flex-1">复制</span>
                     </button>
-                    <button class="menu-item" @click="openMenu = null">
+                    <button class="menu-item" @click="viewOrders(c)">
                       <ReceiptText class="size-4 shrink-0 opacity-70" /><span class="flex-1">订单</span>
                     </button>
-                    <button class="menu-item" @click="openMenu = null">
+                    <button class="menu-item" @click="openTestPay(c)">
                       <FlaskConical class="size-4 shrink-0 opacity-70" /><span class="flex-1">测试支付</span>
                     </button>
                     <div class="menu-sep" />
@@ -698,6 +746,39 @@ async function saveConfig() {
       <template #footer>
         <Button variant="outline" size="sm" @click="delTarget = null">取消</Button>
         <Button variant="destructive" size="sm" :disabled="deleting" @click="confirmDelete">删除</Button>
+      </template>
+    </Modal>
+
+    <!-- 测试支付（对齐 epay pay_channel testpay：订单名 + 金额，下单后跳收银台）-->
+    <Modal
+      :model-value="testDialog"
+      title="测试支付"
+      @update:model-value="(v) => { if (!v) testDialog = false }"
+    >
+      <p class="mb-3 text-sm text-muted-foreground">
+        对通道
+        <b class="text-foreground">{{ testTarget?.name }}</b>
+        （ID {{ testTarget?.id }}）发起一笔真实测试订单，验证密钥配置与收款是否正常。
+      </p>
+      <div class="space-y-3">
+        <div>
+          <label class="mb-1 block text-sm text-muted-foreground">订单名称</label>
+          <div class="relative">
+            <ShoppingCart class="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input v-model="testForm.name" placeholder="支付测试" class="field-input w-full !pl-9" />
+          </div>
+        </div>
+        <div>
+          <label class="mb-1 block text-sm text-muted-foreground">订单金额</label>
+          <div class="relative">
+            <Coins class="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input v-model="testForm.money" placeholder="1" class="field-input w-full !pl-9 tabular-nums" />
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="testDialog = false">取消</Button>
+        <Button size="sm" :disabled="testSubmitting" @click="submitTestPay">发起支付</Button>
       </template>
     </Modal>
   </div>

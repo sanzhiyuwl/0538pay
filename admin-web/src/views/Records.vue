@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { Search, RotateCcw, Download, BarChart3, ArrowUpRight, ArrowDownRight } from 'lucide-vue-next'
 import { Panel, Button, Select, DateRange, Pagination } from '@/components/ui'
 import { fetchRecords, fetchRecordStats, type FundRecord, type RecordStats } from '@/lib/api/records'
@@ -92,7 +93,13 @@ function go(p: number) {
   load()
 }
 
-onMounted(load)
+const route = useRoute()
+onMounted(() => {
+  // 从商户页「查看流水」快捷跳转而来：预置商户号筛选
+  const qu = route.query.uid
+  if (qu != null && String(qu).trim()) filters.uid = String(qu).trim()
+  load()
+})
 
 // ===== 导出（按当前筛选条件从后端拉全量再生成 CSV，对齐 epay record.php 导出）=====
 const exporting = ref(false)

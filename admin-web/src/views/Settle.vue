@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   Search,
   RotateCcw,
@@ -11,6 +12,8 @@ import {
   MoreHorizontal,
   Clock,
   Undo2,
+  Trash2,
+  Pencil,
 } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, Pagination, Modal, Drawer, DateRange } from '@/components/ui'
 import {
@@ -57,7 +60,13 @@ async function loadBatches() {
 async function reload() {
   await Promise.all([loadBatches(), loadRecords()])
 }
-onMounted(reload)
+const route = useRoute()
+onMounted(() => {
+  // 从商户页「查看结算」快捷跳转而来：预置商户号筛选
+  const qu = route.query.uid
+  if (qu != null && String(qu).trim()) filters.value.uid = String(qu).trim()
+  reload()
+})
 
 // ===== 结算方式 / 状态下拉 =====
 const typeOptions = [
@@ -232,9 +241,10 @@ async function doExportBatch(batch: string, tmpl: string) {
   }
 }
 
-// 单条状态变更（0待结算/1已完成/2正在结算/3失败）
+// 单条状态变更（0待结算/1已完成/2正在结算）。改结算失败(3)走失败原因弹窗。
 async function changeStatus(id: number, status: number) {
   openMenu.value = null
+  if (status === 3) return openResult(rowById(id), true)
   if (busy.value) return
   busy.value = true
   try {
@@ -245,6 +255,39 @@ async function changeStatus(id: number, status: number) {
     toast.error(e instanceof ApiError ? e.message : '状态更新失败')
   } finally {
     busy.value = false
+  }
+}
+
+function rowById(id: number): SettleRecord | null {
+  return pageRows.value.find((r) => r.id === id) ?? null
+}
+
+// ===== 结算失败原因编辑（J-6，对齐 epay settle_setresult：写 result 字段）=====
+// toFail=true 时是「改为结算失败」（同时置状态3+写原因）；否则是「编辑失败原因」（保持状态3，仅改原因文本）。
+const resultTarget = ref<SettleRecord | null>(null)
+const resultText = ref('')
+const resultSaving = ref(false)
+function openResult(r: SettleRecord | null, toFail: boolean) {
+  openMenu.value = null
+  if (!r) return
+  void toFail
+  resultTarget.value = r
+  resultText.value = r.result ?? ''
+}
+async function saveResult() {
+  const r = resultTarget.value
+  if (!r || resultSaving.value) return
+  resultSaving.value = true
+  try {
+    // 统一走 setSettleStatus(3, result)：既置结算失败又写失败原因（对齐 epay setResult 落在 result 字段）
+    await setSettleStatus(r.id, 3, resultText.value.trim())
+    toast.success('结算失败原因已保存')
+    resultTarget.value = null
+    await reload()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    resultSaving.value = false
   }
 }
 
@@ -292,6 +335,38 @@ async function bulkStatus(status: number) {
       }
     }
     toast.success(`批量处理完成：${ok}/${ids.length} 条成功`)
+    selected.value.clear()
+    await reload()
+  } finally {
+    busy.value = false
+  }
+}
+
+// 批量删除记录（对齐 epay opslist status=4；逐条删除并退回结算金额，需管理员支付密码）
+const bulkDelDialog = ref(false)
+const bulkDelPwd = ref('')
+function askBulkDelete() {
+  if (!selected.value.size) return toast.info('请先勾选记录')
+  bulkDelPwd.value = ''
+  bulkDelDialog.value = true
+}
+async function runBulkDelete() {
+  if (busy.value) return
+  if (!bulkDelPwd.value) return toast.error('请输入支付密码')
+  busy.value = true
+  const ids = [...selected.value]
+  let ok = 0
+  try {
+    for (const id of ids) {
+      try {
+        await setSettleStatus(id, 4, '', bulkDelPwd.value)
+        ok++
+      } catch {
+        /* 单条失败继续，末尾汇总 */
+      }
+    }
+    toast.success(`批量删除完成：${ok}/${ids.length} 条成功（结算金额已退回商户余额）`)
+    bulkDelDialog.value = false
     selected.value.clear()
     await reload()
   } finally {
@@ -513,6 +588,7 @@ async function submitExport() {
         <Button variant="outline" size="sm" :disabled="busy" @click="bulkStatus(1)"><CheckCircle2 />已完成</Button>
         <Button variant="outline" size="sm" :disabled="busy" @click="bulkStatus(2)"><Clock />正在结算</Button>
         <Button variant="outline" size="sm" :disabled="busy" @click="bulkStatus(0)"><RotateCcw />待结算</Button>
+        <Button variant="outline" size="sm" class="text-destructive hover:text-destructive" :disabled="busy" @click="askBulkDelete"><Trash2 />删除并退回</Button>
       </template>
       <div>
         <table class="tbl w-full table-fixed">
@@ -591,6 +667,9 @@ async function submitExport() {
                     <button class="menu-item" @click="changeStatus(r.id, 3)">
                       <Send class="size-4 shrink-0 opacity-70" /><span class="flex-1">改为结算失败</span>
                     </button>
+                    <button v-if="r.status === 3" class="menu-item" @click="openResult(r, false)">
+                      <Pencil class="size-4 shrink-0 opacity-70" /><span class="flex-1">编辑失败原因</span>
+                    </button>
                     <div class="menu-sep" />
                     <button class="menu-item menu-item-danger" @click="askDelete(r)">
                       <Undo2 class="size-4 shrink-0 opacity-70" /><span class="flex-1">删除并退回</span>
@@ -627,6 +706,38 @@ async function submitExport() {
       <template #footer>
         <Button variant="outline" size="sm" @click="delTarget = null">取消</Button>
         <Button variant="destructive" size="sm" :disabled="busy" @click="confirmDelete">删除并退回</Button>
+      </template>
+    </Modal>
+
+    <!-- 批量删除并退回（对齐 epay opslist 批量删除，逐条退回结算金额）-->
+    <Modal :model-value="bulkDelDialog" title="批量删除结算记录" @update:model-value="(v) => { if (!v) bulkDelDialog = false }">
+      <p class="text-sm text-muted-foreground">
+        确定删除已选的 <b class="text-foreground">{{ selected.size }}</b> 条结算记录吗？
+        删除后每条结算金额将退回对应商户余额，此操作不可恢复。
+      </p>
+      <div class="mt-3 row-field">
+        <label class="lbl">支付密码</label>
+        <input v-model="bulkDelPwd" type="password" placeholder="请输入管理员支付密码" class="field-input flex-1" @keyup.enter="runBulkDelete" />
+      </div>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="bulkDelDialog = false">取消</Button>
+        <Button variant="destructive" size="sm" :disabled="busy" @click="runBulkDelete">批量删除并退回</Button>
+      </template>
+    </Modal>
+
+    <!-- 结算失败原因编辑（J-6，对齐 epay settle_setresult）-->
+    <Modal :model-value="!!resultTarget" title="结算失败原因" @update:model-value="(v) => { if (!v) resultTarget = null }">
+      <p class="mb-3 text-sm text-muted-foreground">
+        记录 <b class="text-foreground">#{{ resultTarget?.id }}</b>（{{ resultTarget?.merchant }}）。
+        保存后该记录将标记为结算失败并记录失败原因。
+      </p>
+      <div>
+        <label class="mb-1 block text-sm text-muted-foreground">失败原因</label>
+        <textarea v-model="resultText" rows="3" placeholder="请输入结算失败原因（如：银行卡号有误、账户异常等）" class="field-input w-full resize-none"></textarea>
+      </div>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="resultTarget = null">取消</Button>
+        <Button variant="destructive" size="sm" :disabled="resultSaving" @click="saveResult">保存</Button>
       </template>
     </Modal>
 
