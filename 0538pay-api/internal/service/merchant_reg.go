@@ -2,6 +2,7 @@ package service
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,11 +23,15 @@ type MerchantRegService struct {
 	cfg     *ConfigService
 	invite  *InviteService
 	captcha *CaptchaService
+	notice  *NoticeService // 新注册待审核管理员通知（可空；SetNoticeService 注入）
 }
 
 func NewMerchantRegService(repo *repository.MerchantRepo, cfg *ConfigService, invite *InviteService, captcha *CaptchaService) *MerchantRegService {
 	return &MerchantRegService{repo: repo, cfg: cfg, invite: invite, captcha: captcha}
 }
+
+// SetNoticeService 注入对外通知中枢（K-1）。注册需审核时发 regaudit 场景管理员通知。
+func (s *MerchantRegService) SetNoticeService(n *NoticeService) { s.notice = n }
 
 // checkPassword 密码规则（对齐 epay：长度≥6、不等于账号、非纯数字）。
 func checkPassword(pwd, account string) error {
@@ -151,6 +156,18 @@ func (s *MerchantRegService) Register(req dto.MerchantRegReq) (*dto.MerchantRegR
 	// 6. 核销邀请码
 	if inviteID > 0 {
 		_ = s.invite.MarkUsed(inviteID, m.UID)
+	}
+
+	// 7. 新注册待审核管理员通知（K-1 regaudit 场景，对齐 epay MsgNotice::send('regaudit', 0)，仅审核态发）。
+	if needReview && s.notice != nil {
+		account := email
+		if account == "" {
+			account = phone
+		}
+		go s.notice.Send("regaudit", 0, map[string]string{
+			"uid":     strconv.FormatUint(uint64(m.UID), 10),
+			"account": account,
+		})
 	}
 
 	msg := "注册成功，请登录"

@@ -173,6 +173,21 @@ func main() {
 	geetestSvc := service.NewGeetestService(configSvc)
 	merchantAuthHandler.SetSmsGeetest(smsSvc, geetestSvc)
 
+	// K 段：统一对外通知触达中枢（对齐 epay lib/MsgNotice）。
+	// 邮件三通道(K-3 SMTP/Sendcloud/阿里云) + 公众号模板消息(K-2) + 短信 = NoticeService(K-1)。
+	// 接进 order/settle/login/apply/domain/regaudit/balance 业务钩子；通道未配置静默降级，不阻塞主流程。
+	mailSvc := service.NewMailService(configSvc)
+	wxmpSvc := service.NewWxmpService(repository.NewWeixinRepo(db))
+	noticeSvc := service.NewNoticeService(merchantRepo, configSvc, mailSvc, wxmpSvc, smsSvc)
+	paySvc.SetNoticeService(noticeSvc)             // order 支付成功商户通知
+	settleSvc.SetNoticeService(noticeSvc)          // settle 结算完成商户通知
+	merchantCenterSvc.SetNoticeService(noticeSvc)  // apply 提现待处理管理员通知
+	domainSvc.SetNoticeService(noticeSvc)          // domain 授权域名待审核管理员通知
+	merchantRegSvc.SetNoticeService(noticeSvc)     // regaudit 新注册待审核管理员通知
+	merchantAuthSvc.SetNoticeService(noticeSvc)    // login 登录提醒
+	configHandler := handler.NewConfigHandler(configSvc)
+	configHandler.SetMailService(mailSvc) // K-3 后台「发送测试邮件」
+
 	deps := router.Deps{
 		JWT:            jm,
 		Auth:           handler.NewAuthHandler(authSvc),
@@ -180,7 +195,7 @@ func main() {
 		Order:          handler.NewOrderHandler(orderSvc),
 		Merchant:       merchantHandler,
 		Group:          handler.NewGroupHandler(groupSvc),
-		Config:         handler.NewConfigHandler(configSvc),
+		Config:         configHandler,
 		Channel:        handler.NewChannelHandler(channelSvc),
 		Roll:           handler.NewRollHandler(rollSvc),
 		SubChannel:     handler.NewSubChannelHandler(subChannelSvc),

@@ -136,6 +136,25 @@ func (s *PayService) settle(ctx context.Context, tradeNo string) error {
 		s.invite.SettleOnPaid(order.UID, order.Money, getMoney, order.TradeNo)
 	}
 
+	// 对外通知（K-1 order 场景）：支付成功后按商户 msgconfig 发微信/邮件/短信到账提醒
+	// （对齐 epay functions.php:629 MsgNotice::send('order')）。异步触发，不阻塞入账。
+	if s.notice != nil && order.UID > 0 {
+		payTime := ""
+		if order.EndTime != nil {
+			payTime = order.EndTime.Format("2006-01-02 15:04:05")
+		} else {
+			payTime = time.Now().Format("2006-01-02 15:04:05")
+		}
+		go s.notice.Send("order", order.UID, map[string]string{
+			"trade_no":     order.TradeNo,
+			"out_trade_no": order.OutTradeNo,
+			"name":         order.Name,
+			"money":        order.Money.StringFixed(2),
+			"type":         order.TypeShow,
+			"time":         payTime,
+		})
+	}
+
 	// daytop 单日限额累计（对齐 epay functions.php:654-663）：通道设了 daytop>0 时，
 	// 累计该通道今日已付 realmoney，达到 daytop → 置 daystatus=1 暂停该通道（次日 cron 重置）。
 	s.accrueChannelDaytop(order.Channel)

@@ -91,10 +91,28 @@ type SettleService struct {
 	merchantRepo *repository.MerchantRepo
 	admins       *repository.AdminRepo // 支付密码二次校验（可空；SetAdminRepo 注入）
 	cfg          *ConfigService        // 打款备注 transfer_desc（可空；SetConfigService 注入）
+	notice       *NoticeService        // 结算完成通知（可空；SetNoticeService 注入）
 }
 
 func NewSettleService(repo *repository.SettleRepo, merchantRepo *repository.MerchantRepo) *SettleService {
 	return &SettleService{repo: repo, merchantRepo: merchantRepo}
+}
+
+// SetNoticeService 注入对外通知中枢（K-1）。结算记录置为已完成时发 settle 场景通知。
+func (s *SettleService) SetNoticeService(n *NoticeService) { s.notice = n }
+
+// notifySettleDone 结算完成后发 settle 通知（对齐 epay ajax_settle.php MsgNotice::send('settle')）。
+// 异步触发，通道未配置静默降级，不阻塞结算状态流转。
+func (s *SettleService) notifySettleDone(rec *model.SettleRecord) {
+	if s.notice == nil || rec == nil || rec.UID == 0 {
+		return
+	}
+	go s.notice.Send("settle", rec.UID, map[string]string{
+		"money":     rec.Money.StringFixed(2),
+		"realmoney": rec.RealMoney.StringFixed(2),
+		"account":   rec.Account,
+		"time":      time.Now().Format("2006-01-02 15:04:05"),
+	})
 }
 
 // SetConfigService 注入配置域（银行结算导出取 transfer_desc 打款备注）。
@@ -328,7 +346,21 @@ func (s *SettleService) CompleteBatch(batch string) (int64, error) {
 	if b == nil {
 		return 0, stErr("批次不存在")
 	}
-	return s.repo.CompleteBatch(batch, time.Now())
+	// 完成前取批内正在结算的记录，用于结算完成通知（对齐 epay ajax_settle.php 批量收批后逐条 MsgNotice）。
+	var pending []model.SettleRecord
+	if s.notice != nil {
+		if recs, e := s.repo.ListByBatch(batch, []int8{2}); e == nil {
+			pending = recs
+		}
+	}
+	n, err := s.repo.CompleteBatch(batch, time.Now())
+	if err != nil {
+		return n, err
+	}
+	for i := range pending {
+		s.notifySettleDone(&pending[i])
+	}
+	return n, nil
 }
 
 // SetStatus 变更单条结算记录状态。
@@ -359,9 +391,13 @@ func (s *SettleService) SetStatus(id uint, req dto.SettleStatusReq) error {
 		}
 		return nil
 	case 1: // 已完成
-		return s.repo.SetStatus(id, map[string]interface{}{
+		if err := s.repo.SetStatus(id, map[string]interface{}{
 			"status": 1, "end_time": time.Now(), "result": "",
-		})
+		}); err != nil {
+			return err
+		}
+		s.notifySettleDone(exist) // 结算完成通知（K-1 settle 场景）
+		return nil
 	case 0, 2: // 待结算 / 正在结算
 		return s.repo.SetStatus(id, map[string]interface{}{
 			"status": req.Status, "end_time": nil,

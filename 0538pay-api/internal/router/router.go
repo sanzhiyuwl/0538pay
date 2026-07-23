@@ -108,6 +108,7 @@ func Setup(r *gin.Engine, d Deps) {
 			// 系统设置（config 域）
 			authed.GET("/config/:group", d.Config.GetGroup)
 			authed.PUT("/config/:group", d.Config.SaveGroup)
+			authed.POST("/config/mail/test", d.Config.TestMail) // K-3 发送测试邮件
 			authed.PUT("/paypwd", d.Config.ChangePayPwd) // 修改管理员支付密码（对齐 epay admin_paypwd）
 
 			// 用户组管理

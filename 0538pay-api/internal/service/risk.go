@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strconv"
 	"strings"
 	"time"
 
@@ -157,12 +158,16 @@ func toBlacklistView(b *model.Blacklist) dto.BlacklistView {
 
 // DomainService 授权域名：CRUD + 审核 + 下单白名单校验。
 type DomainService struct {
-	repo *repository.DomainRepo
+	repo   *repository.DomainRepo
+	notice *NoticeService // 授权域名待审核管理员通知（可空；SetNoticeService 注入）
 }
 
 func NewDomainService(repo *repository.DomainRepo) *DomainService {
 	return &DomainService{repo: repo}
 }
+
+// SetNoticeService 注入对外通知中枢（K-1）。商户自助提交授权域名后发 domain 场景管理员通知。
+func (s *DomainService) SetNoticeService(n *NoticeService) { s.notice = n }
 
 // List 域名列表。
 func (s *DomainService) List(q dto.DomainQuery) ([]dto.DomainView, int64, error) {
@@ -281,9 +286,19 @@ func (s *DomainService) MerchantAdd(uid uint, rawDomain string) error {
 	}
 	now := time.Now()
 	// 商户自助添加默认待审(status=0)，EndTime 留空待管理员审核（对齐 epay 商户自助 status=0）。
-	return s.repo.Create(&model.Domain{
+	if err := s.repo.Create(&model.Domain{
 		UID: uid, Domain: domain, Status: 0, AddTime: now,
-	})
+	}); err != nil {
+		return err
+	}
+	// 授权域名待审核管理员通知（K-1 domain 场景，对齐 epay user/ajax2.php MsgNotice::send('domain', 0)）。
+	if s.notice != nil {
+		go s.notice.Send("domain", 0, map[string]string{
+			"uid":    strconv.FormatUint(uint64(uid), 10),
+			"domain": domain,
+		})
+	}
+	return nil
 }
 
 // MerchantDelete 商户自助删除本人授权域名（限 uid scope，防越权）。

@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/0538pay/api/internal/dto"
@@ -1398,11 +1399,55 @@ func (h *SiteConfigHandler) Save(c *gin.Context) {
 
 // ConfigHandler 系统设置读写接口。
 type ConfigHandler struct {
-	svc *service.ConfigService
+	svc  *service.ConfigService
+	mail *service.MailService // 发送测试邮件（K-3，可空）
 }
 
 func NewConfigHandler(svc *service.ConfigService) *ConfigHandler {
 	return &ConfigHandler{svc: svc}
+}
+
+// SetMailService 注入邮件服务（测试邮件发送）。
+func (h *ConfigHandler) SetMailService(m *service.MailService) { h.mail = m }
+
+// TestMail POST /api/admin/config/mail/test 用当前邮件配置发一封测试邮件（对齐 epay set.php:1192）。
+// 收件人默认取 mail_recv/mail_name（管理员邮箱）；也可显式传 to。
+func (h *ConfigHandler) TestMail(c *gin.Context) {
+	if h.mail == nil {
+		resp.Fail(c, 1012, "邮件服务未初始化")
+		return
+	}
+	var req struct {
+		To string `json:"to"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	to := strings.TrimSpace(req.To)
+	if to == "" {
+		if to = h.svc.Str("mail_recv"); to == "" {
+			to = h.svc.Str("mail_name")
+		}
+	}
+	if to == "" {
+		resp.Fail(c, 400, "请先配置收信邮箱")
+		return
+	}
+	site := h.svc.Str("sitename")
+	if site == "" {
+		site = "0538pay"
+	}
+	err := h.mail.Send(c.Request.Context(), to,
+		"邮件发送测试 - "+site,
+		"这是一封测试邮件！<br/><br/>如果您收到此邮件，说明邮件通道配置正确。<br/>来自："+site)
+	if err != nil {
+		var me *service.MerchantAuthError
+		if errors.As(err, &me) {
+			resp.Fail(c, 400, me.Msg)
+			return
+		}
+		resp.Fail(c, 1012, "发送失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"to": to})
 }
 
 // GetGroup GET /api/admin/config/:group 读取某分组配置（回填设置页）。

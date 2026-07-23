@@ -29,10 +29,14 @@ type MerchantCenterService struct {
 	groups    *repository.GroupRepo
 	pay       *PayService        // 复用商户通知重发
 	certVerify *CertVerifyService // 实名第三方核验（可空；SetCertVerify 注入）
+	notice    *NoticeService     // 提现待处理管理员通知（可空；SetNoticeService 注入）
 }
 
 // SetCertVerify 注入实名第三方核验服务。
 func (s *MerchantCenterService) SetCertVerify(c *CertVerifyService) { s.certVerify = c }
+
+// SetNoticeService 注入对外通知中枢（K-1）。商户申请提现后发 apply 场景管理员通知。
+func (s *MerchantCenterService) SetNoticeService(n *NoticeService) { s.notice = n }
 
 func NewMerchantCenterService(
 	merchants *repository.MerchantRepo,
@@ -652,6 +656,14 @@ func (s *MerchantCenterService) Apply(uid uint, req dto.ApplyReq) error {
 			return maErr("余额不足")
 		}
 		return err
+	}
+	// 提现待处理管理员通知（K-1 apply 场景，对齐 epay user/apply.php MsgNotice::send('apply', 0)）。
+	if s.notice != nil {
+		go s.notice.Send("apply", 0, map[string]string{
+			"uid":       strconv.FormatUint(uint64(uid), 10),
+			"realmoney": realmoney.StringFixed(2),
+			"type":      settleTypeName(int8(m.SettleID)),
+		})
 	}
 	return nil
 }

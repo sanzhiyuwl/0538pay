@@ -8,6 +8,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/big"
@@ -108,6 +109,32 @@ func (s *SmsService) dispatch(ctx context.Context, phone, code, scene string) er
 	return maErr("不支持的短信通道")
 }
 
+// SendCommon 按指定模板+参数发送短信（对齐 epay functions.php send_sms_common）。
+// 供 NoticeService 的 balance/complain 场景使用。tplParam 通常单值（{"code":值}）。
+// 通道凭证缺失时返回错误，NoticeService 静默降级。
+func (s *SmsService) SendCommon(ctx context.Context, phone, tplCode string, tplParam map[string]string) error {
+	if tplCode == "" {
+		return maErr("短信模板未配置")
+	}
+	switch s.cfg.Int("sms_api", 0) {
+	case 2:
+		return s.sendAliyunTpl(ctx, phone, tplCode, tplParam)
+	case 4:
+		// 短信宝无模板概念，直接拼内容发送首个参数值。
+		var val string
+		for _, v := range tplParam {
+			val = v
+			break
+		}
+		return s.sendSmsBao(ctx, phone, val)
+	case 1:
+		return maErr("腾讯云短信通道待真实凭证接入")
+	case 0:
+		return maErr("短信通道未配置(sms_api)，待真实凭证")
+	}
+	return maErr("不支持的短信通道")
+}
+
 // tplParam 取场景对应短信模板 ID（对齐 epay sms_tpl_reg/find/...）。
 func (s *SmsService) tplParam(scene string) string {
 	switch scene {
@@ -121,15 +148,21 @@ func (s *SmsService) tplParam(scene string) string {
 	return s.cfg.Str("sms_tpl_reg")
 }
 
-// sendAliyun 阿里云短信 dysmsapi（HMAC-SHA1 RPC 签名，对齐 epay \lib\sms\Aliyun）。
+// sendAliyun 阿里云短信 dysmsapi（OTP 场景，模板参数固定 {"code":码}）。
 func (s *SmsService) sendAliyun(ctx context.Context, phone, code string) error {
+	return s.sendAliyunTpl(ctx, phone, s.tplParam("reg"), map[string]string{"code": code})
+}
+
+// sendAliyunTpl 阿里云短信 dysmsapi（HMAC-SHA1 RPC 签名，对齐 epay \lib\sms\Aliyun）。
+// 支持任意模板 + 参数（OTP 与 NoticeService 通用）。
+func (s *SmsService) sendAliyunTpl(ctx context.Context, phone, tpl string, tplParam map[string]string) error {
 	ak := s.cfg.Str("sms_appid")
 	secret := s.cfg.Str("sms_appkey")
 	sign := s.cfg.Str("sms_sign")
-	tpl := s.tplParam("reg")
 	if ak == "" || secret == "" || sign == "" || tpl == "" {
 		return maErr("阿里云短信未配置完整(appid/appkey/sign/模板)，待真实凭证")
 	}
+	tplJSON, _ := json.Marshal(tplParam)
 	params := map[string]string{
 		"AccessKeyId":      ak,
 		"Action":           "SendSms",
@@ -141,7 +174,7 @@ func (s *SmsService) sendAliyun(ctx context.Context, phone, code string) error {
 		"SignatureNonce":   randNonce(),
 		"SignatureVersion": "1.0",
 		"TemplateCode":     tpl,
-		"TemplateParam":    fmt.Sprintf(`{"code":"%s"}`, code),
+		"TemplateParam":    string(tplJSON),
 		"Timestamp":        time.Now().UTC().Format("2006-01-02T15:04:05Z"),
 		"Version":          "2017-05-25",
 	}

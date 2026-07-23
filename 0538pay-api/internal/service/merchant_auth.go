@@ -3,6 +3,7 @@ package service
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/0538pay/api/internal/dto"
 	"github.com/0538pay/api/internal/model"
@@ -15,9 +16,10 @@ import (
 // 认证语义对齐 epay user/login.php（密码/密钥双模式 + type 自动纠偏 + 状态守卫），
 // 但登录态载体用项目统一的 JWT(scope=merchant)，不移植 epay 的 RC4 cookie。
 type MerchantAuthService struct {
-	repo *repository.MerchantRepo
-	jm   *jwtauth.Manager
-	log  *LogService // 登录日志（可空）
+	repo   *repository.MerchantRepo
+	jm     *jwtauth.Manager
+	log    *LogService    // 登录日志（可空）
+	notice *NoticeService // 登录提醒（可空；SetNoticeService 注入）
 }
 
 func NewMerchantAuthService(repo *repository.MerchantRepo, jm *jwtauth.Manager) *MerchantAuthService {
@@ -26,6 +28,9 @@ func NewMerchantAuthService(repo *repository.MerchantRepo, jm *jwtauth.Manager) 
 
 // SetLogService 注入登录日志服务。
 func (s *MerchantAuthService) SetLogService(l *LogService) { s.log = l }
+
+// SetNoticeService 注入对外通知中枢（K-1）。登录成功后发 login 场景通知（对齐 epay MsgNotice::send('login')）。
+func (s *MerchantAuthService) SetNoticeService(n *NoticeService) { s.notice = n }
 
 // MerchantAuthError 携带业务提示，handler 统一返回 code=1101。
 type MerchantAuthError struct{ Msg string }
@@ -90,6 +95,14 @@ func (s *MerchantAuthService) Login(req dto.MerchantLoginReq, ip string) (*dto.M
 	}
 	if s.log != nil {
 		s.log.Record(m.UID, "普通登录", ip, "")
+	}
+	// 登录提醒（K-1 login 场景，对齐 epay user/ajax.php MsgNotice::send('login')）。
+	if s.notice != nil {
+		go s.notice.Send("login", m.UID, map[string]string{
+			"user":     account,
+			"clientip": ip,
+			"time":     time.Now().Format("2006-01-02 15:04:05"),
+		})
 	}
 	return &dto.MerchantLoginResp{Token: token, Info: toMerchantInfo(m)}, nil
 }

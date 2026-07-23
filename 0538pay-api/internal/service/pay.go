@@ -48,7 +48,12 @@ type PayService struct {
 	domain    *DomainService    // 域名白名单校验（可空）
 	selector  *ChannelSelector  // 选通道分发（可空；SetSelector 注入。nil 则退回 plugin 名直配）
 	cfg       *ConfigService    // 系统配置（可空；SetConfigService 注入。回调 RSA 签名/全局限额/加费兜底用）
+	notice    *NoticeService    // 对外通知中枢（可空；SetNoticeService 注入。order 支付成功商户通知）
 }
+
+// SetNoticeService 注入对外通知中枢（K-1）。支付成功后发 order 场景通知（微信/邮件/短信）。
+// nil 则不发对外通知（不影响商户异步回调 do_notify）。
+func (s *PayService) SetNoticeService(n *NoticeService) { s.notice = n }
 
 // SetConfigService 注入系统配置域（V2 回调平台私钥签名、notifyordername、全局金额限额、mode=1 加费兜底）。
 // nil 则回调恒 MD5、无全局限额（向后兼容）。
