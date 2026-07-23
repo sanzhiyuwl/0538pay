@@ -34,36 +34,41 @@ func (s *PayService) buildCallbackParams(o *model.Order, m *model.Merchant) map[
 		"out_trade_no": o.OutTradeNo,
 		"type":         o.TypeName,
 		"name":         name,
-		"money":        money.String(o.Money),
+		"money":        money.Float(o.Money), // (float)money 形态去尾零，对齐 epay creat_callback（G-5）
 		"trade_status": "TRADE_SUCCESS",
 	}
-	if o.Buyer != "" {
-		params["buyer"] = o.Buyer
-	}
+	// param 两版本回调通用（epay creat_callback:476/484 两分支都加）。
 	if o.Param != "" {
 		params["param"] = o.Param
 	}
-	// api_trade_no：优先 bill_trade_no，退回 api_trade_no（1:1 对齐 epay creat_callback:473-474，
-	// 两版本回调通用——bill_trade_no 非空取它，否则取 api_trade_no）。
-	if apiTradeNo := firstNonEmpty(o.BillTradeNo, o.APITradeNo); apiTradeNo != "" {
-		params["api_trade_no"] = apiTradeNo
-	}
 
 	// V2：平台私钥 RSA + timestamp（epay creat_callback version==1 分支）。
+	// 关键：api_trade_no/buyer 只在 RSA(version==1) 分支参与回调与签名；MD5 分支两者都不带，
+	// 否则 MD5 签名字段集与 epay 不一致致商户验签失败（B1-48）。
 	if o.Version == 1 && s.cfg != nil {
 		if priv := s.cfg.PlatformPrivateKey(); priv != "" {
+			// api_trade_no：优先 bill_trade_no，退回 api_trade_no（对齐 epay creat_callback:473-474）。
+			if apiTradeNo := firstNonEmpty(o.BillTradeNo, o.APITradeNo); apiTradeNo != "" {
+				params["api_trade_no"] = apiTradeNo
+			}
+			if o.Buyer != "" {
+				params["buyer"] = o.Buyer
+			}
 			params["timestamp"] = strconv.FormatInt(time.Now().Unix(), 10)
 			params["sign_type"] = "RSA"
 			if sig, err := sign.MakeRSA(params, priv); err == nil {
 				params["sign"] = sig
 				return params
 			}
-			// 签名失败降级 MD5（删除 RSA 专属字段避免误导商户）。
+			// 签名失败降级 MD5：删掉 RSA 专属字段(timestamp)与 RSA 专属回调字段(api_trade_no/buyer)，
+			// 回到 epay MD5 分支的字段集。
 			delete(params, "timestamp")
+			delete(params, "api_trade_no")
+			delete(params, "buyer")
 		}
 	}
 
-	// V1（或 V2 降级）：商户 key MD5。
+	// V1（或 V2 降级）：商户 key MD5。字段集只含 pid/trade_no/out_trade_no/type/name/money/trade_status/param。
 	params["sign"] = sign.MakeMD5(params, m.AppKey)
 	params["sign_type"] = "MD5"
 	return params

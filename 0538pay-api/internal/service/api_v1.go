@@ -58,8 +58,9 @@ func (s *ApiV1Service) Query(q map[string]string) map[string]interface{} {
 	if fail != nil {
 		return fail
 	}
-	orders, _ := s.orders.CountPaidByMerchant(m.UID, time.Time{})
-	// 用与 merchant/info 一致的精确按日统计
+	// orders 是全部订单数(不限状态)，对齐 epay api.php query count(*)（B1-57：原用已付计数偏小）。
+	orders, _ := s.orders.CountAllByMerchant(m.UID)
+	// 今/昨按 status=1 精确按日统计
 	today := dayStart(time.Now())
 	yesterday := today.AddDate(0, 0, -1)
 	todayCnt, _ := s.orders.CountPaidByMerchantRange(m.UID, today, today.AddDate(0, 0, 1))

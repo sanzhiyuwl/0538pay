@@ -17,7 +17,8 @@ func (s *MapiService) MerchantInfo(m *model.Merchant) (map[string]string, error)
 	today := dayStart(now)
 	yesterday := today.AddDate(0, 0, -1)
 
-	orderNum, _ := s.orders.CountPaidByMerchant(m.UID, time.Time{})
+	// order_num 是全部订单数(不限状态)，对齐 epay Merchant::info count(*)（B1-14：原用已付计数偏小）。
+	orderNum, _ := s.orders.CountAllByMerchant(m.UID)
 	// 今日/昨日订单数按 [start,end) 范围精确统计（A-11，对齐 epay 按 date 精确，避免旧差值近似跨天出错）。
 	orderToday, _ := s.orders.CountPaidByMerchantRange(m.UID, today, today.AddDate(0, 0, 1))
 	orderLastday, _ := s.orders.CountPaidByMerchantRange(m.UID, yesterday, today)

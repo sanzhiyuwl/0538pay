@@ -26,3 +26,18 @@ func Parse(s string) (decimal.Decimal, error) {
 func String(d decimal.Decimal) string {
 	return d.StringFixed(2)
 }
+
+// Float 把金额格式化为 PHP (float) 等价形态：先定两位再去掉末尾多余的 0 与小数点，
+// 100.00→"100"、100.50→"100.5"、100.55→"100.55"。用于异步回调 money 字段，
+// 与 epay creat_callback 的 (float)money 一致（G-5，避免原生 epay 商户 SDK 复算 float 时失配）。
+func Float(d decimal.Decimal) string {
+	s := d.StringFixed(2)
+	// 去尾零
+	for len(s) > 0 && s[len(s)-1] == '0' {
+		s = s[:len(s)-1]
+	}
+	if len(s) > 0 && s[len(s)-1] == '.' {
+		s = s[:len(s)-1]
+	}
+	return s
+}

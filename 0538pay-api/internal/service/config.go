@@ -50,6 +50,7 @@ var configDefaults = map[string]string{
 	"user_deposit_min": "1000", // 保证金最低充值金额
 	"cert_money":       "0",    // 实名工本费(0免费)
 	"user_deposit":     "0",    // 是否启用保证金门槛(1开0关；对齐 epay user_deposit)
+	"user_deposit_day": "0",    // 保证金提取冻结天数(最近N天有成功订单禁提取,0不限；对齐 epay user_deposit_day)
 	// 支付 pay
 	"pay_maxmoney": "50000",                // 最大支付金额
 	"pay_minmoney": "0.01",                 // 最小支付金额
@@ -64,6 +65,9 @@ var configDefaults = map[string]string{
 	"pay_payaddmin":    "0", // 随机增减最小值(元；对齐 epay pay_payaddmin)
 	"pay_payaddmax":    "0", // 随机增减最大值(元；对齐 epay pay_payaddmax)
 	"notifyordername":  "0", // 异步通知商品名强制为 product (1开/0关；对齐 epay notifyordername)
+	"pay_domain_forbid": "0", // 域名白名单全局开关(1开启白名单校验/0不校验；对齐 epay pay_domain_forbid)
+	"pageordername":     "0", // 收银台商品名强制为 onlinepay (1开/0关；对齐 epay pageordername)
+	"ordername":         "",  // 全局订单名模板([name]/[order]/[outorder]/[qq]/[phone]占位；对齐 epay ordername)
 	// 站点 site
 	"sitename": "0538pay 聚合支付平台",
 	"kfqq":     "",
@@ -134,10 +138,10 @@ var configDefaults = map[string]string{
 	"check_sucrate_second": "600", // 统计窗口(秒)
 	"check_sucrate_count":  "20",  // 窗口内最少订单数(达到才判定，避免小样本误伤)
 	"check_sucrate_value":  "30",  // 成功率低于该值(%)则关停(写 pay_risk type=1)
-	"auto_check_channel":   "0",   // 通道成功率自动关停 0关/1开(B-5)
-	"check_channel_second": "600", // 通道统计窗口(秒)
-	"check_channel_count":  "20",  // 通道窗口内最少订单数
-	"check_channel_value":  "30",  // 通道成功率低于该值(%)则关停通道
+	"auto_check_channel":    "0",   // 通道/子通道自动关停 0关/1开(对齐 epay auto_check_channel)
+	"check_channel_second":  "600", // 通道统计窗口(秒；对齐 epay check_channel_second)
+	"check_channel_failcount": "0", // 窗口内连续未支付订单数达此值则关停(0=未开启；对齐 epay check_channel_failcount)
+	"check_channel_ids":     "",    // 限定检查的通道ID(逗号分隔,留空=全部；对齐 epay check_channel_ids)
 }
 
 // configGroups 各系统设置分组包含的键（白名单，前端按 group 读写）。
@@ -153,9 +157,10 @@ var configGroups = map[string][]string{
 		"pay_maxmoney", "pay_minmoney", "blockname", "blockalert", "refund_fee_type",
 		"payfee_lessthan", "payfee_mincost",
 		"pay_payaddstart", "pay_payaddmin", "pay_payaddmax", "notifyordername",
+		"pay_domain_forbid", "pageordername", "ordername",
 		"cert_force", "forceqq", "pay_iplimit", "pay_userlimit",
 	},
-	"deposit": {"user_deposit_min", "cert_money", "user_deposit"},
+	"deposit": {"user_deposit_min", "cert_money", "user_deposit", "user_deposit_day"},
 	"site":    {"sitename", "kfqq", "reg_open"},
 	"reg": {
 		"reg_open", "user_review", "reg_input_settle", "reg_pay", "reg_pay_price",
@@ -193,7 +198,7 @@ var configGroups = map[string][]string{
 	"risk": {
 		"auto_check_notify", "check_notify_count",
 		"auto_check_sucrate", "check_sucrate_second", "check_sucrate_count", "check_sucrate_value",
-		"auto_check_channel", "check_channel_second", "check_channel_count", "check_channel_value",
+		"auto_check_channel", "check_channel_second", "check_channel_failcount", "check_channel_ids",
 	},
 }
 

@@ -61,4 +61,12 @@ func (Channel) Refund(ctx context.Context, cfg channel.Config, req channel.Refun
 	return alipaybase.Refund(ctx, cfg, req)
 }
 
+// Inputs 声明配置字段（复用支付宝共用字段，元数据驱动后台密钥表单）。
+func (Channel) Inputs() []channel.FieldInput { return alipaybase.Inputs() }
+
+// Products 声明本渠道支持的支付产品形态（对齐 epay $info['select']）。
+func (Channel) Products() []channel.ProductType {
+	return []channel.ProductType{{Code: "page", Name: "电脑网站支付"}}
+}
+
 func init() { channel.Register(Channel{}) }

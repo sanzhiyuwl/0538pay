@@ -276,3 +276,20 @@ func Refund(ctx context.Context, cfg channel.Config, req channel.RefundReq) (cha
 		Success:  r.Status == "SUCCESS" || r.Status == "PROCESSING",
 	}, nil
 }
+
+// Inputs 返回微信支付 APIv3 各支付方式（Native/JSAPI/H5）共用的密钥表单字段定义。
+// 各微信渠道 Configurable.Inputs() 复用它——同源于同一 APIv3 商户凭证。
+// 键名与 service.buildChannelConfig 的通用键对齐（appid/mch_id/serial_no/api_v3_key→Key/
+// private_key/public_key/notify_url），public_key_id 落 Extra。对齐 epay 微信插件 $info['inputs']。
+func Inputs() []channel.FieldInput {
+	return []channel.FieldInput{
+		{Name: "appid", Label: "AppID", Type: "text", Require: true, Tip: "公众号/应用 appid"},
+		{Name: "mch_id", Label: "商户号", Type: "text", Require: true, Tip: "微信支付商户号 mchid"},
+		{Name: "serial_no", Label: "证书序列号", Type: "text", Require: true, Tip: "商户 API 证书序列号"},
+		{Name: "api_v3_key", Label: "APIv3 密钥", Type: "password", Require: true, Tip: "商户平台设置的 32 字节 APIv3 密钥，用于回调解密"},
+		{Name: "private_key", Label: "商户私钥", Type: "textarea", Require: true, Tip: "apiclient_key.pem 内容，用于请求签名"},
+		{Name: "public_key", Label: "微信支付公钥", Type: "textarea", Require: false, Tip: "平台公钥/证书公钥，用于回调与应答验签"},
+		{Name: "public_key_id", Label: "公钥 ID", Type: "text", Require: false, Tip: "PUB_KEY_ID_xxxx（可选）"},
+		{Name: "notify_url", Label: "回调基址", Type: "text", Require: true, Tip: "系统会自动拼接 /系统订单号 作为微信回调地址"},
+	}
+}

@@ -59,6 +59,18 @@ func (s *OrderService) ExportRows(q dto.OrderQuery) ([]dto.OrderView, error) {
 	return views, nil
 }
 
+// Stats 后台订单统计概况：全量聚合（同筛选），成功率 = (总-未付)/总*100 保留两位，对齐 epay。
+func (s *OrderService) Stats(q dto.OrderQuery) (dto.OrderStats, error) {
+	st, err := s.repo.Stats(q)
+	if err != nil {
+		return dto.OrderStats{}, err
+	}
+	if st.TotalCount > 0 {
+		st.SuccessRate = float64(int(float64(st.TotalCount-st.UnpaidCount)/float64(st.TotalCount)*10000+0.5)) / 100
+	}
+	return st, nil
+}
+
 // ListByMerchant 商户端订单查询：强制限定当前商户 uid，防止越权查他人订单。
 func (s *OrderService) ListByMerchant(uid uint, q dto.OrderQuery) ([]dto.OrderView, int64, error) {
 	q.UID = &uid
@@ -88,6 +100,10 @@ func toOrderView(o *model.Order) dto.OrderView {
 		Status:      o.Status,
 		Settle:      o.Settle,
 		Combine:     o.Combine,
+		BillTradeNo: o.BillTradeNo,
+		Mobile:      o.Mobile,
+		Param:       o.Param,
+		Notify:      o.Notify,
 	}
 	if o.RealMoney != nil {
 		s := money.String(*o.RealMoney)
@@ -96,6 +112,10 @@ func toOrderView(o *model.Order) dto.OrderView {
 	if o.EndTime != nil {
 		s := o.EndTime.Format(timeLayout)
 		v.EndTime = &s
+	}
+	if o.RefundTime != nil {
+		s := o.RefundTime.Format(timeLayout)
+		v.RefundTime = &s
 	}
 	return v
 }

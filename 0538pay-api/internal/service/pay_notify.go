@@ -101,13 +101,25 @@ func (s *PayService) settle(ctx context.Context, tradeNo string) error {
 		return nil // 内部充值无需商户异步通知
 	}
 
-	// 入账金额：epay 非直清模式入 getmoney（商户实得）。阶段A无费率，getmoney=0 时退回按订单金额入账。
-	addMoney := order.GetMoney
-	if addMoney.LessThanOrEqual(decimal.Zero) {
-		addMoney = order.Money
-	}
-	if err := s.accounts.ChangeUserMoney(order.UID, addMoney, true, "订单收入", order.TradeNo); err != nil {
-		return err
+	// 回调入账方向按通道模式分派（对齐 epay functions.php:612-618）：
+	//   - mode==1 商户直清：钱已直接到商户账户，平台只【扣】订单服务费 reducemoney（reducemoney>0 才扣）。
+	//   - mode!=1 平台代收：钱进平台，平台【加】商户实得 getmoney（阶段A无费率则退回按订单金额）。
+	// 之前无 mode 分支、恒 add getmoney，直清通道下方向反了（G-1 资金方向 P0）。
+	if s.isDirectChannel(order.Channel) {
+		reduce := s.calcReduceMoneyOnSettle(order)
+		if reduce.GreaterThan(decimal.Zero) {
+			if err := s.accounts.ChangeUserMoney(order.UID, reduce, false, "订单服务费", order.TradeNo); err != nil {
+				return err
+			}
+		}
+	} else {
+		addMoney := order.GetMoney
+		if addMoney.LessThanOrEqual(decimal.Zero) {
+			addMoney = order.Money
+		}
+		if err := s.accounts.ChangeUserMoney(order.UID, addMoney, true, "订单收入", order.TradeNo); err != nil {
+			return err
+		}
 	}
 
 	// 计算并落库平台利润 profitmoney（对齐 epay processOrder：reducemoney=realmoney-getmoney，

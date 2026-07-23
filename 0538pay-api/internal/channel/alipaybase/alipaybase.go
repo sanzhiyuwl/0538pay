@@ -224,3 +224,17 @@ func Refund(ctx context.Context, cfg channel.Config, req channel.RefundReq) (cha
 		Success:  true, // code=10000 即受理成功（fund_change=Y 表示本次实际退款）
 	}, nil
 }
+
+// Inputs 返回支付宝各支付方式（当面付/网页/H5）共用的密钥表单字段定义。
+// 各支付宝渠道 Configurable.Inputs() 复用它——同源于开放平台同一套应用密钥。
+// 键名与 service.buildChannelConfig 的通用键对齐（appid/private_key/public_key/notify_url），
+// seller_id 落 Extra。对齐 epay alipay 插件 $info['inputs']。
+func Inputs() []channel.FieldInput {
+	return []channel.FieldInput{
+		{Name: "appid", Label: "应用 APPID", Type: "text", Require: true, Tip: "支付宝开放平台应用 appid"},
+		{Name: "private_key", Label: "应用私钥", Type: "textarea", Require: true, Tip: "应用私钥（PKCS8/PKCS1 或裸 Base64），用于请求签名"},
+		{Name: "public_key", Label: "支付宝公钥", Type: "textarea", Require: true, Tip: "支付宝公钥，用于回调验签；填错可支付成功但无法回调"},
+		{Name: "seller_id", Label: "卖家 ID", Type: "text", Require: false, Tip: "卖家支付宝用户ID（可留空，默认签约账号）"},
+		{Name: "notify_url", Label: "回调基址", Type: "text", Require: true, Tip: "系统会自动拼接 /系统订单号 作为支付宝回调地址"},
+	}
+}

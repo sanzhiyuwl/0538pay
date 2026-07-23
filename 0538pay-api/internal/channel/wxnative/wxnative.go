@@ -356,6 +356,14 @@ func parseNotify(cfg channel.Config, raw map[string]string) (channel.NotifyResul
 	}, nil
 }
 
+// Inputs 声明配置字段（复用微信共用字段，元数据驱动后台密钥表单）。
+func (Channel) Inputs() []channel.FieldInput { return wxbase.Inputs() }
+
+// Products 声明本渠道支持的支付产品形态（对齐 epay $info['select']）。
+func (Channel) Products() []channel.ProductType {
+	return []channel.ProductType{{Code: "native", Name: "Native 扫码支付"}}
+}
+
 func init() {
 	channel.Register(Channel{})
 }

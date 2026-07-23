@@ -227,7 +227,8 @@ func (s *OrderService) Refund(adminID uint, req dto.OrderRefundReq) error {
 	if !ok {
 		return odErr("订单状态已变更，退款未执行")
 	}
-	// 扣商户余额（changeUserMoney 内对 type=订单退款+trade_no 幂等防重）
+	// 扣商户余额。双重防重：①前置 guard(已全额退款/超过剩余可退)+MarkRefundedPartial 的条件 UPDATE；
+	// ②ChangeUserMoney 内对 type=订单退款+trade_no 记录级幂等(B1-23,对齐 epay changeUserMoney:678-681)。
 	if reduce.GreaterThan(decimal.Zero) {
 		if err := s.accounts.ChangeUserMoney(o.UID, reduce, false, "订单退款", req.TradeNo); err != nil {
 			return err

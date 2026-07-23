@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -92,6 +93,15 @@ func (s *MerchantCenterService) DepositWithdraw(uid uint, req dto.DepositReq) er
 	if err != nil || amount.LessThanOrEqual(decimal.Zero) {
 		return maErr("请输入有效的提取金额")
 	}
+	// F-2 保证金提取冻结期风控（对齐 epay deposit_withdraw user_deposit_day）：
+	// 全局 user_deposit_day>0 时，最近 N 天内有成功订单则拒绝提取。
+	//（epay 还查最近 N 天投诉记录，我方 pre_complain 属 complain 域待凭证，暂只做成功订单口径。）
+	if userDepositDay > 0 {
+		since := time.Now().AddDate(0, 0, -userDepositDay)
+		if cnt, e := s.orders.CountPaidByMerchant(uid, since); e == nil && cnt > 0 {
+			return maErr("你在最近" + strconv.Itoa(userDepositDay) + "天内有订单，无法提取保证金")
+		}
+	}
 	if err := s.accounts.DepositWithdraw(uid, amount); err != nil {
 		if err == repository.ErrInsufficientDeposit {
 			return maErr("保证金余额不足")
@@ -106,10 +116,14 @@ func (s *MerchantCenterService) DepositWithdraw(uid uint, req dto.DepositReq) er
 // 实名工本费（对齐 epay cert_money）。config 域加载后刷新。
 var certMoney = decimal.RequireFromString("0")
 
-// reloadMerchantCenterConfig 从 config 域刷新保证金门槛/实名工本费。
+// 保证金提取冻结天数（对齐 epay user_deposit_day）：>0 时最近 N 天有成功订单禁提取。0=不限。
+var userDepositDay = 0
+
+// reloadMerchantCenterConfig 从 config 域刷新保证金门槛/实名工本费/提取冻结天数。
 func reloadMerchantCenterConfig(cfg *ConfigService) {
 	depositMin = cfg.Dec("user_deposit_min", depositMin)
 	certMoney = cfg.Dec("cert_money", certMoney)
+	userDepositDay = cfg.Int("user_deposit_day", 0)
 }
 
 // CertInfo 返回实名认证页信息（脱敏）。
@@ -769,10 +783,25 @@ func (s *MerchantCenterService) UpdateProfile(uid uint, req dto.MerchantProfileR
 	if req.Mode != 0 && req.Mode != 1 {
 		return maErr("扣费模式不合法")
 	}
+	// F-1 收款账号资金安全：改动已有 account/username（结算落点）时需登录密码二次确认
+	//（对齐 epay edit_settle 的 need verify；我方以登录密码替代 OTP，与换绑同构）。
+	newAccount := strings.TrimSpace(req.Account)
+	newUsername := strings.TrimSpace(req.Username)
+	settleChanged := (m.Account != "" && newAccount != m.Account) ||
+		(m.Username != "" && newUsername != m.Username) ||
+		(m.SettleID != 0 && req.SettleID != m.SettleID)
+	if settleChanged && m.Password != "" {
+		if req.Password == "" {
+			return maErr("修改收款账号需输入登录密码确认身份")
+		}
+		if bcrypt.CompareHashAndPassword([]byte(m.Password), []byte(req.Password)) != nil {
+			return maErr("登录密码不正确")
+		}
+	}
 	fields := map[string]interface{}{
 		"settle_id": req.SettleID,
-		"account":   strings.TrimSpace(req.Account),
-		"username":  strings.TrimSpace(req.Username),
+		"account":   newAccount,
+		"username":  newUsername,
 		"email":     strings.TrimSpace(req.Email),
 		"qq":        strings.TrimSpace(req.QQ),
 		"url":       strings.TrimSpace(req.URL),
@@ -868,8 +897,9 @@ func (s *MerchantCenterService) GetMsgConfig(uid uint) (string, error) {
 		return "", maErr("商户不存在")
 	}
 	if strings.TrimSpace(m.MsgConfig) == "" {
-		// 默认全部开启订单/结算/登录提醒（对齐 epay 默认）
-		return `{"order":1,"settle":1,"login":0,"balance":0,"balance_threshold":""}`, nil
+		// 默认（对齐 epay edit_msgconfig 8 项：order/settle/login/complain/mchrisk/order_money/
+		// balance/balance_money，F-11 补齐 complain/mchrisk/order_money 三项）。
+		return `{"order":1,"settle":1,"login":0,"complain":0,"mchrisk":0,"order_money":"","balance":0,"balance_threshold":""}`, nil
 	}
 	return m.MsgConfig, nil
 }

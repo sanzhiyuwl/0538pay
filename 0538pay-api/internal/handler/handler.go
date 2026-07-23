@@ -1453,6 +1453,21 @@ func (h *OrderHandler) List(c *gin.Context) {
 	resp.Page(c, list, total, q.Page, q.PageSize)
 }
 
+// Stats GET /api/admin/orders/stats 订单统计概况：全量聚合（同筛选条件），对齐 epay 统计按钮。
+func (h *OrderHandler) Stats(c *gin.Context) {
+	var q dto.OrderQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	st, err := h.svc.Stats(q)
+	if err != nil {
+		resp.Fail(c, 1002, "统计失败: "+err.Error())
+		return
+	}
+	resp.OK(c, st)
+}
+
 // orderStatusText 订单状态中文（导出用）。
 var orderStatusText = map[int8]string{0: "待支付", 1: "已支付", 2: "已退款", 3: "已冻结", 4: "预授权"}
 

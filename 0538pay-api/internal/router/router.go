@@ -82,6 +82,7 @@ func Setup(r *gin.Engine, d Deps) {
 			// 订单管理（列表 + 写操作）
 			authed.GET("/orders", d.Order.List)
 			authed.GET("/orders/export", d.Order.Export) // 全量流式 CSV 导出
+			authed.GET("/orders/stats", d.Order.Stats)   // 订单统计概况（全量聚合）
 			authed.POST("/orders/refund", d.Order.Refund)
 			authed.POST("/orders/batch", d.Order.Batch)
 			authed.PUT("/orders/:trade_no/status", d.Order.SetStatus)

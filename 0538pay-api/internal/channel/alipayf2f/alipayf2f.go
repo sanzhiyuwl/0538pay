@@ -301,6 +301,14 @@ func parseNotify(cfg channel.Config, raw map[string]string) (channel.NotifyResul
 	}, nil
 }
 
+// Inputs 声明配置字段（复用支付宝共用字段，元数据驱动后台密钥表单）。
+func (Channel) Inputs() []channel.FieldInput { return alipaybase.Inputs() }
+
+// Products 声明本渠道支持的支付产品形态（对齐 epay $info['select']）。
+func (Channel) Products() []channel.ProductType {
+	return []channel.ProductType{{Code: "f2f", Name: "当面付扫码"}}
+}
+
 func init() {
 	channel.Register(Channel{})
 }

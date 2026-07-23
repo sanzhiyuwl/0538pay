@@ -140,6 +140,11 @@ func (s *MapiService) PayRefund(m *model.Merchant, params map[string]string) (ma
 	if o.Status != 1 && o.Status != 2 && o.Status != 3 {
 		return nil, mapiErr("当前订单状态不可退款")
 	}
+	// 必须有接口订单号才能退款（G-4，对齐 epay Order.php:76 if(!api_trade_no)）：
+	// 防止对未经真实渠道成功的订单发起 API 退款。
+	if strings.TrimSpace(o.APITradeNo) == "" {
+		return nil, mapiErr("接口订单号不存在")
+	}
 	real := o.Money
 	if o.RealMoney != nil && o.RealMoney.GreaterThan(decimal.Zero) {
 		real = *o.RealMoney

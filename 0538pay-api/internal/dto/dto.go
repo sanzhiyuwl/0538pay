@@ -84,9 +84,15 @@ type OrderView struct {
 	Buyer       string  `json:"buyer"`
 	AddTime     string  `json:"addtime"`
 	EndTime     *string `json:"endtime"`
+	RefundTime  *string `json:"refundtime"`  // 退款时间（对齐 epay 详情，status=2 时有值）
 	Status      int8    `json:"status"`
 	Settle      int8    `json:"settle"`
 	Combine     int8    `json:"combine"`
+	// 订单详情补充字段（对齐 epay order.php showOrder 弹窗，列表不展示、详情抽屉用）
+	BillTradeNo string `json:"bill_trade_no"` // 用户交易单号（渠道侧买家账单号）
+	Mobile      string `json:"mobile"`        // 下单手机号
+	Param       string `json:"param"`         // 商户自定义透传参数
+	Notify      int8   `json:"notify"`        // 通知状态：0成功/无需，>0失败已通知N次，-1放弃
 }
 
 // SubmitResp 下单成功返回（对齐 epay mapi 风格：type + 支付信息）。
@@ -295,6 +301,7 @@ type MerchantProfileReq struct {
 	Refund      *int8   `json:"refund"`       // 订单退款 API 开关 0/1
 	Transfer    *int8   `json:"transfer"`     // 代付 API 开关 0/1
 	RemainMoney *string `json:"remain_money"` // 预留余额（不参与自动结算）
+	Password    string  `json:"password"`     // 登录密码（改动收款账号/姓名时二次确认，对齐 epay edit_settle need verify）
 }
 
 // MerchantPwdReq 修改登录密码入参。
@@ -699,6 +706,21 @@ type PsStats struct {
 	SuccessCount int64   `json:"successCount"`
 	FailCount    int64   `json:"failCount"`
 	SuccessRate  float64 `json:"successRate"`
+}
+
+// OrderStats 后台订单统计概况（对齐 epay ajax_order.php?act=statistics 的全量 SQL 聚合）。
+// 与列表同筛选条件，聚合全部匹配订单而非当前页 ≤100 条。5 金额 + 4 计数 + 成功率。
+type OrderStats struct {
+	TotalMoney     float64 `json:"totalMoney"`     // 订单总金额（全部）
+	SuccessMoney   float64 `json:"successMoney"`   // 已支付金额（status=1）
+	UnpaidMoney    float64 `json:"unpaidMoney"`    // 未支付金额（status=0）
+	RefundMoney    float64 `json:"refundMoney"`    // 已退款金额（status=2 的 refundmoney）
+	PlatformProfit float64 `json:"platformProfit"` // 总收入利润（status=1 的 profitmoney）
+	TotalCount     int64   `json:"totalCount"`     // 订单总数
+	SuccessCount   int64   `json:"successCount"`   // 已支付订单数
+	UnpaidCount    int64   `json:"unpaidCount"`    // 未支付订单数
+	RefundCount    int64   `json:"refundCount"`    // 已退款订单数
+	SuccessRate    float64 `json:"successRate"`    // 成功率 %（(总-未付)/总*100）
 }
 
 // PsOrderQuery 分账订单列表查询入参（对齐 ps_order.php 的搜索/筛选/分页）。
@@ -1123,12 +1145,17 @@ type OrderBatchReq struct {
 
 // OrderQuery 订单列表查询入参（对齐 order.php 的搜索/分页）。
 type OrderQuery struct {
-	Page     int    `form:"page"`
-	PageSize int    `form:"pageSize"`
-	Column   string `form:"column"`  // 搜索字段名（trade_no/out_trade_no/...）
-	Keyword  string `form:"keyword"` // 搜索关键词
-	Status   *int   `form:"status"`  // 状态筛选（可空）
-	UID      *uint  `form:"-"`       // 商户号过滤（商户端强制注入当前商户，不从 query 绑定）
+	Page      int    `form:"page"`
+	PageSize  int    `form:"pageSize"`
+	Column    string `form:"column"`    // 搜索字段名（trade_no/out_trade_no/...）
+	Keyword   string `form:"keyword"`   // 搜索关键词
+	Status    *int   `form:"status"`    // 状态筛选（可空）
+	Type      int    `form:"type"`      // 支付方式ID筛选（0=全部，对齐 epay type）
+	Channel   int    `form:"channel"`   // 通道ID筛选（0=全部，对齐 epay channel）
+	UIDFilter uint   `form:"uid"`       // 商户号筛选（后台按商户过滤，对齐 epay uid；0=全部）
+	StartTime string `form:"starttime"` // 时间范围起（YYYY-MM-DD，含当天 00:00:00）
+	EndTime   string `form:"endtime"`   // 时间范围止（YYYY-MM-DD，含当天 23:59:59）
+	UID       *uint  `form:"-"`         // 商户端强制注入的当前商户（越权保护，不从 query 绑定）
 }
 
 // Normalize 补默认分页值并做安全上限。

@@ -457,6 +457,18 @@ func (r *AccountRepo) ChangeUserMoney(uid uint, amount decimal.Decimal, add bool
 		return nil
 	}
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		// B1-23：type=='订单退款' 记录级幂等（对齐 epay changeUserMoney:678-681）——
+		// 同 trade_no 已有一条'订单退款'流水则整单不再二次扣款（epay 语义：一个订单退款只扣一次）。
+		if changeType == "订单退款" && tradeNo != "" {
+			var cnt int64
+			if err := tx.Model(&model.PayRecord{}).
+				Where("type = ? AND trade_no = ?", "订单退款", tradeNo).Count(&cnt).Error; err != nil {
+				return err
+			}
+			if cnt > 0 {
+				return nil
+			}
+		}
 		var m model.Merchant
 		// 行锁读当前余额
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -913,6 +925,14 @@ func (r *OrderRepo) CountPaidByMerchant(uid uint, since time.Time) (int64, error
 	return n, err
 }
 
+// CountAllByMerchant 统计商户全部订单数（不限状态），对齐 epay Merchant::info 的
+// order_num = count(*)（今/昨订单数才按 status=1 过滤）。
+func (r *OrderRepo) CountAllByMerchant(uid uint) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.Order{}).Where("uid = ?", uid).Count(&n).Error
+	return n, err
+}
+
 // ListByMerchantV1 V1 api.php orders 列表：按 uid(+可选 status)，trade_no 降序，limit/offset 分页（A-5）。
 func (r *OrderRepo) ListByMerchantV1(uid uint, status *int, limit, offset int) ([]model.Order, error) {
 	tx := r.db.Where("uid = ?", uid)
@@ -1029,6 +1049,7 @@ func (r *OrderRepo) MarkRefundedPartial(tradeNo string, addRefund decimal.Decima
 		Updates(map[string]interface{}{
 			"status":       2,
 			"refund_money": gorm.Expr("refund_money + ?", addRefund),
+			"refundtime":   time.Now(), // 回填退款时间（对齐 epay pre_order.refundtime）
 		})
 	if res.Error != nil {
 		return false, res.Error
@@ -1049,23 +1070,43 @@ func (r *OrderRepo) FillOrder(tradeNo string, endTime time.Time) (bool, error) {
 }
 
 // List 分页查询订单，支持按 column/keyword 模糊搜索与状态筛选。
-func (r *OrderRepo) List(q dto.OrderQuery) ([]model.Order, int64, error) {
-	// 白名单，防 SQL 注入到列名
-	allowedCols := map[string]bool{
-		"trade_no": true, "out_trade_no": true, "api_trade_no": true,
-		"name": true, "money": true, "realmoney": true, "domain": true,
-	}
+// orderQueryColumns 订单搜索字段白名单（防 SQL 注入到列名）。
+var orderQueryColumns = map[string]bool{
+	"trade_no": true, "out_trade_no": true, "api_trade_no": true,
+	"name": true, "money": true, "realmoney": true, "domain": true,
+}
 
-	tx := r.db.Model(&model.Order{})
-	if q.UID != nil {
+// applyOrderQuery 按 OrderQuery 构造统一 where（List/ExportAll/Stats 共用，对齐 epay 列表与统计同一套筛选）。
+// 支持：商户端强制 UID、后台商户 uid、支付方式 type、通道 channel、状态 status、时间范围、column+keyword 模糊。
+func (r *OrderRepo) applyOrderQuery(tx *gorm.DB, q dto.OrderQuery) *gorm.DB {
+	if q.UID != nil { // 商户端强制注入，越权保护，优先级最高
 		tx = tx.Where("uid = ?", *q.UID)
+	} else if q.UIDFilter > 0 { // 后台按商户筛选
+		tx = tx.Where("uid = ?", q.UIDFilter)
 	}
-	if q.Keyword != "" && allowedCols[q.Column] {
-		tx = tx.Where(q.Column+" LIKE ?", "%"+q.Keyword+"%")
+	if q.Type > 0 {
+		tx = tx.Where("type = ?", q.Type)
+	}
+	if q.Channel > 0 {
+		tx = tx.Where("channel = ?", q.Channel)
 	}
 	if q.Status != nil {
 		tx = tx.Where("status = ?", *q.Status)
 	}
+	if q.StartTime != "" {
+		tx = tx.Where("add_time >= ?", q.StartTime+" 00:00:00")
+	}
+	if q.EndTime != "" {
+		tx = tx.Where("add_time <= ?", q.EndTime+" 23:59:59")
+	}
+	if q.Keyword != "" && orderQueryColumns[q.Column] {
+		tx = tx.Where(q.Column+" LIKE ?", "%"+q.Keyword+"%")
+	}
+	return tx
+}
+
+func (r *OrderRepo) List(q dto.OrderQuery) ([]model.Order, int64, error) {
+	tx := r.applyOrderQuery(r.db.Model(&model.Order{}), q)
 
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
@@ -1083,23 +1124,53 @@ func (r *OrderRepo) List(q dto.OrderQuery) ([]model.Order, int64, error) {
 	return list, total, nil
 }
 
+// Stats 按与 List 相同的过滤条件全量聚合订单统计（对齐 epay ajax_order.php?act=statistics）。
+// 一次 SQL 用 CASE WHEN 分状态聚合金额/计数，不受列表分页 ≤100 限制。
+func (r *OrderRepo) Stats(q dto.OrderQuery) (dto.OrderStats, error) {
+	tx := r.applyOrderQuery(r.db.Model(&model.Order{}), q)
+
+	var row struct {
+		TotalMoney     float64
+		SuccessMoney   float64
+		UnpaidMoney    float64
+		RefundMoney    float64
+		PlatformProfit float64
+		TotalCount     int64
+		SuccessCount   int64
+		UnpaidCount    int64
+		RefundCount    int64
+	}
+	err := tx.Select(
+		"COALESCE(SUM(money),0) AS total_money, " +
+			"COALESCE(SUM(CASE WHEN status = 1 THEN money ELSE 0 END),0) AS success_money, " +
+			"COALESCE(SUM(CASE WHEN status = 0 THEN money ELSE 0 END),0) AS unpaid_money, " +
+			"COALESCE(SUM(CASE WHEN status = 2 THEN refund_money ELSE 0 END),0) AS refund_money, " +
+			"COALESCE(SUM(CASE WHEN status = 1 THEN profit_money ELSE 0 END),0) AS platform_profit, " +
+			"COUNT(*) AS total_count, " +
+			"COALESCE(SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END),0) AS success_count, " +
+			"COALESCE(SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END),0) AS unpaid_count, " +
+			"COALESCE(SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END),0) AS refund_count",
+	).Scan(&row).Error
+	if err != nil {
+		return dto.OrderStats{}, err
+	}
+	return dto.OrderStats{
+		TotalMoney:     row.TotalMoney,
+		SuccessMoney:   row.SuccessMoney,
+		UnpaidMoney:    row.UnpaidMoney,
+		RefundMoney:    row.RefundMoney,
+		PlatformProfit: row.PlatformProfit,
+		TotalCount:     row.TotalCount,
+		SuccessCount:   row.SuccessCount,
+		UnpaidCount:    row.UnpaidCount,
+		RefundCount:    row.RefundCount,
+	}, nil
+}
+
 // ExportAll 按与 List 相同的过滤条件取全量订单（不分页，供后台流式导出）。
 // 限 limit 条上限（对齐 epay download.php limit 100000）防内存爆。UID 支持商户端限定。
 func (r *OrderRepo) ExportAll(q dto.OrderQuery, limit int) ([]model.Order, error) {
-	allowedCols := map[string]bool{
-		"trade_no": true, "out_trade_no": true, "api_trade_no": true,
-		"name": true, "money": true, "realmoney": true, "domain": true,
-	}
-	tx := r.db.Model(&model.Order{})
-	if q.UID != nil {
-		tx = tx.Where("uid = ?", *q.UID)
-	}
-	if q.Keyword != "" && allowedCols[q.Column] {
-		tx = tx.Where(q.Column+" LIKE ?", "%"+q.Keyword+"%")
-	}
-	if q.Status != nil {
-		tx = tx.Where("status = ?", *q.Status)
-	}
+	tx := r.applyOrderQuery(r.db.Model(&model.Order{}), q)
 	var list []model.Order
 	err := tx.Order("add_time DESC").Limit(limit).Find(&list).Error
 	return list, err

@@ -170,6 +170,27 @@ func epayType(typename string) string {
 	}
 }
 
+// Inputs 声明配置字段（元数据驱动后台密钥表单，对齐 epay epay 插件 $info['inputs']）。
+// 键名与本渠道 upstream() 消费的一致：appid→AppID，appkey/appurl/uptype→Extra。
+func (Channel) Inputs() []channel.FieldInput {
+	return []channel.FieldInput{
+		{Name: "appurl", Label: "接口地址", Type: "text", Require: true, Tip: "上游易支付接口地址，如 https://pay.xxx.com，末尾不带 /"},
+		{Name: "appid", Label: "商户 ID", Type: "text", Require: true, Tip: "上游分配的商户号 pid"},
+		{Name: "appkey", Label: "商户密钥", Type: "password", Require: true, Tip: "上游商户密钥 key，用于 MD5 签名"},
+		{Name: "uptype", Label: "上游支付方式", Type: "text", Require: false, Tip: "上游收单支付方式（alipay/wxpay/qqpay 等），留空则按订单支付方式；自测闭环可配 mock"},
+	}
+}
+
+// Products 声明本渠道支持的支付产品形态（对齐 epay epay 插件 types，二次对接多方式）。
+func (Channel) Products() []channel.ProductType {
+	return []channel.ProductType{
+		{Code: "alipay", Name: "支付宝"},
+		{Code: "wxpay", Name: "微信支付"},
+		{Code: "qqpay", Name: "QQ钱包"},
+		{Code: "bank", Name: "银行卡"},
+	}
+}
+
 func init() {
 	channel.Register(Channel{})
 }

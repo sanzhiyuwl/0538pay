@@ -189,6 +189,33 @@ func truncateRunes(s string, maxBytes int) string {
 // calcProfitMoney 计算平台利润（对齐 epay processOrder）：reducemoney = realmoney - getmoney，
 // profitmoney = reducemoney - realmoney*通道成本费率costrate/100。realmoney 空则用 money。
 // 通道不存在或 costrate=0 时 profit = reducemoney。
+// isDirectChannel 判断通道是否商户直清模式(mode==1)。查不到通道按非直清处理（安全默认：走平台代收加钱路径）。
+func (s *PayService) isDirectChannel(channelID int) bool {
+	if s.channels == nil || channelID <= 0 {
+		return false
+	}
+	c, err := s.channels.FindByID(uint(channelID))
+	if err != nil || c == nil {
+		return false
+	}
+	return c.Mode == 1
+}
+
+// calcReduceMoneyOnSettle 计算直清通道回调入账时应从商户余额扣除的订单服务费 reducemoney。
+// 对齐 epay functions.php：reducemoney = realmoney - getmoney（商户已直接收到全额，平台回收服务费）。
+// getmoney<=0（阶段A无费率）时服务费为 0，不扣。
+func (s *PayService) calcReduceMoneyOnSettle(o *model.Order) decimal.Decimal {
+	realMoney := o.Money
+	if o.RealMoney != nil && o.RealMoney.GreaterThan(decimal.Zero) {
+		realMoney = *o.RealMoney
+	}
+	reduce := realMoney.Sub(o.GetMoney)
+	if reduce.LessThan(decimal.Zero) {
+		return decimal.Zero
+	}
+	return reduce
+}
+
 func (s *PayService) calcProfitMoney(o *model.Order) decimal.Decimal {
 	realMoney := o.Money
 	if o.RealMoney != nil && o.RealMoney.GreaterThan(decimal.Zero) {
@@ -297,7 +324,9 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 	if m.Status == 0 || m.Pay == 0 {
 		return nil, payErr("商户已被封禁，无法支付！")
 	}
-	if m.Pay == 2 {
+	// pay==2(待审核) 仅在开启注册审核 user_review==1 时才拒付（G-6，对齐 epay Pay.php:37,233）。
+	// 未开审核时 pay==2 视为可收款，放行。
+	if m.Pay == 2 && (s.cfg == nil || s.cfg.Bool("user_review")) {
 		return nil, payErr("商户未通过审核，无法支付！")
 	}
 
@@ -329,6 +358,11 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 	}
 	if notifyURL == "" {
 		return nil, payErr("通知地址(notify_url)不能为空")
+	}
+	// 表单页入口(version=0)要求 return_url 必填；V2 create(_version=1)不要求
+	// （G-6，对齐 epay Pay.php:51 submit() 必填 return_url、create() 不校验）。
+	if params["_version"] != "1" && returnURL == "" {
+		return nil, payErr("跳转地址(return_url)不能为空")
 	}
 	if name == "" {
 		return nil, payErr("商品名称(name)不能为空")
@@ -362,9 +396,10 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 	if s.blacklist != nil && s.blacklist.IsBlocked(1, clientIP) {
 		return nil, payErr("系统异常无法完成付款")
 	}
-	if s.domain != nil && notifyHost != "" && !s.domain.IsAllowed(pid, notifyHost) {
-		// 域名白名单：仅当该商户配置了域名校验时才拦截。无任何域名记录视为未开启，放行（向后兼容）。
-		if s.domain.HasAnyDomain(pid) {
+	// 域名白名单 gating（G-3，对齐 epay Pay.php:70-74）：仅当全局开关 pay_domain_forbid==1 才校验；
+	// 开且商户无匹配 status=1 授权域名 → 拦截（含商户根本没配域名的情形，epay 也拦）。
+	if s.domain != nil && notifyHost != "" && s.cfg != nil && s.cfg.Bool("pay_domain_forbid") {
+		if !s.domain.IsAllowed(pid, notifyHost) {
 			return nil, payErr("该域名不可发起支付，请前往支付平台授权支付域名")
 		}
 	}
@@ -611,7 +646,7 @@ func (s *PayService) RefundViaChannel(ctx context.Context, o *model.Order, money
 	if o.RealMoney != nil && o.RealMoney.GreaterThan(decimal.Zero) {
 		total = *o.RealMoney
 	}
-	_, err := refunder.Refund(ctx, cfg, channel.RefundReq{
+	resp, err := refunder.Refund(ctx, cfg, channel.RefundReq{
 		TradeNo:     o.TradeNo,
 		ChannelNo:   o.APITradeNo,
 		OutRefundNo: outRefundNo,
@@ -621,6 +656,11 @@ func (s *PayService) RefundViaChannel(ctx context.Context, o *model.Order, money
 	})
 	if err != nil {
 		return false, err
+	}
+	// 渠道请求无传输错误但明确未受理退款（Success=false）视为失败，
+	// 不能据此翻转订单/扣商户余额（对齐 epay：渠道退款成功才继续）。
+	if !resp.Success {
+		return false, payErr("渠道未受理退款")
 	}
 	return true, nil
 }
@@ -639,10 +679,15 @@ func (s *PayService) GetCashier(tradeNo string) (*dto.CashierView, error) {
 	if o.RealMoney != nil && o.RealMoney.GreaterThan(decimal.Zero) {
 		payMoney = *o.RealMoney
 	}
+	// pageordername==1 时收银台商品名强制为 onlinepay（G-2，对齐 epay Payment.php:82/97）。
+	dispName := o.Name
+	if s.cfg != nil && s.cfg.Bool("pageordername") {
+		dispName = "onlinepay"
+	}
 	return &dto.CashierView{
 		TradeNo:    o.TradeNo,
 		OutTradeNo: o.OutTradeNo,
-		Name:       o.Name,
+		Name:       dispName,
 		Money:      money.String(payMoney),
 		Plugin:     o.Plugin,
 		PayType:    o.PayType,
@@ -752,10 +797,13 @@ func (s *PayService) dispatch(ctx context.Context, o *model.Order, payType strin
 	if o.RealMoney != nil && o.RealMoney.GreaterThan(decimal.Zero) {
 		payAmount = *o.RealMoney
 	}
+	// 发给渠道的商品名 subject：优先商户级 ordername 模板，退回全局 conf.ordername，均空则原样订单名
+	//（G-2，对齐 epay Plugin.php:58-59 + functions.php:720 ordername_replace）。
+	subject := s.resolveOrderName(o)
 	req := channel.CreateReq{
 		TradeNo:   o.TradeNo,
 		Money:     payAmount,
-		Subject:   o.Name,
+		Subject:   subject,
 		NotifyURL: cfg.NotifyURL,
 	}
 	// 注入下单场景参数（A-2）：渠道按需消费（JSAPI/付款码/APP 等），mock/不支持则忽略。
@@ -784,4 +832,33 @@ func (s *PayService) dispatch(ctx context.Context, o *model.Order, payType strin
 		RawHTML:    cr.RawHTML,
 		Money:      money.String(o.Money),
 	}, nil
+}
+
+// resolveOrderName 计算发给渠道的商品名（对齐 epay Plugin loadForSubmit + ordername_replace）：
+// 优先商户级 ordername 模板，退回全局 conf.ordername；模板非空时替换占位符
+// [name]/[order]/[outorder]/[qq]/[phone]，否则退回订单原始名。
+func (s *PayService) resolveOrderName(o *model.Order) string {
+	tpl := ""
+	var m *model.Merchant
+	if s.merchants != nil {
+		m, _ = s.merchants.FindByUID(o.UID)
+		if m != nil {
+			tpl = strings.TrimSpace(m.OrderName)
+		}
+	}
+	if tpl == "" && s.cfg != nil {
+		tpl = strings.TrimSpace(s.cfg.Str("ordername"))
+	}
+	if tpl == "" {
+		return o.Name
+	}
+	name := tpl
+	name = strings.ReplaceAll(name, "[name]", o.Name)
+	name = strings.ReplaceAll(name, "[order]", o.TradeNo)
+	name = strings.ReplaceAll(name, "[outorder]", o.OutTradeNo)
+	if m != nil {
+		name = strings.ReplaceAll(name, "[qq]", m.QQ)
+		name = strings.ReplaceAll(name, "[phone]", m.Phone)
+	}
+	return name
 }
