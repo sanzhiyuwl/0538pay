@@ -330,6 +330,48 @@ func (s *MerchantService) SetStatus(uid uint, req dto.MerchantSetStatusReq) erro
 	return s.repo.UpdateFields(uid, map[string]interface{}{col: req.Status})
 }
 
+// CertDetail 后台商户实名详情（对齐 epay ajax_user.php act=user_cert：管理员可见明文全字段）。
+// 个人认证展示真实姓名(certname)+身份证号(certno)；企业认证额外展示公司名(certcorpname)+营业执照号(certcorpno)。
+func (s *MerchantService) CertDetail(uid uint) (*dto.AdminCertDetail, error) {
+	m, err := s.repo.FindByUIDSafe(uid)
+	if err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, meErr("商户不存在")
+	}
+	certTime := ""
+	if m.CertTime != nil {
+		certTime = m.CertTime.Format("2006-01-02 15:04:05")
+	}
+	return &dto.AdminCertDetail{
+		UID:            uid,
+		Cert:           m.Cert,
+		CertType:       m.CertType,
+		CertMethod:     m.CertMethod,
+		CertMethodName: certMethodName(m.CertMethod),
+		CertName:       m.CertName,
+		CertNo:         m.CertNo,
+		CertCorpName:   m.CertCorp,
+		CertCorpNo:     m.CertCorpNo,
+		CertTime:       certTime,
+	}, nil
+}
+
+// certMethodName 实名核验方式中文说明（1:1 对齐 epay functions.php show_cert_method）。
+func certMethodName(method int8) string {
+	switch method {
+	case 1:
+		return "微信快捷认证"
+	case 2:
+		return "手机号三要素认证"
+	case 3:
+		return "人工审核认证"
+	default:
+		return "支付宝快捷认证"
+	}
+}
+
 // ResetKey 重置商户 MD5 通信密钥（对齐 epay resetKey）。随机 32 位，原密钥立即失效。
 func (s *MerchantService) ResetKey(uid uint) (string, error) {
 	m, err := s.repo.FindByUIDSafe(uid)

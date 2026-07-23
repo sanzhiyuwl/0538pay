@@ -102,6 +102,7 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.PUT("/merchants/:uid/status", d.Merchant.SetStatus)
 			authed.POST("/merchants/:uid/resetkey", d.Merchant.ResetKey)
 			authed.GET("/merchants/:uid/sso", d.Merchant.SSO) // 免密进入商户中心（短时 token）
+			authed.GET("/merchants/:uid/cert", d.Merchant.CertDetail) // 商户实名详情（对齐 epay user_cert）
 			authed.DELETE("/merchants/:uid", d.Merchant.Delete)
 
 			// 系统设置（config 域）
@@ -127,6 +128,7 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.PUT("/channels/:id/status", d.Channel.SetStatus)
 			authed.GET("/channels/:id/config", d.Channel.GetConfig)
 			authed.PUT("/channels/:id/config", d.Channel.SaveConfig)
+			authed.POST("/channels/testpay", d.Channel.TestPay) // 后台通道测试支付（定向下测试单）
 
 			// 通道轮询组（roll）
 			authed.GET("/rolls", d.Roll.List)

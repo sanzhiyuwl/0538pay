@@ -364,6 +364,21 @@ func (h *MerchantHandler) ResetKey(c *gin.Context) {
 	resp.OK(c, gin.H{"uid": uid, "key": key})
 }
 
+// CertDetail GET /api/admin/merchants/:uid/cert 商户实名详情（对齐 epay user_cert 弹窗）。
+func (h *MerchantHandler) CertDetail(c *gin.Context) {
+	uid := merchantUIDParam(c)
+	if uid == 0 {
+		resp.Fail(c, 400, "商户号不合法")
+		return
+	}
+	detail, err := h.svc.CertDetail(uid)
+	if err != nil {
+		failFromMerchantErr(c, err)
+		return
+	}
+	resp.OK(c, detail)
+}
+
 // Delete DELETE /api/admin/merchants/:uid 删除商户。
 func (h *MerchantHandler) Delete(c *gin.Context) {
 	uid := merchantUIDParam(c)
@@ -664,6 +679,21 @@ func (h *ChannelHandler) SaveConfig(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"id": id})
+}
+
+// TestPay POST /api/admin/channels/testpay 后台通道测试支付（定向下测试单，返回收银台下单信息）。
+func (h *ChannelHandler) TestPay(c *gin.Context) {
+	var req dto.ChannelTestPayReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	out, err := h.svc.TestPay(req)
+	if err != nil {
+		failFromChannelErr(c, err)
+		return
+	}
+	resp.OK(c, out)
 }
 
 // RecordHandler 后台资金流水接口（列表 + 统计，对齐 epay record.php）。

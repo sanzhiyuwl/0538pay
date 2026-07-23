@@ -91,6 +91,7 @@ func main() {
 	merchantSvc.SetSubChannelRepo(subChannelRepo) // 删商户级联删子通道
 	channelSvc.SetSubChannelRepo(subChannelRepo)  // 删主通道级联删子通道
 	channelSvc.SetOrderRepo(orderRepo)            // 通道列表今昨收款/成功率实时聚合
+	channelSvc.SetPayService(paySvc) // 后台测试支付定向下测试单走收单链
 	orderSvc.SetWriteDeps(accountRepo, channelRepo, adminRepo, paySvc) // 订单写操作依赖
 	settleRepo := repository.NewSettleRepo(db)
 	settleSvc := service.NewSettleService(settleRepo, merchantRepo)

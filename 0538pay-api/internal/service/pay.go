@@ -765,6 +765,64 @@ func (s *PayService) CreateInternalOrder(ctx context.Context, uid uint, tid int8
 	return s.dispatch(ctx, order, plugin)
 }
 
+// CreateTestOrderByChannel 后台测试支付：指定通道 ID(+可选子通道)下一笔真实测试单走收单链
+// （1:1 对齐 epay admin/ajax_pay.php act=testpay：固定 channel/subchannel、tid=3、收款方 test_pay_uid）。
+// 与 CreateInternalOrder 的区别是这里锁定具体通道而非按 plugin 名选首个启用通道，
+// 让运营能定向验证某个通道（含子通道）密钥配置是否可用。
+func (s *PayService) CreateTestOrderByChannel(ctx context.Context, channelID, subchannel int, name string, amount decimal.Decimal) (*dto.SubmitResp, error) {
+	if amount.LessThanOrEqual(decimal.Zero) {
+		return nil, payErr("金额不合法")
+	}
+	ch, err := s.channels.FindByID(uint(channelID))
+	if err != nil {
+		return nil, err
+	}
+	if ch == nil {
+		return nil, payErr("当前支付通道不存在")
+	}
+	// 全局金额限额（对齐 epay pay_maxmoney/pay_minmoney）。
+	if s.cfg != nil {
+		if minM := s.cfg.Dec("pay_minmoney", decimal.Zero); minM.GreaterThan(decimal.Zero) && amount.LessThan(minM) {
+			return nil, payErr("最小支付金额是 " + minM.String() + " 元")
+		}
+		if maxM := s.cfg.Dec("pay_maxmoney", decimal.Zero); maxM.GreaterThan(decimal.Zero) && amount.GreaterThan(maxM) {
+			return nil, payErr("最大支付金额是 " + maxM.String() + " 元")
+		}
+	}
+	// 收款方：test_pay_uid 配置了则用固定测试商户，否则下到 uid=1（对齐 epay test_pay_uid）。
+	payUID := uint(1)
+	if s.cfg != nil {
+		if tp := s.cfg.Int("test_pay_uid", 0); tp > 0 {
+			payUID = uint(tp)
+		}
+	}
+	if name == "" {
+		name = "支付测试"
+	}
+	now := time.Now()
+	order := &model.Order{
+		TradeNo:    genTradeNo(now),
+		OutTradeNo: fmt.Sprintf("TEST%s", genTradeNo(now)),
+		UID:        payUID,
+		Name:       name,
+		Money:      amount,
+		RealMoney:  &amount,
+		GetMoney:   amount,
+		Type:       ch.Type,
+		TypeName:   ch.Plugin,
+		Channel:    channelID,
+		Subchannel: subchannel,
+		Plugin:     ch.Plugin,
+		AddTime:    now,
+		Status:     0,
+		Tid:        3,
+	}
+	if err := s.orders.Create(order); err != nil {
+		return nil, err
+	}
+	return s.dispatch(ctx, order, ch.Plugin)
+}
+
 // sceneParams 下单场景参数（A-2，对齐 epay device/method/sub_openid/auth_code）。
 type sceneParams struct {
 	Method, Device, SubOpenID, SubAppID, AuthCode string

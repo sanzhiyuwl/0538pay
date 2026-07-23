@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ type ChannelService struct {
 	repo        *repository.ChannelRepo
 	subchannels *repository.SubChannelRepo // 删通道级联删其子通道（可空，SetSubChannelRepo 注入）
 	orders      *repository.OrderRepo      // 通道今昨收款/成功率聚合（可空，SetOrderRepo 注入）
+	pay         *PayService                // 后台测试支付走收单链（可空，SetPayService 注入）
 }
 
 func NewChannelService(repo *repository.ChannelRepo) *ChannelService {
@@ -28,6 +30,30 @@ func (s *ChannelService) SetSubChannelRepo(r *repository.SubChannelRepo) { s.sub
 
 // SetOrderRepo 注入订单 repo，通道列表补今昨收款额 + 今日成功率（对齐 epay pay_channel 刷新聚合）。
 func (s *ChannelService) SetOrderRepo(r *repository.OrderRepo) { s.orders = r }
+
+// SetPayService 注入支付服务，后台「测试支付」定向指定通道下测试单走收单链（对齐 epay ajax_pay.php testpay）。
+func (s *ChannelService) SetPayService(p *PayService) { s.pay = p }
+
+// TestPay 后台测试支付：对指定通道(+可选子通道)下一笔真实测试单，返回收银台可用的下单信息。
+// 1:1 对齐 epay admin/ajax_pay.php act=testpay（金额校验 → 固定通道 → tid=3 → 收款方 test_pay_uid）。
+func (s *ChannelService) TestPay(req dto.ChannelTestPayReq) (*dto.SubmitResp, error) {
+	if s.pay == nil {
+		return nil, chErr("测试支付服务不可用")
+	}
+	money, err := decimal.NewFromString(strings.TrimSpace(req.Money))
+	if err != nil || money.LessThanOrEqual(decimal.Zero) {
+		return nil, chErr("金额不合法")
+	}
+	// 校验通道已配置密钥（对齐 epay：empty($row['config']) 直接报请先配置密钥）。
+	cv, err := s.GetConfig(uint(req.Channel))
+	if err != nil {
+		return nil, err
+	}
+	if cv == nil || strings.TrimSpace(cv.Config) == "" {
+		return nil, chErr("请先配置好密钥")
+	}
+	return s.pay.CreateTestOrderByChannel(context.Background(), req.Channel, req.SubChannel, strings.TrimSpace(req.Name), money)
+}
 
 // List 返回分页通道（转对外 View：费率格式化 + 今昨收款/成功率实时聚合）。
 func (s *ChannelService) List(q dto.ChannelQuery) ([]dto.ChannelView, int64, error) {

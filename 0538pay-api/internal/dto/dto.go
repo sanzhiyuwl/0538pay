@@ -525,6 +525,20 @@ type MerchantView struct {
 	CertType    int8   `json:"certtype"`
 }
 
+// AdminCertDetail 后台商户实名详情（对齐 epay ajax_user.php act=user_cert 弹窗全字段，管理员可见明文）。
+type AdminCertDetail struct {
+	UID            uint   `json:"uid"`
+	Cert           int8   `json:"cert"`           // 0未认证/审核中 1已认证
+	CertType       int8   `json:"certtype"`       // 0个人 1企业
+	CertMethod     int8   `json:"certmethod"`     // 实名核验方式
+	CertMethodName string `json:"certmethodname"` // 方式中文说明
+	CertName       string `json:"certname"`       // 个人真实姓名 / 企业法人姓名
+	CertNo         string `json:"certno"`         // 个人身份证号 / 企业法人身份证号
+	CertCorpName   string `json:"certcorpname"`   // 企业名称
+	CertCorpNo     string `json:"certcorpno"`     // 营业执照号
+	CertTime       string `json:"certtime"`       // 认证时间
+}
+
 // MerchantCreateReq 后台添加商户入参（对齐 epay uset.php addUser 表单）。
 // 手机号/邮箱不能同时为空且各自唯一；密钥后端随机生成；密码可选（bcrypt）。
 type MerchantCreateReq struct {
@@ -1404,6 +1418,15 @@ type InvitedUserView struct {
 type TestPayReq struct {
 	Money string `json:"money" binding:"required"` // 支付金额（默认前端给 1）
 	Type  string `json:"type" binding:"required"`  // 支付方式 plugin/type 名
+}
+
+// ChannelTestPayReq 后台通道测试支付入参（对齐 epay admin/ajax_pay.php act=testpay：
+// 定向指定通道 + 可选子通道 + 订单名 + 金额）。
+type ChannelTestPayReq struct {
+	Channel    int    `json:"channel" binding:"required"` // 通道 ID
+	SubChannel int    `json:"subchannel"`                 // 子通道 ID（0=无）
+	Name       string `json:"name"`                       // 订单名称（默认「支付测试」）
+	Money      string `json:"money" binding:"required"`   // 支付金额（默认前端给 1）
 }
 
 // TestPayInfoResp 测试支付页信息（开关 + 可选支付方式 + 金额上下限）。
