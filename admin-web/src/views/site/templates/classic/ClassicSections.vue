@@ -14,7 +14,6 @@ import PricingSection from './sections/PricingSection.vue'
 import ProductsSection from './sections/ProductsSection.vue'
 import NewsSection from './sections/NewsSection.vue'
 import TestimonialsSection from './sections/TestimonialsSection.vue'
-import FaqSection from './sections/FaqSection.vue'
 import CtaSection from './sections/CtaSection.vue'
 
 const props = defineProps<{ content: SiteContent; preview?: boolean }>()
@@ -27,7 +26,6 @@ const compMap: Record<SectionKey, Component> = {
   products: ProductsSection,
   news: NewsSection,
   testimonials: TestimonialsSection,
-  faqs: FaqSection,
   cta: CtaSection,
 }
 

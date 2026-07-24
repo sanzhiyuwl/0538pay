@@ -8,11 +8,19 @@ import { useToast } from '@/composables/useToast'
 
 const tabs = [
   { key: 'site', label: '网站信息' },
+  { key: 'contact', label: '联系方式' },
   { key: 'beian', label: '版权备案' },
   { key: 'float', label: '悬浮栏' },
   { key: 'logo', label: 'LOGO 设置' },
 ]
 const activeTab = ref('site')
+
+// 联系二维码上传项（key 对应网站设置字段）
+const qrcodeItems: { key: 'mpQrcode' | 'qqQrcode' | 'wxQrcode'; label: string; desc: string }[] = [
+  { key: 'mpQrcode', label: '公众号二维码', desc: '官网悬浮栏「公众号」+ 资讯页侧栏 + 页脚展示。' },
+  { key: 'qqQrcode', label: '客服QQ二维码', desc: '官网悬浮栏「客服」hover 弹出 + 页脚展示。' },
+  { key: 'wxQrcode', label: '客服微信二维码', desc: '官网页脚展示。' },
+]
 
 // 编辑草稿：从 store 拷一份，点「保存」才提交，避免每次输入都落库
 const siteStore = useSiteStore()
@@ -80,34 +88,71 @@ async function save() {
       </div>
 
       <!-- 网站信息 -->
-      <div v-if="activeTab === 'site'" class="max-w-2xl space-y-3.5">
-        <div class="row-field">
-          <label class="lbl">网站名称</label>
-          <input v-model="site.sitename" class="field-input flex-1" />
+      <div v-if="activeTab === 'site'" class="max-w-2xl space-y-6">
+        <!-- 基础信息 -->
+        <div class="space-y-3.5">
+          <h4 class="text-sm font-medium">基础信息</h4>
+          <div class="row-field">
+            <label class="lbl">网站名称</label>
+            <input v-model="site.sitename" class="field-input flex-1" />
+          </div>
+          <div class="row-field">
+            <label class="lbl">商户名称</label>
+            <div class="min-w-0 flex-1">
+              <input v-model="site.merchantName" class="field-input w-full" />
+              <p class="mt-1.5 text-xs text-muted-foreground">商户中心登录/注册页左侧品牌名，末尾 Pay / PAY 自动高亮。</p>
+            </div>
+          </div>
+          <div class="row-field">
+            <label class="lbl">首页标题</label>
+            <input v-model="site.title" class="field-input flex-1" />
+          </div>
+          <div class="row-field">
+            <label class="lbl">公司名称</label>
+            <input v-model="site.company" class="field-input flex-1" />
+          </div>
         </div>
-        <div class="row-field">
-          <label class="lbl">首页标题</label>
-          <input v-model="site.title" class="field-input flex-1" />
+
+        <!-- SEO 信息 -->
+        <div class="space-y-3.5 border-t border-border/60 pt-5">
+          <h4 class="text-sm font-medium">SEO 信息</h4>
+          <div class="row-field">
+            <label class="lbl">关键字</label>
+            <input v-model="site.keywords" class="field-input flex-1" />
+          </div>
+          <div class="row-field">
+            <label class="lbl">网站描述</label>
+            <input v-model="site.description" class="field-input flex-1" />
+          </div>
         </div>
-        <div class="row-field">
-          <label class="lbl">关键字</label>
-          <input v-model="site.keywords" class="field-input flex-1" />
+      </div>
+
+      <!-- 联系方式 -->
+      <div v-else-if="activeTab === 'contact'" class="max-w-2xl space-y-6">
+        <!-- 联系信息 -->
+        <div class="space-y-3.5">
+          <h4 class="text-sm font-medium">联系信息</h4>
+          <div class="row-field">
+            <label class="lbl">联系邮箱</label>
+            <input v-model="site.email" class="field-input flex-1" />
+          </div>
+          <div class="row-field">
+            <label class="lbl">客服QQ</label>
+            <input v-model="site.qq" class="field-input flex-1" />
+          </div>
         </div>
-        <div class="row-field">
-          <label class="lbl">网站描述</label>
-          <input v-model="site.description" class="field-input flex-1" />
-        </div>
-        <div class="row-field">
-          <label class="lbl">公司名称</label>
-          <input v-model="site.company" class="field-input flex-1" />
-        </div>
-        <div class="row-field">
-          <label class="lbl">联系邮箱</label>
-          <input v-model="site.email" class="field-input flex-1" />
-        </div>
-        <div class="row-field">
-          <label class="lbl">客服QQ</label>
-          <input v-model="site.qq" class="field-input flex-1" />
+
+        <!-- 二维码：公众号 / 客服QQ / 客服微信，样式对齐 LOGO 设置 -->
+        <div class="space-y-5 border-t border-border/60 pt-5">
+          <h4 class="text-sm font-medium">联系二维码</h4>
+          <div v-for="qr in qrcodeItems" :key="qr.key" class="flex items-start gap-4">
+            <label class="w-24 shrink-0 whitespace-nowrap pt-1 text-right text-sm text-muted-foreground">{{ qr.label }}</label>
+            <ImageUpload v-model="site[qr.key]" dir="cover" compact label="上传" />
+            <p class="pt-1 text-xs leading-relaxed text-muted-foreground/70">
+              {{ qr.desc }}<br />
+              留空则官网显示占位框。支持 jpg / png / gif / webp，单张 ≤ 10MB。
+            </p>
+          </div>
         </div>
       </div>
 
@@ -216,12 +261,12 @@ async function save() {
           <div class="space-y-2">
             <label class="flex items-center gap-3 bg-muted/40 px-3.5 py-2.5">
               <span class="w-16 shrink-0 text-sm text-foreground">在线客服</span>
-              <span class="flex-1 text-xs text-muted-foreground/60">走「网站信息」客服 QQ</span>
+              <span class="flex-1 text-xs text-muted-foreground/60">悬浮弹出「网站信息」客服QQ二维码</span>
               <Switch v-model="site.floatKf" size="sm" />
             </label>
             <label class="flex items-center gap-3 bg-muted/40 px-3.5 py-2.5">
               <span class="w-16 shrink-0 text-sm text-foreground">公众号</span>
-              <span class="flex-1 text-xs text-muted-foreground/60">悬浮弹出下方二维码</span>
+              <span class="flex-1 text-xs text-muted-foreground/60">悬浮弹出「网站信息」公众号二维码</span>
               <Switch v-model="site.floatQr" size="sm" />
             </label>
             <label class="flex items-center gap-3 bg-muted/40 px-3.5 py-2.5">
@@ -235,12 +280,7 @@ async function save() {
               <Switch v-model="site.floatTop" size="sm" />
             </label>
           </div>
-
-          <!-- 公众号二维码上传（悬浮栏公众号项 + 资讯页侧栏共用）-->
-          <div v-if="site.floatQr" class="border-t border-border/60 pt-5">
-            <label class="mb-1.5 block text-sm text-muted-foreground">公众号二维码 <span class="text-muted-foreground/60">（悬浮栏「公众号」+ 资讯页侧栏共用，留空显示占位框）</span></label>
-            <ImageUpload v-model="site.mpQrcode" dir="cover" />
-          </div>
+          <p class="text-xs text-muted-foreground/70">二维码图片在「网站信息」tab 上传，此处仅控制各入口显隐。</p>
         </div>
       </div>
 

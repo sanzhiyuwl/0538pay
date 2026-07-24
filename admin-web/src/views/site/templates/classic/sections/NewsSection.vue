@@ -52,7 +52,7 @@ function mmdd(date: string) {
         <div
           v-for="col in newsColumns"
           :key="col.category.id"
-          class="flex flex-col bg-background shadow-[0_1px_3px_rgba(0,0,0,0.04),0_10px_30px_-14px_rgba(0,0,0,0.15)]"
+          class="flex flex-col bg-background shadow-[0_4px_20px_-8px_rgba(0,0,0,0.1)] transition-shadow duration-300 hover:shadow-[0_8px_28px_-10px_rgba(0,0,0,0.16)]"
         >
           <!-- 深色头图：英文小标题 + 中文大标题 + | 分类名（点击进分类归档页）-->
           <button class="group relative block aspect-[21/9] w-full overflow-hidden text-left" @click="goCategory(col.category.id)">
@@ -84,7 +84,7 @@ function mmdd(date: string) {
               <span class="truncate text-base font-semibold transition-colors group-hover:text-primary">{{ col.headline.title }}</span>
               <Badge v-if="col.headline.isNew" variant="destructive" class="shrink-0">new</Badge>
             </button>
-            <p class="mt-3 line-clamp-3 text-sm leading-relaxed text-muted-foreground">{{ col.headline.summary }}</p>
+            <p class="mt-3 line-clamp-2 text-sm leading-relaxed text-muted-foreground">{{ col.headline.summary }}</p>
           </div>
 
           <!-- 列表：日期 + 标题 -->
@@ -94,7 +94,7 @@ function mmdd(date: string) {
                 class="group flex w-full items-center gap-3 py-2.5 text-left"
                 @click="goNews(a.id)"
               >
-                <span class="shrink-0 text-xs tabular-nums text-muted-foreground/70">{{ mmdd(a.addtime) }}</span>
+                <span class="shrink-0 text-sm tabular-nums text-muted-foreground/70">{{ mmdd(a.addtime) }}</span>
                 <span class="truncate text-sm text-foreground/80 transition-colors group-hover:text-primary">{{ a.title }}</span>
               </button>
             </li>

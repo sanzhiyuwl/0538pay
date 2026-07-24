@@ -5,6 +5,7 @@ import {
   Lock, Eye, EyeOff, Mail, Smartphone, Ticket, MessageSquareCode, ArrowRight,
 } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
+import { useSiteStore } from '@/stores/site'
 
 const router = useRouter()
 const toast = useToast()
@@ -12,6 +13,15 @@ const toast = useToast()
 import { onMounted } from 'vue'
 import { fetchCaptcha, merchantRegister } from '@/lib/api/merchantAuth'
 import { ApiError } from '@/lib/api/client'
+
+// 品牌名来自后台「网站设置 / 网站信息」，实时联动；末尾 Pay/PAY 拆出高亮
+const siteStore = useSiteStore()
+onMounted(() => siteStore.hydrate())
+const brandName = computed(() => siteStore.config.merchantName || '三只鱼PAY')
+const brand = computed(() => {
+  const m = brandName.value.match(/^(.*?)(pay)$/i)
+  return m ? { lead: m[1], accent: m[2] } : { lead: brandName.value, accent: '' }
+})
 
 const verifyType = ref<'phone' | 'email'>('phone')
 
@@ -93,7 +103,7 @@ const steps = [
     <!-- 左：开户引导舞台 -->
     <aside class="stage">
       <div class="stage-head">
-        <span class="logo-name">三只鱼<b>PAY</b></span>
+        <span class="logo-name">{{ brand.lead }}<b v-if="brand.accent">{{ brand.accent }}</b></span>
         <span class="logo-badge">商户入驻</span>
       </div>
 
@@ -121,7 +131,7 @@ const steps = [
       <div class="panel-inner">
         <header class="p-head">
           <h1>注册商户账户</h1>
-          <p>加入 三只鱼PAY，开启你的收款之旅</p>
+          <p>加入 {{ brandName }}，开启你的收款之旅</p>
         </header>
 
         <div class="tabs">

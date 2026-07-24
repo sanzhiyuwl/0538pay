@@ -6,7 +6,7 @@
 import type { Component } from 'vue'
 import {
   LayoutTemplate, BarChart3, Sparkles, Tag, Grid3x3,
-  Newspaper, MessageSquareQuote, HelpCircle, Megaphone,
+  Newspaper, MessageSquareQuote, Megaphone,
 } from 'lucide-vue-next'
 import type { SectionKey, SiteContent } from '@/lib/mock/site-content'
 
@@ -28,7 +28,6 @@ export const sectionMetas: SectionMeta[] = [
   { key: 'products', label: '产品矩阵', icon: Grid3x3, count: (c) => c.products.length },
   { key: 'news', label: '最新动态', icon: Newspaper },
   { key: 'testimonials', label: '客户评价', icon: MessageSquareQuote, count: (c) => c.testimonials.length },
-  { key: 'faqs', label: '常见问题', icon: HelpCircle, count: (c) => c.faqs.length },
   { key: 'cta', label: '底部 CTA', icon: Megaphone },
 ]
 

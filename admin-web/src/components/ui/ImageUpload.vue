@@ -15,8 +15,12 @@ const props = withDefaults(
   defineProps<{
     modelValue: string
     dir?: 'article' | 'cover' | 'category'
+    /** 紧凑模式：隐藏右侧说明文案，仅保留上传方框（多个并排时用） */
+    compact?: boolean
+    /** 上传方框内的空态文案，默认「上传封面」 */
+    label?: string
   }>(),
-  { dir: 'cover' },
+  { dir: 'cover', compact: false, label: '上传封面' },
 )
 const emit = defineEmits<{ 'update:modelValue': [v: string] }>()
 
@@ -64,7 +68,7 @@ function clear() {
     <div
       class="group relative flex size-28 shrink-0 items-center justify-center overflow-hidden rounded-md border border-dashed border-input bg-muted/30 transition-colors hover:border-primary/50"
     >
-      <img v-if="modelValue" :src="modelValue" alt="封面预览" class="size-full object-cover" />
+      <img v-if="modelValue" :src="modelValue" :alt="label" class="size-full object-cover" />
       <!-- 空态：整块可点击上传 -->
       <button
         v-else
@@ -74,7 +78,7 @@ function clear() {
         @click="pick"
       >
         <ImagePlus class="size-6" />
-        <span class="text-xs">上传封面</span>
+        <span class="text-xs">{{ label }}</span>
       </button>
 
       <!-- 上传中遮罩 -->
@@ -96,8 +100,8 @@ function clear() {
       </div>
     </div>
 
-    <!-- 说明文案 -->
-    <p class="pt-1 text-xs leading-relaxed text-muted-foreground/70">
+    <!-- 说明文案（紧凑模式隐藏，多个并排时由外部统一给一句说明）-->
+    <p v-if="!compact" class="pt-1 text-xs leading-relaxed text-muted-foreground/70">
       点击方框上传本地图片。<br />
       支持 jpg / png / gif / webp，单张 ≤ 10MB。
     </p>

@@ -32,12 +32,11 @@ export interface Plan {
 }
 /** 合作商户案例：门店实拍图 + 商户名 + 简介（image 为空时首页显示占位图块）*/
 export interface Testimonial { name: string; desc: string; image: string }
-export interface Faq { q: string; a: string }
 
 /** 首页可编排板块 key（顺序由 SiteContent.sections 决定；hero 恒为首项）*/
 export type SectionKey =
   | 'hero' | 'metrics' | 'features' | 'pricing' | 'products'
-  | 'news' | 'testimonials' | 'faqs' | 'cta'
+  | 'news' | 'testimonials' | 'cta'
 /** 板块编排项：顺序 = 数组顺序，visible 控制首页是否渲染 */
 export interface SectionItem { key: SectionKey; visible: boolean }
 
@@ -68,9 +67,6 @@ export interface SiteContent {
   testimonialsTitle: string
   testimonialsSubtitle: string
   testimonials: Testimonial[]
-  faqTitle: string
-  faqSubtitle: string
-  faqs: Faq[]
   cta: {
     title: string
     subtitle: string
@@ -79,7 +75,7 @@ export interface SiteContent {
   }
 }
 
-/** 默认板块顺序（与首页原始排布一致，全部可见）。faqs 从此在首页渲染。 */
+/** 默认板块顺序（与首页原始排布一致）。常见问题板块已下线（内容并入开发文档）。 */
 export const defaultSections: SectionItem[] = [
   { key: 'hero', visible: true },
   { key: 'metrics', visible: true },
@@ -88,7 +84,6 @@ export const defaultSections: SectionItem[] = [
   { key: 'products', visible: true },
   { key: 'news', visible: true },
   { key: 'testimonials', visible: true },
-  { key: 'faqs', visible: true },
   { key: 'cta', visible: true },
 ]
 
@@ -182,16 +177,6 @@ export const defaultSiteContent: SiteContent = {
     { name: '炫洛优选', desc: '炫洛优选集景区门票、话费电费、折扣影票、外卖点餐等多种 CPS 分佣商城并结合自营商城。', image: '/assets/our-customers_03.png' },
     { name: '鼎好买商城', desc: '鼎好买商城是一个为用户提供医疗器械、口腔耗材、医用设备的线上商城，充分利用互联网优势。', image: '/assets/our-customers_04.png' },
     { name: '诺康大药房', desc: '诺康大药房网上药房，揭阳首家实现自建平台 O2O、B2C 新零售购药模式的创新型药品零售商。', image: '/assets/our-customers_05.png' },
-  ],
-  faqTitle: '常见问题',
-  faqSubtitle: '关于接入、费率、资金安全的高频疑问',
-  faqs: [
-    { q: '接入需要什么资质？', a: '普通商户注册即用，有无营业执照均可；微信 / 支付宝特约商户需要个体户或企业营业执照。具体资质要求见费率方案说明。' },
-    { q: '费率是多少？有没有隐藏费用？', a: '费率低至 0.28%，按商户等级与渠道透明计费，无隐藏费用。开通资费与结算费率在费率方案中逐项列明。' },
-    { q: '资金安全吗？会不会有二清风险？', a: '本平台是收单外包服务机构，不涉及资金清算、不触碰用户资金。资金由持牌支付机构与你直接清算，不存在二清。' },
-    { q: '多久能到账？如何结算？', a: '买家付款秒级入账到你的商户余额，官方 D+1 自动结算至绑定银行卡，也支持手动申请结算。' },
-    { q: '技术对接复杂吗？', a: '提供 RESTful API + 完善文档 + 示例代码，支持 MD5 / RSA 双签名，最快 1 天即可完成对接上线。' },
-    { q: '支持哪些支付方式？', a: '支持支付宝、微信支付、QQ 钱包、云闪付等主流渠道，覆盖扫码 / 公众号 / 小程序 / H5 / App / 网关 / 企业收付款 / 跨境八大产品。' },
   ],
   cta: {
     title: '立即开启你的收款业务',

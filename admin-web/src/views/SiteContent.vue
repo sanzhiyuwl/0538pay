@@ -129,7 +129,6 @@ function resetAll() {
 const blankFeature = { icon: 'Waypoints', title: '新特性', desc: '特性描述' }
 const blankProduct = { icon: 'QrCode', name: '新产品', desc: '产品描述', points: ['特性一'], tags: ['标签'] }
 const blankTestimonial = { name: '商户名称', desc: '商户简介', image: '' }
-const blankFaq = { q: '问题', a: '答案' }
 </script>
 
 <template>
@@ -378,33 +377,6 @@ const blankFaq = { q: '问题', a: '答案' }
                 </template>
               </draggable>
               <Button variant="outline" size="sm" @click="addItem('testimonials', draft.testimonials, blankTestimonial)"><Plus class="size-4" />添加评价</Button>
-            </div>
-          </div>
-
-          <!-- 常见问题 -->
-          <div v-show="activeSection === 'faqs'" class="space-y-4">
-            <div class="row-field"><label class="lbl">板块标题</label><input v-model="draft.faqTitle" class="field-input flex-1" /></div>
-            <div class="row-field"><label class="lbl">板块副标题</label><input v-model="draft.faqSubtitle" class="field-input flex-1" /></div>
-            <div class="space-y-2 border-t border-border/60 pt-4">
-              <draggable v-model="draft.faqs" :item-key="itemKey" handle=".item-handle" :animation="180" ghost-class="sec-ghost" class="space-y-2">
-                <template #item="{ element: f, index: i }">
-                  <div class="overflow-hidden rounded-md border border-border">
-                    <div class="collapse-head" :class="isOpen('faqs', i) ? 'bg-muted/40' : ''" @click="toggle('faqs', i)">
-                      <button class="item-handle" @click.stop><GripVertical class="size-4" /></button>
-                      <span class="flex-1 truncate text-sm font-medium">{{ f.q || '未命名问题' }}</span>
-                      <span class="head-actions" @click.stop>
-                        <button class="icon-btn text-destructive" @click="removeItem(draft.faqs, i)"><Trash2 class="size-3.5" /></button>
-                      </span>
-                      <ChevronDown class="size-4 shrink-0 text-muted-foreground transition-transform" :class="isOpen('faqs', i) ? 'rotate-180' : ''" />
-                    </div>
-                    <div v-show="isOpen('faqs', i)" class="space-y-3 border-t border-border p-4">
-                      <div><label class="fld-lbl">问题</label><input v-model="f.q" class="field-input mt-1 w-full" /></div>
-                      <div><label class="fld-lbl">答案</label><textarea v-model="f.a" rows="2" class="field-input mt-1 w-full resize-none py-2" style="height:auto" /></div>
-                    </div>
-                  </div>
-                </template>
-              </draggable>
-              <Button variant="outline" size="sm" @click="addItem('faqs', draft.faqs, blankFaq)"><Plus class="size-4" />添加问题</Button>
             </div>
           </div>
 

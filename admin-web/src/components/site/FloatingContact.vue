@@ -16,8 +16,9 @@ const showKf = computed(() => cfg.floatKf !== false)
 const showQr = computed(() => cfg.floatQr !== false)
 const showMail = computed(() => cfg.floatMail !== false)
 const showTopItem = computed(() => cfg.floatTop !== false)
-// 公众号二维码图（网站设置 mpQrcode，未配置则显示占位框）
-const qrImg = computed(() => (cfg.mpQrcode as string) || '')
+// 二维码图（网站设置，未配置则显示占位框）
+const qrImg = computed(() => (cfg.mpQrcode as string) || '') // 公众号
+const qqQrImg = computed(() => (cfg.qqQrcode as string) || '') // 客服QQ
 
 // 悬浮展开的项（hover 时右侧弹出面板）
 const active = ref<'kf' | 'qr' | 'mail' | null>(null)
@@ -35,35 +36,37 @@ onMounted(() => {
   onScroll()
 })
 onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
-
-// QQ 临时会话链接
-const qqLink = computed(() => `https://wpa.qq.com/msgrd?v=3&uin=${site.qq}&site=qq&menu=yes`)
 </script>
 
 <template>
   <div v-if="barOn" class="fixed right-4 top-1/2 z-40 hidden -translate-y-1/2 lg:block">
     <div class="flex flex-col divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
-      <!-- 在线客服 QQ -->
-      <a
+      <!-- 在线客服 QQ 二维码 -->
+      <button
         v-if="showKf"
-        :href="qqLink"
-        target="_blank"
-        rel="noopener"
+        type="button"
         class="group relative flex size-14 flex-col items-center justify-center gap-0.5 text-muted-foreground transition-colors hover:bg-primary/[0.06] hover:text-primary"
         @mouseenter="active = 'kf'"
         @mouseleave="active = null"
       >
         <Headset class="size-5" />
         <span class="text-[11px] leading-none">客服</span>
-        <!-- 悬浮面板：QQ 号 -->
+        <!-- 悬浮面板：客服 QQ 二维码 -->
         <div
           v-show="active === 'kf'"
-          class="absolute right-full top-1/2 mr-3 -translate-y-1/2 whitespace-nowrap rounded-lg border border-border/70 bg-white px-4 py-3 text-center shadow-lg"
+          class="absolute right-full top-1/2 mr-3 -translate-y-1/2 whitespace-nowrap rounded-lg border border-border/70 bg-white p-3 text-center shadow-lg"
         >
-          <div class="text-xs text-muted-foreground">在线客服 QQ</div>
-          <div class="mt-1 text-sm font-semibold text-foreground">{{ site.qq }}</div>
+          <img v-if="qqQrImg" :src="qqQrImg" alt="客服QQ" class="size-32 rounded" />
+          <div
+            v-else
+            class="flex size-32 flex-col items-center justify-center gap-1.5 rounded border border-dashed border-border text-muted-foreground/60"
+          >
+            <QrCode class="size-7" />
+            <span class="text-[11px]">二维码未配置</span>
+          </div>
+          <div class="mt-2 text-xs text-muted-foreground">扫码添加客服 QQ</div>
         </div>
-      </a>
+      </button>
 
       <!-- 公众号二维码 -->
       <button
