@@ -30,3 +30,9 @@ pnpm-debug.log*
 # 文档与设计预览产物（与项目代码无关，不入库）
 docs/
 design-previews/
+
+# phpStudy 建站残留 / 一次性迁移脚本（已清理，勿再入库）
+/.htaccess
+/nginx.htaccess
+/go-cleanup-admin.ps1
+/error/
