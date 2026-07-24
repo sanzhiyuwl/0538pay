@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0538pay/api/internal/model"
-	"github.com/0538pay/api/internal/repository"
-	"github.com/0538pay/api/pkg/sign"
+	"github.com/epvia/api/internal/model"
+	"github.com/epvia/api/internal/repository"
+	"github.com/epvia/api/pkg/sign"
 )
 
 // MapiService 承载 V2 REST 接口族（对齐 epay api.php?s= → ApiHelper → lib/api/{Pay,Merchant,Transfer}）。

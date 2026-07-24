@@ -9,8 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/0538pay/api/internal/channel"
-	"github.com/0538pay/api/internal/channel/wxbase"
+	"github.com/epvia/api/internal/channel"
+	"github.com/epvia/api/internal/channel/wxbase"
 )
 
 type Channel struct{}

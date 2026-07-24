@@ -29,7 +29,7 @@ export const siteConfig = {
   keywords: '聚合支付,支付宝,微信支付,第三方支付',
   description: '0538Pay 提供支付宝、微信、QQ钱包、云闪付等多渠道聚合支付服务',
   company: '泰安市数智支付科技有限公司',
-  email: 'service@0538pay.com',
+  email: 'service@epvia.com',
   qq: '800820538',
   copyrightLink: 'https://beian.miit.gov.cn/',
   copyright: 'Copyright © 2026 0538Pay 版权所有',

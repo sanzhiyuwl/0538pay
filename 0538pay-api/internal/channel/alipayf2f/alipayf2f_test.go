@@ -8,8 +8,8 @@ import (
 	"encoding/pem"
 	"testing"
 
-	"github.com/0538pay/api/internal/channel"
-	"github.com/0538pay/api/pkg/alipay"
+	"github.com/epvia/api/internal/channel"
+	"github.com/epvia/api/pkg/alipay"
 	"github.com/shopspring/decimal"
 )
 

@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/0538pay/api/internal/channel"
-	"github.com/0538pay/api/internal/service"
-	"github.com/0538pay/api/pkg/resp"
+	"github.com/epvia/api/internal/channel"
+	"github.com/epvia/api/internal/service"
+	"github.com/epvia/api/pkg/resp"
 	"github.com/gin-gonic/gin"
 )
 

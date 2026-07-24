@@ -26,8 +26,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0538pay/api/internal/channel"
-	"github.com/0538pay/api/pkg/sign"
+	"github.com/epvia/api/internal/channel"
+	"github.com/epvia/api/pkg/sign"
 	"github.com/shopspring/decimal"
 )
 

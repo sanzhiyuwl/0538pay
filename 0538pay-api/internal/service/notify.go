@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0538pay/api/internal/model"
-	"github.com/0538pay/api/pkg/money"
-	"github.com/0538pay/api/pkg/sign"
+	"github.com/epvia/api/internal/model"
+	"github.com/epvia/api/pkg/money"
+	"github.com/epvia/api/pkg/sign"
 )
 
 // notifyClient 商户异步通知用的 HTTP 客户端，带超时防止卡死。

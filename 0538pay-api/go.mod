@@ -1,4 +1,4 @@
-module github.com/0538pay/api
+module github.com/epvia/api
 
 go 1.22
 

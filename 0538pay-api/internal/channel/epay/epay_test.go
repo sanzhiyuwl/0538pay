@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/0538pay/api/internal/channel"
-	"github.com/0538pay/api/pkg/sign"
+	"github.com/epvia/api/internal/channel"
+	"github.com/epvia/api/pkg/sign"
 )
 
 func testCfg() channel.Config {

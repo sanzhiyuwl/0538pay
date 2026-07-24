@@ -7,8 +7,8 @@ import (
 	"flag"
 	"log"
 
-	"github.com/0538pay/api/internal/config"
-	"github.com/0538pay/api/internal/model"
+	"github.com/epvia/api/internal/config"
+	"github.com/epvia/api/internal/model"
 	"github.com/shopspring/decimal"
 )
 

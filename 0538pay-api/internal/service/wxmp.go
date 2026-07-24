@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/0538pay/api/internal/repository"
+	"github.com/epvia/api/internal/repository"
 )
 
 // WxmpService 微信公众号 API 封装（对齐 epay includes/lib/wechat/WechatAPI.php）。

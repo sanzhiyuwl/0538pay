@@ -3,7 +3,7 @@ package service
 import (
 	"encoding/json"
 
-	"github.com/0538pay/api/internal/repository"
+	"github.com/epvia/api/internal/repository"
 )
 
 // SiteConfigService 官网 CMS 内容读写（自研）。key 白名单校验 + value JSON 合法性校验。

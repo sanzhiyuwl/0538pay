@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/0538pay/api/internal/config"
-	"github.com/0538pay/api/internal/model"
+	"github.com/epvia/api/internal/config"
+	"github.com/epvia/api/internal/model"
 )
 
 func main() {

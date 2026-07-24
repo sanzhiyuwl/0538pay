@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"github.com/0538pay/api/internal/model"
+	"github.com/epvia/api/internal/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

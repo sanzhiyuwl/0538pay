@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0538pay/api/internal/dto"
-	"github.com/0538pay/api/internal/middleware"
-	"github.com/0538pay/api/internal/service"
-	"github.com/0538pay/api/pkg/jwtauth"
-	"github.com/0538pay/api/pkg/resp"
+	"github.com/epvia/api/internal/dto"
+	"github.com/epvia/api/internal/middleware"
+	"github.com/epvia/api/internal/service"
+	"github.com/epvia/api/pkg/jwtauth"
+	"github.com/epvia/api/pkg/resp"
 	"github.com/gin-gonic/gin"
 )
 
@@ -1433,7 +1433,7 @@ func (h *ConfigHandler) TestMail(c *gin.Context) {
 	}
 	site := h.svc.Str("sitename")
 	if site == "" {
-		site = "0538pay"
+		site = "Epvia Neo"
 	}
 	err := h.mail.Send(c.Request.Context(), to,
 		"邮件发送测试 - "+site,

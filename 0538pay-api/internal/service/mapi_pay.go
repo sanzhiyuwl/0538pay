@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0538pay/api/internal/model"
-	"github.com/0538pay/api/pkg/money"
+	"github.com/epvia/api/internal/model"
+	"github.com/epvia/api/pkg/money"
 	"github.com/shopspring/decimal"
 )
 

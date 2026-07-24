@@ -24,7 +24,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/0538pay/api/internal/channel"
+	"github.com/epvia/api/internal/channel"
 	"github.com/shopspring/decimal"
 )
 

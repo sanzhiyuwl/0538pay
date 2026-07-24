@@ -1,9 +1,9 @@
 package service
 
 import (
-	"github.com/0538pay/api/internal/dto"
-	"github.com/0538pay/api/internal/model"
-	"github.com/0538pay/api/internal/repository"
+	"github.com/epvia/api/internal/dto"
+	"github.com/epvia/api/internal/model"
+	"github.com/epvia/api/internal/repository"
 )
 
 // RecordService 资金流水业务逻辑。

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0538pay/api/internal/repository"
+	"github.com/epvia/api/internal/repository"
 )
 
 // NoticeService 统一对外通知触达中枢（对齐 epay includes/lib/MsgNotice.php send）。

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0538pay/api/internal/model"
-	"github.com/0538pay/api/internal/repository"
-	"github.com/0538pay/api/pkg/money"
+	"github.com/epvia/api/internal/model"
+	"github.com/epvia/api/internal/repository"
+	"github.com/epvia/api/pkg/money"
 )
 
 // ApiV1Service 实现 epay 的 V1 遗留接口 api.php?act=（GET+明文key鉴权，code=1 语义，A-5）。

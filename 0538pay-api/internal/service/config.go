@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/0538pay/api/internal/repository"
+	"github.com/epvia/api/internal/repository"
 	"github.com/shopspring/decimal"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -75,7 +75,7 @@ var configDefaults = map[string]string{
 	"pageordername":     "0", // 收银台商品名强制为 onlinepay (1开/0关；对齐 epay pageordername)
 	"ordername":         "",  // 全局订单名模板([name]/[order]/[outorder]/[qq]/[phone]占位；对齐 epay ordername)
 	// 站点 site
-	"sitename": "0538pay 聚合支付平台",
+	"sitename": "Epvia Neo 聚合支付平台",
 	"kfqq":     "",
 	// 注册登录 reg
 	"reg_open":         "1", // 1开/0关/2仅邀请

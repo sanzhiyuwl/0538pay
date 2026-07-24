@@ -9,7 +9,7 @@ import { useToast } from '@/composables/useToast'
 
 const toast = useToast()
 const cfg = reactive({ cronkey: '' })
-const siteurl = 'https://0538pay.com/'
+const siteurl = 'https://epvia.com/'
 const saving = ref(false)
 
 onMounted(async () => {

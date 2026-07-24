@@ -3,9 +3,9 @@ package service
 import (
 	"strings"
 
-	"github.com/0538pay/api/internal/dto"
-	"github.com/0538pay/api/internal/model"
-	"github.com/0538pay/api/internal/repository"
+	"github.com/epvia/api/internal/dto"
+	"github.com/epvia/api/internal/model"
+	"github.com/epvia/api/internal/repository"
 )
 
 // MessageService 站内信（我方新增功能，epay 无此实体）。

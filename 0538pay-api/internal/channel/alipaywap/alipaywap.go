@@ -9,8 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/0538pay/api/internal/channel"
-	"github.com/0538pay/api/internal/channel/alipaybase"
+	"github.com/epvia/api/internal/channel"
+	"github.com/epvia/api/internal/channel/alipaybase"
 )
 
 type Channel struct{}

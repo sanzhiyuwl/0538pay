@@ -30,7 +30,7 @@ export function calcWeworkStats(list: WeworkAccount[]) {
 
 /** H5 微信客服支付配置（set_wxkf → pre_config） */
 export const wxkfConfig = {
-  callbackUrl: 'https://0538pay.com/wework.php', // 只读回调地址
+  callbackUrl: 'https://epvia.com/wework.php', // 只读回调地址
   wework_token: '',
   wework_aeskey: '',
   wework_payopen: '0', // 0关 1开

@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0538pay/api/internal/model"
-	"github.com/0538pay/api/internal/repository"
+	"github.com/epvia/api/internal/model"
+	"github.com/epvia/api/internal/repository"
 )
 
 // SmsService 短信验证码 OTP（对齐 epay \lib\VerifyCode + send_sms_common）。

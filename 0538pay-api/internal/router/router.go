@@ -1,10 +1,10 @@
 package router
 
 import (
-	"github.com/0538pay/api/internal/handler"
-	"github.com/0538pay/api/internal/middleware"
-	"github.com/0538pay/api/pkg/jwtauth"
-	"github.com/0538pay/api/pkg/resp"
+	"github.com/epvia/api/internal/handler"
+	"github.com/epvia/api/internal/middleware"
+	"github.com/epvia/api/pkg/jwtauth"
+	"github.com/epvia/api/pkg/resp"
 	"github.com/gin-gonic/gin"
 )
 

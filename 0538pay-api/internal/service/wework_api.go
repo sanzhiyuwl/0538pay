@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/0538pay/api/internal/model"
+	"github.com/epvia/api/internal/model"
 )
 
 // 企业微信客服 API 层（K-4，对齐 epay includes/lib/wechat/WeWorkAPI.php）。

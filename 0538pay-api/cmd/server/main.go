@@ -10,28 +10,28 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0538pay/api/internal/config"
-	"github.com/0538pay/api/internal/handler"
-	"github.com/0538pay/api/internal/model"
-	"github.com/0538pay/api/internal/repository"
-	"github.com/0538pay/api/internal/router"
-	"github.com/0538pay/api/internal/scheduler"
-	"github.com/0538pay/api/internal/service"
-	"github.com/0538pay/api/pkg/jwtauth"
-	"github.com/0538pay/api/pkg/sign"
+	"github.com/epvia/api/internal/config"
+	"github.com/epvia/api/internal/handler"
+	"github.com/epvia/api/internal/model"
+	"github.com/epvia/api/internal/repository"
+	"github.com/epvia/api/internal/router"
+	"github.com/epvia/api/internal/scheduler"
+	"github.com/epvia/api/internal/service"
+	"github.com/epvia/api/pkg/jwtauth"
+	"github.com/epvia/api/pkg/sign"
 	"github.com/gin-gonic/gin"
 
 	// 支付渠道：匿名导入以触发各渠道 init() 自注册到 registry。
-	_ "github.com/0538pay/api/internal/channel/alipayf2f"
-	_ "github.com/0538pay/api/internal/channel/alipaypage"
-	_ "github.com/0538pay/api/internal/channel/alipaywap"
-	_ "github.com/0538pay/api/internal/channel/epay"
-	_ "github.com/0538pay/api/internal/channel/epayn"
-	_ "github.com/0538pay/api/internal/channel/mock"
-	_ "github.com/0538pay/api/internal/channel/vmq"
-	_ "github.com/0538pay/api/internal/channel/wxnative"
-	_ "github.com/0538pay/api/internal/channel/wxjsapi"
-	_ "github.com/0538pay/api/internal/channel/wxh5"
+	_ "github.com/epvia/api/internal/channel/alipayf2f"
+	_ "github.com/epvia/api/internal/channel/alipaypage"
+	_ "github.com/epvia/api/internal/channel/alipaywap"
+	_ "github.com/epvia/api/internal/channel/epay"
+	_ "github.com/epvia/api/internal/channel/epayn"
+	_ "github.com/epvia/api/internal/channel/mock"
+	_ "github.com/epvia/api/internal/channel/vmq"
+	_ "github.com/epvia/api/internal/channel/wxnative"
+	_ "github.com/epvia/api/internal/channel/wxjsapi"
+	_ "github.com/epvia/api/internal/channel/wxh5"
 )
 
 func main() {
@@ -258,7 +258,7 @@ func main() {
 
 	srv := &http.Server{Addr: cfg.Server.Addr, Handler: r}
 	go func() {
-		log.Printf("0538pay-api 启动于 %s", cfg.Server.Addr)
+		log.Printf("Epvia Neo API 启动于 %s", cfg.Server.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("服务启动失败: %v", err)
 		}

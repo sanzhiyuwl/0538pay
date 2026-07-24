@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/0538pay/api/internal/config"
+	"github.com/epvia/api/internal/config"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )

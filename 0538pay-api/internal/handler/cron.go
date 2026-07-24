@@ -1,9 +1,9 @@
 package handler
 
 import (
-	"github.com/0538pay/api/internal/scheduler"
-	"github.com/0538pay/api/internal/service"
-	"github.com/0538pay/api/pkg/resp"
+	"github.com/epvia/api/internal/scheduler"
+	"github.com/epvia/api/internal/service"
+	"github.com/epvia/api/pkg/resp"
 	"github.com/gin-gonic/gin"
 )
 

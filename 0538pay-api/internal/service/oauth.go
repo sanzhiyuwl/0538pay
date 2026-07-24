@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0538pay/api/internal/dto"
-	"github.com/0538pay/api/internal/repository"
-	"github.com/0538pay/api/pkg/jwtauth"
+	"github.com/epvia/api/internal/dto"
+	"github.com/epvia/api/internal/repository"
+	"github.com/epvia/api/pkg/jwtauth"
 )
 
 // OAuthService 商户快捷登录（对齐 epay user/connect.php[QQ] + wxlogin.php[微信] + oauth.php[支付宝]）。

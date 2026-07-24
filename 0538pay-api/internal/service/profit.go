@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0538pay/api/internal/dto"
-	"github.com/0538pay/api/internal/model"
-	"github.com/0538pay/api/internal/repository"
+	"github.com/epvia/api/internal/dto"
+	"github.com/epvia/api/internal/model"
+	"github.com/epvia/api/internal/repository"
 	"github.com/shopspring/decimal"
 )
 

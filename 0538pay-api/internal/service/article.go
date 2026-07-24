@@ -4,8 +4,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0538pay/api/internal/model"
-	"github.com/0538pay/api/internal/repository"
+	"github.com/epvia/api/internal/model"
+	"github.com/epvia/api/internal/repository"
 )
 
 // ArticleService 文章 + 分类业务（对齐 epay article.php pre_article 行表 CRUD）。

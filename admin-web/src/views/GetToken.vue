@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { Copy, Check, QrCode } from 'lucide-vue-next'
 import { Panel, Button, Select } from '@/components/ui'
 
-const siteurl = 'https://0538pay.com/'
+const siteurl = 'https://epvia.com/'
 
 const tabs = [
   { key: 'wechat', label: '微信 Openid' },

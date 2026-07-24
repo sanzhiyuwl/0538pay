@@ -17,7 +17,7 @@ const stats = [
 const contacts = computed(() => [
   { icon: MapPin, label: '公司地址', value: '山东省泰安市高新区数智大厦' },
   { icon: Phone, label: '联系电话', value: '0538-8888888' },
-  { icon: Mail, label: '邮箱', value: site.config.email || 'service@0538pay.com' },
+  { icon: Mail, label: '邮箱', value: site.config.email || 'service@epvia.com' },
   { icon: MessageSquare, label: '客服 QQ', value: site.config.qq || '800820538' },
 ])
 </script>

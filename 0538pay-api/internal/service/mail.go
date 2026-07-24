@@ -72,7 +72,7 @@ func (s *MailService) sendSMTP(to, subject, htmlBody string) error {
 	}
 	fromName := s.cfg.Str("sitename")
 	if fromName == "" {
-		fromName = "0538pay"
+		fromName = "Epvia Neo"
 	}
 	addr := fmt.Sprintf("%s:%d", host, port)
 	auth := smtp.PlainAuth("", user, pwd, host)

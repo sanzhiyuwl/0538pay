@@ -65,7 +65,7 @@ export const buyPayOptions = [
 
 // ============ 邀请返现 ============
 export const inviteInfo = {
-  link: 'https://0538pay.com/?invite=A1B2C3',
+  link: 'https://epvia.com/?invite=A1B2C3',
   rate: 20, // 返现比例 %
   orderType: 1, // 1=按手续费 0=按订单额
 }
