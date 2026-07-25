@@ -78,7 +78,6 @@ import MerchantGroupbuy from '@/views/merchant/MerchantGroupbuy.vue'
 import MerchantInvite from '@/views/merchant/MerchantInvite.vue'
 import MerchantHelp from '@/views/merchant/MerchantHelp.vue'
 import MerchantTest from '@/views/merchant/MerchantTest.vue'
-import MerchantMessages from '@/views/merchant/MerchantMessages.vue'
 import Paypage from '@/views/site/Paypage.vue'
 import MerchantReg from '@/views/merchant/MerchantReg.vue'
 import MerchantFindpwd from '@/views/merchant/MerchantFindpwd.vue'
@@ -220,7 +219,6 @@ const merchantPages: Record<string, any> = {
   '/m/invite': MerchantInvite,
   '/m/help': MerchantHelp,
   '/m/test': MerchantTest,
-  '/m/messages': MerchantMessages,
 }
 
 // 商户中心子路由（父 path=/m，children 用相对路径）

@@ -19,6 +19,7 @@ type ChannelService struct {
 	subchannels *repository.SubChannelRepo // 删通道级联删其子通道（可空，SetSubChannelRepo 注入）
 	orders      *repository.OrderRepo      // 通道今昨收款/成功率聚合（可空，SetOrderRepo 注入）
 	pay         *PayService                // 后台测试支付走收单链（可空，SetPayService 注入）
+	config      *ConfigService             // 插件启停状态（可空，SetConfigService 注入）
 }
 
 func NewChannelService(repo *repository.ChannelRepo) *ChannelService {
@@ -33,6 +34,37 @@ func (s *ChannelService) SetOrderRepo(r *repository.OrderRepo) { s.orders = r }
 
 // SetPayService 注入支付服务，后台「测试支付」定向指定通道下测试单走收单链（对齐 epay ajax_pay.php testpay）。
 func (s *ChannelService) SetPayService(p *PayService) { s.pay = p }
+
+// SetConfigService 注入配置服务，用于插件启停（plugin_disabled）读写。
+func (s *ChannelService) SetConfigService(c *ConfigService) { s.config = c }
+
+// SetPluginEnabled 启用/禁用某已注册插件（后台开关）。校验插件确已注册，避免写入无效 key。
+func (s *ChannelService) SetPluginEnabled(key string, enabled bool) error {
+	if s.config == nil {
+		return chErr("配置服务不可用")
+	}
+	if _, ok := channel.Get(key); !ok {
+		return chErr("插件未注册: " + key)
+	}
+	return s.config.SetPluginEnabled(key, enabled)
+}
+
+// SetPluginsEnabled 批量启用/禁用多个已注册插件（品牌卡「一键关停/开启整个品牌」用）。
+// 逐个校验已注册（任一无效即整体拒绝，不做部分写入），再一次性落库。
+func (s *ChannelService) SetPluginsEnabled(keys []string, enabled bool) error {
+	if s.config == nil {
+		return chErr("配置服务不可用")
+	}
+	if len(keys) == 0 {
+		return chErr("插件标识不能为空")
+	}
+	for _, k := range keys {
+		if _, ok := channel.Get(k); !ok {
+			return chErr("插件未注册: " + k)
+		}
+	}
+	return s.config.SetPluginsEnabled(keys, enabled)
+}
 
 // TestPay 后台测试支付：对指定通道(+可选子通道)下一笔真实测试单，返回收银台可用的下单信息。
 // 1:1 对齐 epay admin/ajax_pay.php act=testpay（金额校验 → 固定通道 → tid=3 → 收款方 test_pay_uid）。
@@ -95,7 +127,14 @@ func (s *ChannelService) List(q dto.ChannelQuery) ([]dto.ChannelView, int64, err
 // PluginMeta 返回所有已注册渠道插件的能力与配置元数据（后台按插件动态渲染密钥表单/展示能力）。
 // 对齐 epay 插件 $info（inputs/transtypes/是否支持退款代付）由插件自声明的思路。
 func (s *ChannelService) PluginMeta() []channel.PluginMeta {
-	return channel.AllMeta()
+	metas := channel.AllMeta()
+	if s.config != nil {
+		disabled := s.config.DisabledPlugins()
+		for i := range metas {
+			metas[i].Enabled = !disabled[metas[i].Key]
+		}
+	}
+	return metas
 }
 
 // ChannelError 携带业务错误码与提示，handler 据此返回 code+msg。

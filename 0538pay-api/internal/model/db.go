@@ -23,7 +23,11 @@ func NewDB(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	}
 	sqlDB.SetMaxOpenConns(cfg.MaxOpen)
 	sqlDB.SetMaxIdleConns(cfg.MaxIdle)
-	sqlDB.SetConnMaxLifetime(time.Hour)
+	// ConnMaxLifetime 控制连接最长存活；ConnMaxIdleTime 让空闲连接更早回收。
+	// 二者取值都小于 MySQL 的 wait_timeout（默认较长，但机器休眠/服务重启会提前掐断连接），
+	// 避免池里滞留已被 MySQL 端关闭的死连接，消除偶发的 "invalid connection"。
+	sqlDB.SetConnMaxLifetime(5 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(time.Minute)
 	return db, nil
 }
 

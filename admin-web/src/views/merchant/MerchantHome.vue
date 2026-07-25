@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Wallet as WalletIcon, CheckSquare, AreaChart, ShoppingCart, IdCard, KeyRound, ShieldAlert, X, Megaphone } from 'lucide-vue-next'
+import { Wallet as WalletIcon, CheckSquare, AreaChart, ShoppingCart, IdCard, KeyRound, ShieldAlert, X, Megaphone, ShieldCheck, Coins, ArrowRight } from 'lucide-vue-next'
 import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
 import TrendChart from '@/components/TrendChart.vue'
@@ -27,6 +27,15 @@ onMounted(loadDashboard)
 
 const m = computed(() => dash.value?.merchantInfo)
 const channelStats = computed(() => dash.value?.channels ?? [])
+// 开工引导。实名：未实名即引导（依法必须，不绑开关）。保证金：启用门槛开关即引导。
+const certGuide = computed(() => dash.value?.guides?.cert)
+const depositGuide = computed(() => dash.value?.guides?.deposit)
+const hasGuide = computed(() => !!certGuide.value?.show || !!depositGuide.value?.show)
+// 保证金是否已达门槛（gap<=0 且设了门槛 min>0）：已达标显达标文案，否则提示补缴。
+const depositMet = computed(() => {
+  const d = depositGuide.value
+  return !!d && d.min > 0 && d.gap <= 0
+})
 const announces = computed(() => dash.value?.announces ?? [])
 const settleTrend = computed(() => dash.value?.trend ?? { labels: [], data: [] })
 
@@ -51,7 +60,7 @@ const alerts = computed(() => {
   const al = dash.value?.alerts
   if (!al) return []
   const list: { key: string; text: string }[] = []
-  if (al.needCert) list.push({ key: 'cert', text: '您的账户尚未完成实名认证，部分功能受限，请尽快认证。' })
+  // 实名提醒改由下方引导卡承载（受开关控制），此处不再重复弹横幅。
   if (al.noSecurity) list.push({ key: 'security', text: '您还未绑定密保手机/邮箱，账户存在安全风险，建议前往账户设置绑定。' })
   if (al.noLoginPwd) list.push({ key: 'pwd', text: '您还未设置登录密码，仅能使用密钥登录，建议设置登录密码。' })
   return list.filter((a) => !closed.value.has(a.key))
@@ -68,6 +77,83 @@ function closeAlert(key: string) {
       <ShieldAlert class="size-4 shrink-0" />
       <span class="flex-1">{{ a.text }}</span>
       <button class="text-warning/60 hover:text-warning" @click="closeAlert(a.key)"><X class="size-4" /></button>
+    </div>
+
+    <!-- 开工引导（只要未完成就引导，不绑开关；实名依法必须、保证金需门槛>0 且不足） -->
+    <div v-if="hasGuide" class="grid grid-cols-1 gap-2.5" :class="certGuide?.show && depositGuide?.show ? 'md:grid-cols-2' : ''">
+      <!-- 实名认证引导 -->
+      <Card v-if="certGuide?.show">
+        <div class="flex items-start gap-4 px-5 py-5">
+          <div class="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/[0.08] text-primary">
+            <ShieldCheck class="size-6" />
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <h3 class="text-[15px] font-semibold tracking-tight">完成实名认证</h3>
+              <Badge variant="warning">待认证</Badge>
+            </div>
+            <p class="mt-1 text-sm text-muted-foreground">
+              根据相关法规要求，收款账户须完成实名认证。请提交真实身份信息完成认证。
+            </p>
+            <button
+              class="mt-3.5 inline-flex items-center gap-1 rounded bg-primary px-3.5 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+              @click="router.push('/m/certificate')"
+            >
+              去认证<ArrowRight class="size-3.5" />
+            </button>
+          </div>
+        </div>
+      </Card>
+
+      <!-- 保证金缴纳引导 -->
+      <Card v-if="depositGuide?.show">
+        <div class="flex items-start gap-4 px-5 py-5">
+          <div class="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/[0.08] text-primary">
+            <Coins class="size-6" />
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <h3 class="text-[15px] font-semibold tracking-tight">缴纳保证金</h3>
+              <Badge :variant="depositMet ? 'success' : 'warning'">{{ depositMet ? '已达门槛' : '待缴纳' }}</Badge>
+            </div>
+            <!-- 已达门槛 -->
+            <p v-if="depositMet" class="mt-1 text-sm text-muted-foreground">
+              当前保证金
+              <span class="font-medium tabular-nums text-foreground">¥{{ formatMoney(depositGuide.current) }}</span>
+              已满足门槛
+              <span class="font-medium tabular-nums text-foreground">¥{{ formatMoney(depositGuide.min) }}</span>，可正常收款。
+            </p>
+            <!-- 设了门槛但不足 -->
+            <p v-else-if="depositGuide.min > 0" class="mt-1 text-sm text-muted-foreground">
+              平台要求保证金不低于
+              <span class="font-medium tabular-nums text-foreground">¥{{ formatMoney(depositGuide.min) }}</span>
+              才能发起收款。当前
+              <span class="font-medium tabular-nums text-foreground">¥{{ formatMoney(depositGuide.current) }}</span>，
+              还需补缴
+              <span class="font-medium tabular-nums text-primary">¥{{ formatMoney(depositGuide.gap) }}</span>。
+            </p>
+            <!-- 开关开启但未设具体门槛金额 -->
+            <p v-else class="mt-1 text-sm text-muted-foreground">
+              平台已启用保证金要求，请前往缴纳保证金以保障正常收款。当前保证金
+              <span class="font-medium tabular-nums text-foreground">¥{{ formatMoney(depositGuide.current) }}</span>。
+            </p>
+            <button
+              v-if="!depositMet"
+              class="mt-3.5 inline-flex items-center gap-1 rounded bg-primary px-3.5 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+              @click="router.push('/m/deposit')"
+            >
+              去缴纳<ArrowRight class="size-3.5" />
+            </button>
+            <button
+              v-else
+              class="mt-3.5 inline-flex items-center gap-1 rounded border border-border px-3.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+              @click="router.push('/m/deposit')"
+            >
+              查看保证金<ArrowRight class="size-3.5" />
+            </button>
+          </div>
+        </div>
+      </Card>
     </div>
 
     <!-- 四数据卡片 -->

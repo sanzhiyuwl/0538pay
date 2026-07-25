@@ -1,24 +1,96 @@
 <script setup lang="ts">
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowRight } from 'lucide-vue-next'
 import { Button, Badge } from '@/components/ui'
 import type { SiteContent } from '@/lib/mock/site-content'
+import { useSiteStore } from '@/stores/site'
 import { payMethods, heroShares, bars } from '../shared'
 
-defineProps<{ content: SiteContent; preview?: boolean }>()
+const props = defineProps<{ content: SiteContent; preview?: boolean }>()
 const router = useRouter()
+
+// ===== 幻灯片：开启且至少一张有效图片时，整个 Hero 换成大图轮播 =====
+const siteStore = useSiteStore()
+const slides = computed(() => (siteStore.config.slides || []).filter((s) => s && s.image))
+const useSlides = computed(() => !!siteStore.config.slidesOn && slides.value.length > 0)
+
+const current = ref(0)
+const count = computed(() => slides.value.length)
+let timer: number | undefined
+function play() {
+  stop()
+  if (props.preview || count.value <= 1) return
+  const ms = Math.max(2, siteStore.config.slideInterval || 5) * 1000
+  timer = window.setInterval(() => go(current.value + 1), ms)
+}
+function stop() {
+  if (timer) {
+    window.clearInterval(timer)
+    timer = undefined
+  }
+}
+function go(i: number) {
+  current.value = (i + count.value) % count.value
+}
+function jump(i: number) {
+  go(i)
+  play()
+}
+watch([count, useSlides], () => {
+  if (current.value >= count.value) current.value = 0
+  play()
+})
+onMounted(play)
+onBeforeUnmount(stop)
 </script>
 
 <template>
-  <!-- ===== Hero（宽屏左右分栏：左文案右视觉）===== -->
-  <section class="relative -mt-16 overflow-hidden border-b border-border bg-background">
-    <!-- 背景装饰层：斜向流光带 + 精细点阵 + 品牌色柔光晕（延伸至导航背后）-->
-    <div class="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
+  <!-- ===== 首屏 Hero：文案/按钮/概览卡恒在；背景为「幻灯片轮播」或「默认点阵流光」===== -->
+  <section
+    class="relative -mt-16 overflow-hidden border-b border-border"
+    :class="useSlides ? 'hero-has-slides' : 'bg-background'"
+    @mouseenter="useSlides && stop()"
+    @mouseleave="useSlides && play()"
+  >
+    <!-- 背景 A：幻灯片轮播（后台配置了幻灯片时）+ 半透明遮罩保证前景文字可读 -->
+    <div v-if="useSlides" class="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
+      <div
+        v-for="(s, i) in slides"
+        :key="i"
+        class="slide-bg absolute inset-0"
+        :class="{ active: i === current }"
+      >
+        <img :src="s.image" :alt="s.title || `幻灯片 ${i + 1}`" class="size-full object-cover" />
+      </div>
+      <!-- 遮罩：浅色蒙层，让深色文案在图上可读（左侧更重，呼应左文案）-->
+      <div class="absolute inset-0 bg-gradient-to-r from-background/92 via-background/78 to-background/45" />
+    </div>
+
+    <!-- 背景 B：默认点阵流光（未配置幻灯片时）-->
+    <div v-else class="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
       <div class="hero-beam absolute inset-0" />
       <div class="hero-dots absolute inset-x-0 top-0 h-2/3" />
       <div class="hero-glow absolute -right-28 -top-44 size-[44rem] opacity-90" />
       <div class="hero-glow absolute -left-44 top-16 size-[34rem] opacity-55" />
     </div>
+
+    <!-- 幻灯片圆点指示器（多于一张时）-->
+    <div
+      v-if="useSlides && count > 1"
+      class="absolute inset-x-0 bottom-5 z-20 flex items-center justify-center gap-2"
+    >
+      <button
+        v-for="(_, i) in slides"
+        :key="i"
+        type="button"
+        class="dot"
+        :class="{ active: i === current }"
+        :aria-label="`第 ${i + 1} 张`"
+        @click="jump(i)"
+      />
+    </div>
+
     <div class="relative z-10 mx-auto grid max-w-7xl items-center gap-12 px-4 pb-20 pt-36 lg:grid-cols-[1.05fr_1fr] lg:px-8 lg:pb-28 lg:pt-44">
       <!-- 左：文案 -->
       <div v-reveal>
@@ -98,5 +170,25 @@ const router = useRouter()
     transparent 70%
   );
   filter: blur(56px);
+}
+
+/* ===== 幻灯片背景轮播 ===== */
+.slide-bg {
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+.slide-bg.active {
+  opacity: 1;
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.5);
+  transition: background 0.2s, width 0.2s;
+}
+.dot.active {
+  width: 22px;
+  background: #fff;
 }
 </style>

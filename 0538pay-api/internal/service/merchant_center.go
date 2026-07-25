@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -28,10 +29,14 @@ type MerchantCenterService struct {
 	channels  *repository.ChannelRepo
 	groups    *repository.GroupRepo
 	refunds   *repository.RefundOrderRepo // 部分退款落 pay_refundorder（对齐 epay Order::refund api=1）
+	payTypes  *repository.PayTypeRepo     // 支付方式名录，会员套餐展示「支付方式名(费率%)」用（对齐 epay groupbuy display_info）
 	pay       *PayService        // 复用商户通知重发
 	certVerify *CertVerifyService // 实名第三方核验（可空；SetCertVerify 注入）
 	notice    *NoticeService     // 提现待处理管理员通知（可空；SetNoticeService 注入）
 }
+
+// SetPayTypeRepo 注入支付方式名录（会员套餐可用通道费率展示，对齐 epay groupbuy.php display_info）。
+func (s *MerchantCenterService) SetPayTypeRepo(r *repository.PayTypeRepo) { s.payTypes = r }
 
 // SetCertVerify 注入实名第三方核验服务。
 func (s *MerchantCenterService) SetCertVerify(c *CertVerifyService) { s.certVerify = c }
@@ -127,11 +132,16 @@ var certMoney = decimal.RequireFromString("0")
 // 保证金提取冻结天数（对齐 epay user_deposit_day）：>0 时最近 N 天有成功订单禁提取。0=不限。
 var userDepositDay = 0
 
-// reloadMerchantCenterConfig 从 config 域刷新保证金门槛/实名工本费/提取冻结天数。
+// 启用保证金门槛开关镜像（对齐 epay user_deposit）。工作台保证金引导只看这个开关：
+// 开=显示引导，关=不显示，不再要求金额门槛>0。下单是否拦截仍由 PayService.Submit 实时读 cfg。
+var userDepositOn = false
+
+// reloadMerchantCenterConfig 从 config 域刷新保证金门槛/实名工本费/提取冻结天数/保证金开关。
 func reloadMerchantCenterConfig(cfg *ConfigService) {
 	depositMin = cfg.Dec("user_deposit_min", depositMin)
 	certMoney = cfg.Dec("cert_money", certMoney)
 	userDepositDay = cfg.Int("user_deposit_day", 0)
+	userDepositOn = cfg.Bool("user_deposit")
 }
 
 // CertInfo 返回实名认证页信息（脱敏）。
@@ -285,16 +295,33 @@ func (s *MerchantCenterService) GroupPlans() ([]dto.GroupPlanView, error) {
 	if err != nil {
 		return nil, err
 	}
+	names := s.payTypeNames()
 	views := make([]dto.GroupPlanView, 0, len(list))
 	for i := range list {
 		g := &list[i]
 		views = append(views, dto.GroupPlanView{
 			ID: g.GID, Name: g.Name,
 			Price: g.Price.InexactFloat64(), Expire: g.Expire,
-			Rates: parseGroupRates(g.Info),
+			Rates: groupRateLabels(g.Info, names),
 		})
 	}
 	return views, nil
+}
+
+// payTypeNames 返回 支付方式ID → 显示名（showname）映射；repo 未注入或查询失败返回空表。
+func (s *MerchantCenterService) payTypeNames() map[int]string {
+	if s.payTypes == nil {
+		return map[int]string{}
+	}
+	list, err := s.payTypes.All()
+	if err != nil {
+		return map[int]string{}
+	}
+	m := make(map[int]string, len(list))
+	for i := range list {
+		m[int(list[i].ID)] = list[i].ShowName
+	}
+	return m
 }
 
 // CurrentGroup 返回商户当前会员状态。
@@ -310,7 +337,12 @@ func (s *MerchantCenterService) CurrentGroup(uid uint) (*dto.GroupCurrentView, e
 	if m.GroupEnd != nil {
 		expire = m.GroupEnd.Format("2006-01-02")
 	}
-	return &dto.GroupCurrentView{GID: m.GID, Name: groupName(m.GID), Expire: expire}, nil
+	// 解析当前组（含默认组 gid=0）的可用通道及费率，与套餐卡展示同源。
+	var rates []dto.GroupRateItem
+	if g, gerr := s.groups.FindByID(m.GID); gerr == nil && g != nil {
+		rates = groupRateLabels(g.Info, s.payTypeNames())
+	}
+	return &dto.GroupCurrentView{GID: m.GID, Name: groupName(m.GID), Expire: expire, Rates: rates}, nil
 }
 
 // BuyGroup 购买会员。余额支付即时扣款升组；渠道支付待凭证。
@@ -366,16 +398,53 @@ func (s *MerchantCenterService) BuyGroup(uid uint, req dto.GroupBuyReq) error {
 	return nil
 }
 
-// parseGroupRates 解析用户组 Info JSON 的费率说明。格式宽松：[{label,rate}]；解析失败返回空。
-func parseGroupRates(info string) []dto.GroupRateItem {
-	if strings.TrimSpace(info) == "" {
+// groupRateLabels 把用户组 info 解析成「可用支付通道及费率」标签（对齐 epay groupbuy.php display_info）。
+//
+// info 主格式为 epay 的通道分配 map：{"支付方式ID":{"channel","rate","type"}}。
+//   - channel=="0"：该支付方式在本组未开通，跳过（对齐 epay `if($v['channel']==0)continue`）。
+//   - 其余（-1随机 / -2子通道 / 正整数固定通道或轮询组）：显示「支付方式名(费率%)」。
+//     费率取组级覆盖 rate（0538pay 存直白费率百分数，非 epay 的 100-rate 让利值）；rate 为空则只显示方式名。
+//   - label 用 pay_type.showname；名录缺失时回退「支付方式#ID」保证不空白。
+//
+// 兼容旧的数组格式 [{label,rate}]（早期 mock 残留）：解析成功即原样返回。
+func groupRateLabels(info string, names map[int]string) []dto.GroupRateItem {
+	info = strings.TrimSpace(info)
+	if info == "" {
 		return []dto.GroupRateItem{}
 	}
-	var items []dto.GroupRateItem
-	if err := json.Unmarshal([]byte(info), &items); err != nil {
-		return []dto.GroupRateItem{}
+	// 优先按 epay map 格式解析。
+	if assigns := parseGroupInfo(info); assigns != nil {
+		// map 无序 → 按支付方式ID升序稳定输出（对齐 epay pre_type ORDER BY id ASC）。
+		ids := make([]int, 0, len(assigns))
+		for id := range assigns {
+			ids = append(ids, id)
+		}
+		sort.Ints(ids)
+		items := make([]dto.GroupRateItem, 0, len(ids))
+		for _, id := range ids {
+			a := assigns[id]
+			ch := strings.TrimSpace(a.Channel)
+			if ch == "" || ch == "0" {
+				continue // 未开通该支付方式
+			}
+			label := names[id]
+			if label == "" {
+				label = "支付方式#" + strconv.Itoa(id)
+			}
+			rate := strings.TrimSpace(a.Rate)
+			if _, ok := parseRateOverride(rate); !ok {
+				rate = "" // 无有效组级覆盖 → 费率随通道默认，此处不展示具体数值
+			}
+			items = append(items, dto.GroupRateItem{Label: label, Rate: rate})
+		}
+		return items
 	}
-	return items
+	// 回退：旧数组格式 [{label,rate}]。
+	var arr []dto.GroupRateItem
+	if err := json.Unmarshal([]byte(info), &arr); err == nil {
+		return arr
+	}
+	return []dto.GroupRateItem{}
 }
 
 // dayStart 返回某时刻当天 00:00:00（本地时区）。
@@ -458,6 +527,27 @@ func (s *MerchantCenterService) Dashboard(uid uint) (*dto.MerchantDashboard, err
 		NoLoginPwd: m.Password == "",
 	}
 
+	// 开工引导：只要商户未完成就引导，不绑开关。
+	guides := dto.MerchantGuides{}
+	// 实名引导：只要未实名(cert==0)就引导。实名依法必须，文案统一为“必须”口吻，无分档。
+	if m.Cert == 0 {
+		guides.Cert = dto.CertGuide{Show: true}
+	}
+	// 保证金引导：只要启用保证金门槛开关(user_deposit)开启就显示，不再要求门槛金额>0。
+	// gap 为仍需补缴的差额(不足 min 的部分)，已达门槛时为 0，前端据此切换“去缴纳/已达标”文案。
+	if userDepositOn {
+		gap := depositMin.Sub(m.Deposit)
+		if gap.LessThan(decimal.Zero) {
+			gap = decimal.Zero
+		}
+		guides.Deposit = dto.DepositGuide{
+			Show:    true,
+			Min:     depositMin.InexactFloat64(),
+			Current: m.Deposit.InexactFloat64(),
+			Gap:     gap.InexactFloat64(),
+		}
+	}
+
 	// 通道费率表：列出各支付方式的费率（收入统计暂给 0，接订单按通道聚合后补）。
 	channels := s.channelStats()
 
@@ -467,6 +557,7 @@ func (s *MerchantCenterService) Dashboard(uid uint) (*dto.MerchantDashboard, err
 	return &dto.MerchantDashboard{
 		Info:      info,
 		Alerts:    alerts,
+		Guides:    guides,
 		Channels:  channels,
 		Announces: []dto.AnnounceView{}, // 公告域未建，先空（前端已容错）
 		Trend:     trend,

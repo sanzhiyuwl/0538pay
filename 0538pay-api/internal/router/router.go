@@ -123,7 +123,9 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.GET("/groups/:gid/assigns", d.Group.GetAssigns)
 			authed.PUT("/groups/:gid/assigns", d.Group.SaveAssigns)
 
-			authed.GET("/channels/plugins", d.Channel.PluginMeta) // 插件能力/配置元数据
+			authed.GET("/channels/plugins", d.Channel.PluginMeta)                  // 插件能力/配置元数据
+			authed.PUT("/channels/plugins/status", d.Channel.SetPluginsStatus)     // 批量插件启用/禁用（品牌卡一键）
+			authed.PUT("/channels/plugins/:key/status", d.Channel.SetPluginStatus) // 单插件启用/禁用开关
 			authed.GET("/channels", d.Channel.List)
 			authed.POST("/channels", d.Channel.Create)
 			authed.PUT("/channels/:id", d.Channel.Update)
@@ -275,6 +277,9 @@ func Setup(r *gin.Engine, d Deps) {
 		pay.POST("/submit", d.Pay.Submit)
 		// B1-04 收银台选定支付方式：对既有裸单补选通道下单（公开，凭 trade_no，无需商户签名）
 		pay.POST("/choose", d.Pay.ChoosePay)
+		// JSAPI 收银台微信网页授权：生成授权跳转 URL / code 换买家 openid（公开，凭 trade_no）
+		pay.GET("/wx/authurl", d.Pay.WxAuthURL)
+		pay.GET("/wx/openid", d.Pay.WxOpenID)
 		// 收银台中间页查单（公开，仅安全字段）
 		pay.GET("/order/:trade_no", d.Pay.Cashier)
 		// 收银台主动查单（公开）：未付时向渠道 Query，确认已付则改单入账

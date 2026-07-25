@@ -4,7 +4,16 @@ import { useRoute, useRouter } from 'vue-router'
 import { QrCode, Loader2, ShieldCheck, AlertCircle } from 'lucide-vue-next'
 import QRCodeLib from 'qrcode'
 import { Button } from '@/components/ui'
-import { fetchCashierOrder, triggerMockPay, fetchOrderStatus, cashierChoosePay, type CashierOrder } from '@/lib/api/pay'
+import {
+  fetchCashierOrder,
+  triggerMockPay,
+  fetchOrderStatus,
+  cashierChoosePay,
+  fetchWxAuthURL,
+  fetchWxOpenID,
+  type CashierOrder,
+  type CashierSubmitResp,
+} from '@/lib/api/pay'
 
 // 收银台中间页。真实渠道(有 qrcode)渲染真二维码 + 轮询查单；mock 渠道无二维码，
 // 用"模拟支付成功"按钮直接触发后端回调走完整链路。对齐 epay cashier.php 语义。
@@ -27,13 +36,58 @@ const choosing = ref(false)
 // 其余渠道有真实 qrcode 内容，渲染真二维码 + 轮询查单。
 const isRealChannel = computed(() => !!order.value && order.value.plugin !== 'mock' && !!order.value.qrcode)
 
+// 是否在微信内置浏览器（JSAPI 支付只在微信内有意义）。
+const inWechat = /micromessenger/i.test(navigator.userAgent)
+// 微信内置 JS 支付桥（wx.requestPayment / WeixinJSBridge）。
+interface WxPayParams {
+  appId: string
+  timeStamp: string
+  nonceStr: string
+  package: string
+  signType: string
+  paySign: string
+}
+interface WeixinBridge {
+  invoke(
+    method: string,
+    params: Record<string, string>,
+    cb: (res: { err_msg: string }) => void,
+  ): void
+}
+declare global {
+  interface Window {
+    WeixinJSBridge?: WeixinBridge
+  }
+}
+
+// jsapiPending：记录当前正在走 JSAPI 授权的支付方式 type（回跳后据此复发起下单）。
+const JSAPI_TYPE_KEY = 'cashier_jsapi_type'
+
 // 选定支付方式：对既有裸单补选通道下单，成功后重载订单信息渲染二维码/模拟支付。
+// 微信内选微信支付时，若无 openid 先走网页授权（跳转微信授权页，回跳后自动续下单）。
 async function choose(type: string) {
   if (choosing.value) return
+  // 微信内 + 选微信支付 + 尚无 code：先跳授权拿 openid（JSAPI 前置）。
+  if (inWechat && isWxType(type) && !getCodeFromURL()) {
+    choosing.value = true
+    errMsg.value = ''
+    try {
+      sessionStorage.setItem(JSAPI_TYPE_KEY, type)
+      const redirect = cashierURLForRedirect()
+      const authURL = await fetchWxAuthURL(tradeNo, redirect)
+      window.location.href = authURL // 跳微信授权，回跳后 onMounted 带 code 续流程
+      return
+    } catch (e: unknown) {
+      errMsg.value = e instanceof Error ? e.message : '发起微信授权失败'
+      choosing.value = false
+      return
+    }
+  }
   choosing.value = true
   errMsg.value = ''
   try {
-    await cashierChoosePay(tradeNo, type)
+    const resp = await cashierChoosePay(tradeNo, type)
+    if (await handleJsapiResp(resp)) return // JSAPI：已拉起微信支付，无需渲染二维码
     // 重载订单（此时已定通道，plugin/qrcode 就绪）。
     order.value = await fetchCashierOrder(tradeNo)
     if (isRealChannel.value && order.value.qrcode) {
@@ -42,6 +96,93 @@ async function choose(type: string) {
     }
   } catch (e: unknown) {
     errMsg.value = e instanceof Error ? e.message : '选择支付方式失败'
+  } finally {
+    choosing.value = false
+  }
+}
+
+// isWxType 判断支付方式是否为微信类（JSAPI 需公众号授权）。
+function isWxType(type: string): boolean {
+  return type.startsWith('wx') || type === 'wxpay'
+}
+
+// getCodeFromURL 取微信授权回跳带回的 code（?code=..&state=..）。
+function getCodeFromURL(): string {
+  return new URLSearchParams(window.location.search).get('code') ?? ''
+}
+
+// cashierURLForRedirect 当前收银台地址（去掉已有 code/state，供微信授权 redirect_uri）。
+function cashierURLForRedirect(): string {
+  const u = new URL(window.location.href)
+  u.searchParams.delete('code')
+  u.searchParams.delete('state')
+  return u.toString()
+}
+
+// handleJsapiResp 若下单返回 JSAPI 拉起参数（pay_type=jsapi/wap + html 为参数 JSON），
+// 调微信内置 requestPayment 拉起收银；返回 true 表示已处理。
+async function handleJsapiResp(resp: CashierSubmitResp): Promise<boolean> {
+  if (!resp.html || (resp.pay_type !== 'jsapi' && resp.pay_type !== 'wap')) return false
+  let params: WxPayParams
+  try {
+    params = JSON.parse(resp.html)
+  } catch {
+    return false
+  }
+  if (!params.paySign) return false
+  await invokeWxPay(params)
+  return true
+}
+
+// invokeWxPay 调微信内置 JSSDK 拉起支付（WeixinJSBridge.invoke getBrandWCPayRequest）。
+function invokeWxPay(params: WxPayParams): Promise<void> {
+  return new Promise((resolve) => {
+    const doPay = () => {
+      window.WeixinJSBridge?.invoke(
+        'getBrandWCPayRequest',
+        {
+          appId: params.appId,
+          timeStamp: params.timeStamp,
+          nonceStr: params.nonceStr,
+          package: params.package,
+          signType: params.signType,
+          paySign: params.paySign,
+        },
+        (res) => {
+          if (res.err_msg === 'get_brand_wcpay_request:ok') {
+            goPayok()
+          } else if (res.err_msg === 'get_brand_wcpay_request:cancel') {
+            errMsg.value = '您已取消支付'
+          } else {
+            errMsg.value = '微信支付未完成，请重试'
+            startPolling() // 兜底：轮询查单，防拉起异常但实际已付
+          }
+          resolve()
+        },
+      )
+    }
+    if (window.WeixinJSBridge) {
+      doPay()
+    } else {
+      // 桥未就绪时等待其加载完成（微信内置浏览器异步注入）。
+      document.addEventListener('WeixinJSBridgeReady', doPay, { once: true })
+    }
+  })
+}
+
+// resumeJsapiAfterAuth 微信授权回跳后（URL 带 code）续 JSAPI 下单：换 openid → 带 openid 下单 → 拉起。
+async function resumeJsapiAfterAuth(code: string): Promise<void> {
+  const type = sessionStorage.getItem(JSAPI_TYPE_KEY) || 'wxpay'
+  sessionStorage.removeItem(JSAPI_TYPE_KEY)
+  choosing.value = true
+  try {
+    const openid = await fetchWxOpenID(tradeNo, code)
+    const resp = await cashierChoosePay(tradeNo, type, openid)
+    if (await handleJsapiResp(resp)) return
+    // 未返回 JSAPI 参数（异常）：退回重载订单渲染。
+    order.value = await fetchCashierOrder(tradeNo)
+  } catch (e: unknown) {
+    errMsg.value = e instanceof Error ? e.message : '微信支付发起失败'
   } finally {
     choosing.value = false
   }
@@ -60,6 +201,13 @@ onMounted(async () => {
     if (order.value.status === 1) {
       // 已支付：直接跳成功页，避免重复支付（对齐 epay status==1 拦截）
       goPayok()
+      return
+    }
+    // 微信授权回跳（URL 带 code）：续 JSAPI 下单 → 拉起微信支付。
+    const wxCode = getCodeFromURL()
+    if (inWechat && wxCode) {
+      loading.value = false
+      await resumeJsapiAfterAuth(wxCode)
       return
     }
     if (isRealChannel.value) {

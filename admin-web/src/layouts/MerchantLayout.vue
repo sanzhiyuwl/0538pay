@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Menu, Bell, Sun, Moon, ChevronDown, Store } from 'lucide-vue-next'
 import { merchantNav, merchantLeaves, type NavNode } from '@/config/nav'
@@ -7,13 +7,29 @@ import { useThemeStore } from '@/stores/theme'
 import { cn } from '@/lib/utils'
 import MerchantUserMenu from '@/components/MerchantUserMenu.vue'
 import MerchantNotificationDrawer from '@/components/MerchantNotificationDrawer.vue'
-import { merchantNotices } from '@/lib/mock/merchant/notifications'
+import { fetchMessages } from '@/lib/api/merchantCenter'
 
 const theme = useThemeStore()
 const route = useRoute()
 const mobileOpen = ref(false)
 const noticeOpen = ref(false)
-const hasUnread = computed(() => merchantNotices.some((n) => n.unread))
+
+// 站内信未读数（真接口）：挂载拉一次，抽屉关闭后同步刷新红点。
+const unreadCount = ref(0)
+const hasUnread = computed(() => unreadCount.value > 0)
+async function refreshUnread() {
+  try {
+    const res = await fetchMessages({ page: 1, pageSize: 1 })
+    unreadCount.value = res.unread || 0
+  } catch {
+    /* 未读数拉取失败不打扰 */
+  }
+}
+onMounted(refreshUnread)
+function onNoticeClose() {
+  noticeOpen.value = false
+  refreshUnread()
+}
 
 // 当前路由属于哪个一级菜单
 function nodeActive(node: NavNode) {
@@ -196,6 +212,6 @@ const currentParent = computed(() => {
     </div>
 
     <!-- 站内信抽屉 -->
-    <MerchantNotificationDrawer :open="noticeOpen" @close="noticeOpen = false" />
+    <MerchantNotificationDrawer :open="noticeOpen" @close="onNoticeClose" />
   </div>
 </template>

@@ -25,6 +25,12 @@ const brand = computed(() => {
   return m ? { lead: m[1], accent: m[2] } : { lead: brandName.value, accent: '' }
 })
 
+// 登录页主标语：后台可配，用 \n 换行，最后一行黄色下划线高亮
+const sloganLines = computed(() => {
+  const raw = (siteStore.config.loginSlogan || '让每一笔收款\n稳稳到账').split('\n').filter((l) => l.trim())
+  return raw.length ? raw : ['让每一笔收款', '稳稳到账']
+})
+
 // 登录方式：password 密码登录 / key 密钥登录（商户特有），由右上角折角切换
 const mode = ref<'password' | 'key'>('password')
 function toggleMode() {
@@ -34,10 +40,16 @@ const form = ref({ user: '', pass: '', mid: '', mkey: '' })
 const showPass = ref(false)
 const showKey = ref(false)
 const loading = ref(false)
+// 登录前须勾选同意服务协议/隐私政策，未勾选禁止登录
+const agreed = ref(false)
 
 const submitLabel = computed(() => (loading.value ? '登录中…' : '登录'))
 
 async function login() {
+  if (!agreed.value) {
+    toast.error('请先勾选同意服务协议、隐私政策')
+    return
+  }
   // type=1 密码登录 / type=0 密钥登录，与后端 dto.MerchantLoginReq 对齐
   let type: 0 | 1
   let account: string
@@ -112,7 +124,15 @@ const highlights = [
         </div>
 
         <div class="stage-copy">
-          <h2>让每一笔收款<br /><em>稳稳到账</em></h2>
+          <h2>
+            <template v-for="(line, i) in sloganLines" :key="i">
+              <span
+                class="slogan-line"
+                :class="{ accent: i === sloganLines.length - 1 }"
+                :style="{ animationDelay: `${0.15 + i * 0.14}s` }"
+              >{{ line }}</span>
+            </template>
+          </h2>
         </div>
 
         <ul class="stage-list">
@@ -122,11 +142,13 @@ const highlights = [
 
       <!-- 右：表单面板 -->
       <div class="panel">
-        <!-- 右上角折角：切换 密码登录 ⇄ 密钥登录 -->
-        <button class="corner" type="button" :title="mode === 'password' ? '切换密钥登录' : '切换密码登录'" @click="toggleMode">
+        <!-- 右上角折角：切换 密码登录 ⇄ 密钥登录（胶囊为纯提示框不可点，仅三角可点切换） -->
+        <div class="corner">
           <span class="corner-pill">{{ mode === 'password' ? '密钥登录在这里' : '密码登录在这里' }}</span>
-          <span class="corner-fold"><component :is="mode === 'password' ? KeyRound : MonitorSmartphone" class="size-5" /></span>
-        </button>
+          <button class="corner-fold" type="button" :title="mode === 'password' ? '切换密钥登录' : '切换密码登录'" @click="toggleMode">
+            <component :is="mode === 'password' ? KeyRound : MonitorSmartphone" class="corner-ico" />
+          </button>
+        </div>
 
         <div class="panel-inner">
           <header class="c-head">
@@ -203,7 +225,10 @@ const highlights = [
 
         <!-- 底部协议条 -->
         <div class="foot">
-          <span>登录即同意 <a href="#" @click.prevent>服务协议</a>、<a href="#" @click.prevent>隐私政策</a></span>
+          <label class="agree">
+            <input type="checkbox" v-model="agreed" class="agree-box" />
+            <span>登录即同意 <a href="#" @click.prevent>服务协议</a>、<a href="#" @click.prevent>隐私政策</a></span>
+          </label>
           <RouterLink to="/m/reg">商户注册</RouterLink>
         </div>
       </div>
@@ -311,13 +336,26 @@ const highlights = [
   margin: 0;
   color: #fff;
 }
-.stage-copy h2 em {
+/* 每行标语：逐行淡入上浮 */
+.slogan-line {
+  display: block;
+  opacity: 0;
+  transform: translateY(10px);
+  animation: slogan-in 0.55s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+.slogan-line.accent {
   position: relative;
-  font-style: normal;
+  width: fit-content;
   white-space: nowrap;
 }
-/* 手绘感黄色下划线 */
-.stage-copy h2 em::after {
+@keyframes slogan-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* 手绘感黄色下划线：随最后一行淡入后从左「画」出 */
+.slogan-line.accent::after {
   content: '';
   position: absolute;
   left: -2px;
@@ -326,8 +364,19 @@ const highlights = [
   height: 7px;
   border-radius: 999px;
   background: #ffd43b;
-  transform: rotate(-1.2deg);
+  transform: rotate(-1.2deg) scaleX(0);
+  transform-origin: left center;
   opacity: 0.9;
+  animation: underline-draw 0.5s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+  animation-delay: 0.62s;
+}
+@keyframes underline-draw {
+  from {
+    transform: rotate(-1.2deg) scaleX(0);
+  }
+  to {
+    transform: rotate(-1.2deg) scaleX(1);
+  }
 }
 .stage-list {
   margin: 40px 0 0;
@@ -360,7 +409,7 @@ const highlights = [
   padding: 40px 44px 0;
 }
 
-/* 右上角折角切换 */
+/* 右上角折角切换（容器不可点，仅三角是按钮） */
 .corner {
   position: absolute;
   top: 0;
@@ -368,44 +417,69 @@ const highlights = [
   z-index: 2;
   display: flex;
   align-items: flex-start;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  padding: 0;
 }
+/* 胶囊标签：纯提示框（图1）——白底、主色描边圆角、仅文字，不可点，紧凑贴合三角 */
 .corner-pill {
-  margin-right: 10px;
-  margin-top: 18px;
-  padding: 5px 13px;
-  font-size: 12.5px;
+  position: relative;
+  display: inline-block;
+  margin-right: -2px;
+  margin-top: 6px;
+  padding: 3px 10px;
+  font-size: 11.5px;
   font-weight: 500;
+  line-height: 1.4;
   color: var(--primary);
-  background: color-mix(in oklch, var(--primary) 8%, #fff);
-  border: 1px solid color-mix(in oklch, var(--primary) 24%, transparent);
-  border-radius: 999px;
-  box-shadow: 0 4px 12px -6px color-mix(in oklch, var(--primary) 50%, transparent);
-  transition: background 0.15s, transform 0.15s;
+  background: #fff;
+  border: 1px solid color-mix(in oklch, var(--primary) 40%, transparent);
+  border-radius: 6px;
   white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
 }
-.corner:hover .corner-pill {
-  background: color-mix(in oklch, var(--primary) 15%, #fff);
-  transform: translateY(-1px);
+/* 朝右的气泡尾巴：外层描边色三角 + 内层白色三角，与胶囊描边连成一体 */
+.corner-pill::before,
+.corner-pill::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  width: 0;
+  height: 0;
+  border: solid transparent;
+  transform: translateY(-50%);
 }
+.corner-pill::before {
+  border-width: 5px;
+  border-left-color: color-mix(in oklch, var(--primary) 40%, transparent);
+}
+.corner-pill::after {
+  margin-left: -1.5px;
+  border-width: 4px;
+  border-left-color: #fff;
+}
+/* 折角三角：恒定浅灰不变；hover 只「点燃」图标（灰→主色蓝） */
 .corner-fold {
   position: relative;
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
-  width: 78px;
-  height: 78px;
-  padding: 9px 9px 0 0;
-  color: var(--primary-foreground);
-  background: linear-gradient(225deg, color-mix(in oklch, var(--primary) 82%, black) 0%, var(--primary) 60%);
+  width: 74px;
+  height: 74px;
+  padding: 9px 11px 0 0;
+  border: 0;
+  cursor: pointer;
+  color: #9aa6b8;
+  background: linear-gradient(225deg, #dfe4ec 0%, #eef1f6 70%);
   clip-path: polygon(100% 0, 0 0, 100% 100%);
-  transition: filter 0.15s;
+  transition: color 0.2s ease;
 }
-.corner:hover .corner-fold {
-  filter: brightness(1.06);
+.corner-fold:hover {
+  color: var(--primary);
+}
+/* 折角内图标：放大，靠右上，超出折角上边被外层白底自然裁切一点 */
+.corner-ico {
+  width: 26px;
+  height: 26px;
 }
 
 .c-head h1 {
@@ -571,25 +645,50 @@ const highlights = [
   height: 24px;
 }
 
-/* 底部协议条：文字统一灰色，无分隔线 */
+/* 底部协议条：白底无分隔线，文字灰、协议/注册用主色 */
 .foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-top: 28px;
-  padding: 14px 44px;
+  padding: 16px 44px;
   font-size: 12px;
   color: var(--muted-foreground);
-  background: var(--muted);
+  background: #fff;
 }
-.foot a {
-  color: var(--muted-foreground);
+/* 同意勾选 */
+.agree {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+.agree-box {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+/* 服务协议 / 隐私政策：正文内链接用主色示意可点 */
+.foot span a {
+  color: var(--primary);
   text-decoration: none;
-  transition: color 0.15s;
+  transition: opacity 0.15s;
 }
-.foot a:hover {
-  color: var(--foreground);
+.foot span a:hover {
+  opacity: 0.7;
+}
+/* 商户注册：右侧独立链接，主色 */
+.foot > a {
+  color: var(--primary);
+  font-weight: 500;
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+.foot > a:hover {
+  opacity: 0.7;
 }
 
 /* ── 响应式：窄屏收起左装饰面板 ── */
@@ -613,8 +712,17 @@ const highlights = [
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .card {
+  .card,
+  .slogan-line,
+  .slogan-line.accent::after {
     animation: none;
+  }
+  .slogan-line {
+    opacity: 1;
+    transform: none;
+  }
+  .slogan-line.accent::after {
+    transform: rotate(-1.2deg) scaleX(1);
   }
 }
 </style>

@@ -42,11 +42,36 @@ export interface CashierSubmitResp {
  * B1-04 收银台选定支付方式：对既有裸单(空 type 单)按 trade_no 补选通道下单，无需商户签名
  * （订单在空 type 下单时已验签建号）。返回选定通道后的下单信息（二维码/跳转等）。
  */
-export function cashierChoosePay(tradeNo: string, type: string): Promise<CashierSubmitResp> {
+export function cashierChoosePay(
+  tradeNo: string,
+  type: string,
+  openid?: string,
+): Promise<CashierSubmitResp> {
   return request<CashierSubmitResp>('/pay/choose', {
     method: 'POST',
-    body: { trade_no: tradeNo, type },
+    body: { trade_no: tradeNo, type, openid: openid ?? '' },
   })
+}
+
+/**
+ * JSAPI 收银台：生成微信公众号网页授权跳转 URL（snsapi_base 静默授权）。
+ * 前端在微信内置浏览器无 openid 时，跳转到返回的 auth_url；微信带 code 跳回 redirect。
+ */
+export async function fetchWxAuthURL(tradeNo: string, redirect: string): Promise<string> {
+  const r = await request<{ auth_url: string }>(
+    `/pay/wx/authurl?trade_no=${encodeURIComponent(tradeNo)}&redirect=${encodeURIComponent(redirect)}`,
+  )
+  return r.auth_url
+}
+
+/**
+ * JSAPI 收银台：微信授权跳回后，用 code 换买家 openid（据订单通道公众号 appid/appsecret）。
+ */
+export async function fetchWxOpenID(tradeNo: string, code: string): Promise<string> {
+  const r = await request<{ openid: string }>(
+    `/pay/wx/openid?trade_no=${encodeURIComponent(tradeNo)}&code=${encodeURIComponent(code)}`,
+  )
+  return r.openid
 }
 
 /**

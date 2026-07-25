@@ -27,6 +27,8 @@ export const siteConfig = {
   sitename: '0538Pay 聚合支付',
   // 商户中心品牌名（登录/注册页左侧品牌区展示，末尾 Pay/PAY 自动高亮）
   merchantName: '三只鱼PAY',
+  // 商户登录页左侧主标语（用 \n 换行，最后一行黄色下划线高亮）
+  loginSlogan: '让每一笔收款\n稳稳到账',
   title: '0538Pay - 专业的聚合支付平台',
   keywords: '聚合支付,支付宝,微信支付,第三方支付',
   description: '0538Pay 提供支付宝、微信、QQ钱包、云闪付等多渠道聚合支付服务',
@@ -53,6 +55,18 @@ export const siteConfig = {
   mpQrcode: '', // 官方公众号二维码
   qqQrcode: '', // 客服QQ二维码（悬浮栏「客服」hover 弹出）
   wxQrcode: '', // 客服微信二维码
+  // 首页幻灯片（后台「幻灯片设置」管理，官网首页顶部轮播）
+  slidesOn: false, // 幻灯片总开关，关闭则首页不显示
+  slideInterval: 5, // 自动切换间隔（秒）
+  slides: [] as HomeSlide[], // 幻灯片列表
+}
+
+/** 首页幻灯片单张 */
+export interface HomeSlide {
+  image: string // 图片地址（上传或外链）
+  link?: string // 点击跳转链接（选填，留空则不可点）
+  title?: string // 图上文字标题（选填）
+  subtitle?: string // 图上文字副标题（选填）
 }
 
 /** 注册登录设置（set.php mod=reg 相关项精简，对齐 epay 真实字段） */

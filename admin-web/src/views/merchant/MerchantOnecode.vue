@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
 import QRCodeLib from 'qrcode'
-import { Copy, Check, Download, Pencil } from 'lucide-vue-next'
+import { Copy, Check, Download, Pencil, QrCode } from 'lucide-vue-next'
 import { Panel, Button } from '@/components/ui'
 import { fetchOnecodeInfo, saveCodeName, type OnecodeInfo } from '@/lib/api/merchantCenter'
 import { ApiError } from '@/lib/api/client'
@@ -73,11 +73,14 @@ function downloadCode() {
 
 <template>
   <div class="space-y-2.5">
-    <Panel title="聚合收款码" subtitle="生成固定收款二维码，客户扫码后自选支付宝/微信/QQ 并输入金额付款">
-      <div v-if="!info.open" class="mb-4 rounded bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground">
-        平台当前未开启聚合收款功能，如需开通请联系平台管理员。
+    <Panel title="聚合收款" subtitle="生成固定收款二维码，客户扫码后自选支付宝/微信/QQ 并输入金额付款">
+      <!-- 未开启：整页仅提示，隐藏配置/二维码（对齐 epay onecode.php exit('未开启聚合收款')） -->
+      <div v-if="!info.open" class="flex flex-col items-center justify-center gap-2 py-16 text-center">
+        <QrCode class="size-10 text-muted-foreground/40" />
+        <div class="text-sm font-medium text-muted-foreground">平台当前未开启聚合收款功能</div>
+        <div class="text-xs text-muted-foreground/70">如需开通请联系平台管理员。</div>
       </div>
-      <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div v-else class="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <!-- 左：配置 -->
         <div class="space-y-3.5">
           <div class="row-field">

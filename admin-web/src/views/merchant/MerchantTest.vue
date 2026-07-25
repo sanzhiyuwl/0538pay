@@ -12,7 +12,7 @@ const toast = useToast()
 
 // 测试支付（对齐 epay user/test.php）：用测试收款商户下一笔小额真实订单走收单链
 const info = ref<TestPayInfo>({ open: false, min_money: '0.01', max_money: '50000', types: [] })
-const money = ref('1')
+const money = ref('0.01')
 const busy = ref(false)
 
 async function load() {
@@ -54,7 +54,7 @@ async function pay(type: string) {
         <div class="row-field">
           <label class="lbl">支付金额</label>
           <div class="flex flex-1 items-center gap-2">
-            <input v-model="money" type="number" step="0.01" class="field-input flex-1" placeholder="默认 1 元" />
+            <input v-model="money" type="number" step="0.01" class="field-input flex-1" placeholder="默认 0.01 元" />
             <span class="text-sm text-muted-foreground">元</span>
           </div>
         </div>

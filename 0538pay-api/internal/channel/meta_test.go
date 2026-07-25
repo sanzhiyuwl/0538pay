@@ -56,3 +56,21 @@ func TestMetaCarriesGroupAndNeedSign(t *testing.T) {
 		t.Error("NeedSign 未透传")
 	}
 }
+
+// TestDescribeFallback 未登记的 key 回退用 key 兜底，不返回空串（保证前端永远有可显示名）。
+func TestDescribeFallback(t *testing.T) {
+	d := Describe("__not_registered__")
+	if d.ShowName != "__not_registered__" || d.Brand != "__not_registered__" {
+		t.Fatalf("未登记 key 应回退到 key 兜底, 实际 %+v", d)
+	}
+}
+
+// TestMetaCarriesDescriptor Meta() 应把展示元数据（ShowName/Brand）透传进 PluginMeta。
+func TestMetaCarriesDescriptor(t *testing.T) {
+	Register(groupedChan{})
+	// _grouped_test 未登记描述，应回退裸 key（不为空）。
+	m, _ := Meta("_grouped_test")
+	if m.ShowName != "_grouped_test" || m.Brand != "_grouped_test" {
+		t.Fatalf("未登记渠道应回退裸 key, 实际 showname=%q brand=%q", m.ShowName, m.Brand)
+	}
+}

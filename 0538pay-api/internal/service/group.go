@@ -15,10 +15,30 @@ import (
 type GroupService struct {
 	repo      *repository.GroupRepo
 	merchants *repository.MerchantRepo
+	payTypes  *repository.PayTypeRepo // 支付方式名录，列表「通道费率」展示用（对齐 epay group.php display_info）
 }
 
 func NewGroupService(repo *repository.GroupRepo, merchants *repository.MerchantRepo) *GroupService {
 	return &GroupService{repo: repo, merchants: merchants}
+}
+
+// SetPayTypeRepo 注入支付方式名录（后台用户组列表可用通道费率展示）。
+func (s *GroupService) SetPayTypeRepo(r *repository.PayTypeRepo) { s.payTypes = r }
+
+// payTypeNames 返回 支付方式ID → 显示名映射；repo 未注入或失败返回空表。
+func (s *GroupService) payTypeNames() map[int]string {
+	if s.payTypes == nil {
+		return map[int]string{}
+	}
+	list, err := s.payTypes.All()
+	if err != nil {
+		return map[int]string{}
+	}
+	m := make(map[int]string, len(list))
+	for i := range list {
+		m[int(list[i].ID)] = list[i].ShowName
+	}
+	return m
 }
 
 // GroupError 携带业务错误码与提示。
@@ -41,14 +61,15 @@ func (s *GroupService) List() ([]dto.GroupView, error) {
 	if err != nil {
 		return nil, err
 	}
+	names := s.payTypeNames()
 	views := make([]dto.GroupView, 0, len(list))
 	for i := range list {
-		views = append(views, toGroupView(&list[i], counts[list[i].GID]))
+		views = append(views, toGroupView(&list[i], counts[list[i].GID], names))
 	}
 	return views, nil
 }
 
-func toGroupView(g *model.Group, count int64) dto.GroupView {
+func toGroupView(g *model.Group, count int64, names map[int]string) dto.GroupView {
 	return dto.GroupView{
 		GID:           g.GID,
 		Name:          g.Name,
@@ -57,7 +78,7 @@ func toGroupView(g *model.Group, count int64) dto.GroupView {
 		Expire:        g.Expire,
 		Sort:          g.Sort,
 		Visible:       g.Visible,
-		Rates:         parseGroupRates(g.Info),
+		Rates:         groupRateLabels(g.Info, names),
 		Info:          g.Info,
 		Config:        g.Config,
 		Settings:      g.Settings,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import {
   Search,
   RotateCcw,
@@ -19,7 +19,6 @@ import { Panel, Button, Badge, Select, Switch, Pagination, Drawer, Modal } from 
 import {
   channelMode,
   typeOptions,
-  pluginsByType,
   calcChannelStats,
   type Channel,
 } from '@/lib/mock/channels'
@@ -44,6 +43,7 @@ import { formatMoney } from '@/lib/utils'
 
 const toast = useToast()
 const router = useRouter()
+const route = useRoute()
 
 // 通道数据（真接口，一次拉取全部后客户端筛选/分页）。
 // 对齐 epay：pay_channel 列表本就全量返回、无服务端分页；通道数量有限，
@@ -188,6 +188,9 @@ async function loadPluginMeta() {
 
 onMounted(() => {
   window.addEventListener('click', closeMenu)
+  // 从插件页「去配置」跳转带来的 ?plugin=xxx，预填插件筛选。
+  const qp = route.query.plugin
+  if (typeof qp === 'string' && qp) filters.value.plugin = qp
   loadChannels()
   loadPluginMeta()
 })
@@ -211,10 +214,17 @@ const form = reactive<ChannelSaveReq>({
 
 // 支付方式下拉（去掉“所有支付方式”那项，表单必须选具体方式）
 const typeSelectOptions = computed(() => typeOptions.filter((o) => o.value !== 0))
-// 按当前 type 联动插件候选
+// 支付方式 ID → 方式英文名（对齐 pre_type 1-4），用于按方式过滤后端插件候选
+const typeMethod: Record<number, string> = { 1: 'alipay', 2: 'wxpay', 3: 'qqpay', 4: 'bank' }
+// 按当前 type 联动插件候选：数据源为后端 /channels/plugins 真实注册渠道（单一数据源，
+// 替代旧的前端硬编码 pluginsByType）。按渠道声明的 methods 过滤出支持当前支付方式的渠道，
+// 排除测试桩 mock。label 用后端中文名 showname，按品牌+形态可辨识。
 const pluginOptions = computed(() => {
-  const list = pluginsByType[form.type] || []
-  return list.map((p) => ({ value: p.name, label: `${p.showname} (${p.name})` }))
+  const method = typeMethod[form.type]
+  return Object.values(pluginMeta.value)
+    .filter((m) => m.key !== 'mock' && (m.methods || []).includes(method))
+    .sort((a, b) => (a.brand + a.protocol + a.form).localeCompare(b.brand + b.protocol + b.form))
+    .map((m) => ({ value: m.key, label: `${m.showname} (${m.key})` }))
 })
 
 function resetForm() {
@@ -267,8 +277,7 @@ function openCopy(c: Channel) {
 
 // type 变化时，若当前 plugin 不在新方式的候选内，清空 plugin 待重选
 function onTypeChange() {
-  const list = pluginsByType[form.type] || []
-  if (!list.some((p) => p.name === form.plugin)) form.plugin = ''
+  if (!pluginOptions.value.some((o) => o.value === form.plugin)) form.plugin = ''
 }
 
 async function saveChannel() {
@@ -677,34 +686,36 @@ async function saveConfig() {
           按 {{ configTarget?.plugin }} 插件所需字段填写密钥参数，保存后即可用于真实收款。
           私钥/公钥请粘贴完整 PEM 内容。
         </p>
-        <div v-for="f in presetFields" :key="f.name" class="row-field items-start">
-          <label class="lbl pt-2">
+        <div
+          v-for="f in presetFields"
+          :key="f.name"
+          class="row-field"
+          :class="f.type === 'textarea' ? 'items-start' : 'items-center'"
+        >
+          <label class="lbl" :class="{ 'pt-2': f.type === 'textarea' }">
             {{ f.label }}<span v-if="f.require" class="text-destructive">*</span>
           </label>
-          <div class="flex-1 space-y-1">
-            <textarea
-              v-if="f.type === 'textarea'"
-              v-model="presetForm[f.name]"
-              :placeholder="f.tip"
-              rows="4"
-              class="field-input w-full resize-y font-mono text-xs"
-            />
-            <select
-              v-else-if="f.type === 'select'"
-              v-model="presetForm[f.name]"
-              class="field-input w-full"
-            >
-              <option v-for="opt in f.options ?? []" :key="opt" :value="opt">{{ opt }}</option>
-            </select>
-            <input
-              v-else
-              v-model="presetForm[f.name]"
-              :type="f.type === 'password' ? 'password' : 'text'"
-              :placeholder="f.tip"
-              class="field-input w-full"
-            />
-            <p v-if="f.tip" class="text-xs text-muted-foreground">{{ f.tip }}</p>
-          </div>
+          <textarea
+            v-if="f.type === 'textarea'"
+            v-model="presetForm[f.name]"
+            :placeholder="f.tip"
+            rows="3"
+            class="field-input flex-1 resize-none !h-auto !py-2 font-mono text-xs leading-relaxed"
+          />
+          <Select
+            v-else-if="f.type === 'select'"
+            v-model="presetForm[f.name]"
+            :options="(f.options ?? []).map((opt) => ({ value: opt, label: opt }))"
+            :placeholder="f.tip || '请选择'"
+            class="flex-1"
+          />
+          <input
+            v-else
+            v-model="presetForm[f.name]"
+            :type="f.type === 'password' ? 'password' : 'text'"
+            :placeholder="f.tip"
+            class="field-input flex-1"
+          />
         </div>
       </div>
 

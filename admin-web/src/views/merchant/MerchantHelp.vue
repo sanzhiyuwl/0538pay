@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { BookOpen, Zap, CalendarClock, ShieldCheck } from 'lucide-vue-next'
 import { Panel } from '@/components/ui'
 import { fetchHelp } from '@/lib/api/merchantCenter'
 import { ApiError } from '@/lib/api/client'
@@ -25,16 +26,54 @@ async function load() {
 onMounted(load)
 
 const hasContent = computed(() => content.value.trim().length > 0)
+
+// 顶部亮点卡：概括核心规则，快速传达关键信息
+const highlights = [
+  { icon: Zap, title: '交易即时到账', desc: '付款成功实时入账，随时查看' },
+  { icon: CalendarClock, title: 'T+1 提现', desc: '次日到账，费率 0.5% 封顶 25 元' },
+  { icon: ShieldCheck, title: '安全合规', desc: '实名收款，密钥加密，资金有保障' },
+]
 </script>
 
 <template>
   <div class="space-y-2.5">
-    <Panel title="使用说明" subtitle="平台交易规则与到账说明">
+    <!-- 顶部 Hero：图标 + 标题 + 亮点卡 -->
+    <div class="border border-border/60 bg-gradient-to-br from-primary/[0.06] to-transparent p-6">
+      <div class="flex items-center gap-3.5">
+        <div class="flex size-12 shrink-0 items-center justify-center bg-primary/[0.1] text-primary">
+          <BookOpen class="size-6" />
+        </div>
+        <div>
+          <h2 class="text-lg font-semibold">使用说明</h2>
+          <p class="mt-0.5 text-sm text-muted-foreground">{{ sitename }} 平台交易规则、到账与提现说明</p>
+        </div>
+      </div>
+      <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div v-for="h in highlights" :key="h.title" class="flex items-start gap-3 border border-border/60 bg-background/60 px-4 py-3">
+          <component :is="h.icon" class="mt-0.5 size-5 shrink-0 text-primary" />
+          <div class="min-w-0">
+            <div class="text-sm font-medium">{{ h.title }}</div>
+            <div class="mt-0.5 text-xs leading-relaxed text-muted-foreground">{{ h.desc }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <Panel title="详细规则" subtitle="完整的交易、提现、结算与安全说明">
+      <!-- 加载骨架 -->
+      <div v-if="loading" class="space-y-3">
+        <div class="h-5 w-40 animate-pulse bg-muted"></div>
+        <div class="h-4 w-full animate-pulse bg-muted/70"></div>
+        <div class="h-4 w-5/6 animate-pulse bg-muted/70"></div>
+        <div class="mt-4 h-5 w-32 animate-pulse bg-muted"></div>
+        <div class="h-4 w-full animate-pulse bg-muted/70"></div>
+      </div>
+
       <!-- 后台已编辑：渲染富文本内容 -->
-      <div v-if="hasContent" class="help-rich max-w-3xl text-sm leading-relaxed" v-html="content"></div>
+      <div v-else-if="hasContent" class="help-rich" v-html="content"></div>
 
       <!-- 后台未配置：内置默认文案（对齐 epay help.php 硬编码静态说明） -->
-      <div v-else class="max-w-3xl space-y-6">
+      <div v-else class="space-y-6">
         <section>
           <h4 class="text-sm font-semibold">一、交易即时到账</h4>
           <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -76,17 +115,92 @@ const hasContent = computed(() => content.value.trim().length > 0)
 </template>
 
 <style scoped>
-.help-rich :deep(h1),
-.help-rich :deep(h2),
-.help-rich :deep(h3),
-.help-rich :deep(h4) {
-  font-weight: 600;
-  margin-top: 1.25rem;
-  margin-bottom: 0.5rem;
+/* 展示态与后台 RichEditor 编辑区(.tiptap)层级样式保持一致：H1-H4 左侧竖线/圆点、列表、引用等 */
+.help-rich {
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--foreground);
 }
-.help-rich :deep(h3) { font-size: 0.95rem; }
-.help-rich :deep(p) { margin: 0.5rem 0; color: var(--muted-foreground); }
-.help-rich :deep(ul) { list-style: disc; padding-left: 1.25rem; margin: 0.5rem 0; }
-.help-rich :deep(ol) { list-style: decimal; padding-left: 1.25rem; margin: 0.5rem 0; }
-.help-rich :deep(a) { color: var(--primary); text-decoration: underline; }
+.help-rich :deep(p) {
+  margin: 0.5em 0;
+  color: var(--muted-foreground);
+}
+.help-rich :deep(h1) {
+  margin: 1.2em 0 0.7em;
+  padding: 0.35em 0 0.35em 0.7em;
+  border-left: 4px solid var(--primary);
+  background: var(--muted);
+  font-size: 1.6em;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--foreground);
+}
+.help-rich :deep(h2) {
+  margin: 1.1em 0 0.6em;
+  padding: 0.25em 0 0.25em 0.65em;
+  border-left: 4px solid var(--primary);
+  background: color-mix(in oklch, var(--muted) 55%, transparent);
+  font-size: 1.35em;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--foreground);
+}
+.help-rich :deep(h3) {
+  margin: 1em 0 0.5em;
+  padding-left: 0.6em;
+  border-left: 3px solid var(--primary);
+  font-size: 1.18em;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--foreground);
+}
+.help-rich :deep(h4) {
+  position: relative;
+  margin: 0.9em 0 0.45em;
+  padding-left: 0.85em;
+  font-size: 1.05em;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.help-rich :deep(h4)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: var(--primary);
+}
+.help-rich :deep(ul),
+.help-rich :deep(ol) {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+.help-rich :deep(ul) { list-style: disc; }
+.help-rich :deep(ol) { list-style: decimal; }
+.help-rich :deep(li) { margin: 0.25em 0; }
+.help-rich :deep(li p) { margin: 0; }
+.help-rich :deep(strong) {
+  font-weight: 600;
+  color: var(--foreground);
+}
+.help-rich :deep(blockquote) {
+  margin: 0.75em 0;
+  border-left: 3px solid var(--primary);
+  padding-left: 1em;
+  color: var(--muted-foreground);
+}
+.help-rich :deep(a) {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.help-rich :deep(img) {
+  max-width: 100%;
+}
+.help-rich :deep(hr) {
+  margin: 1.25em 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
 </style>

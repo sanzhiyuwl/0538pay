@@ -1,6 +1,6 @@
 # 0538pay-api 配置样例。复制为 config.yaml 后按本机环境修改。
 server:
-  addr: ":8080"        # 监听地址
+  addr: "127.0.0.1:8080"  # 只听本机,防火墙不再弹窗。需局域网访问时改回 ":8080"
   mode: "debug"        # debug / release
 
 jwt:

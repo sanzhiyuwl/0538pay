@@ -94,16 +94,44 @@ export interface PluginProduct {
 /** 插件能力与配置元数据（对齐后端 channel.PluginMeta） */
 export interface PluginMeta {
   key: string
+  showname: string // 完整中文名（后端 Describe 单一数据源）
+  brand: string // 品牌族（前端分组折叠用）
+  protocol: string // 协议/版本（APIv3/APIv2/V1(MD5)…）
+  form: string // 支付形态（Native 扫码/JSAPI/H5…）
+  methods: string[] | null // 支持的支付方式（alipay/wxpay/qqpay/bank），驱动新建通道时按支付方式过滤插件候选
   inputs: PluginFieldInput[] | null
   products: PluginProduct[] | null
   can_refund: boolean
   can_transfer: boolean
   configurable: boolean
+  enabled: boolean // 是否启用（后台开关，禁用后收单选通道跳过该插件）
 }
 
 /** 拉取所有已注册渠道插件的能力/配置元数据（后台按插件动态渲染密钥表单） */
 export function fetchPluginMeta(): Promise<PluginMeta[]> {
   return request<PluginMeta[]>('/admin/channels/plugins')
+}
+
+/** 启用/禁用某已注册插件（后台开关，禁用后收单选通道跳过该插件） */
+export function setPluginStatus(
+  key: string,
+  enabled: boolean,
+): Promise<{ key: string; enabled: boolean }> {
+  return request<{ key: string; enabled: boolean }>(
+    `/admin/channels/plugins/${encodeURIComponent(key)}/status`,
+    { method: 'PUT', body: { enabled } },
+  )
+}
+
+/** 批量启用/禁用多个已注册插件（品牌卡「一键关停/开启整个品牌」） */
+export function setPluginsStatus(
+  keys: string[],
+  enabled: boolean,
+): Promise<{ keys: string[]; enabled: boolean }> {
+  return request<{ keys: string[]; enabled: boolean }>('/admin/channels/plugins/status', {
+    method: 'PUT',
+    body: { keys, enabled },
+  })
 }
 
 /** 通道测试支付返回（对齐后端 dto.SubmitResp，收银台据 trade_no 渲染） */

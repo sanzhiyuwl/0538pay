@@ -22,8 +22,9 @@ type Channel struct{}
 func (Channel) Key() string { return "wxjsapi" }
 
 func (Channel) Create(ctx context.Context, cfg channel.Config, req channel.CreateReq) (channel.CreateResp, error) {
-	openid := ""
-	if req.Extra != nil {
+	// openid 来源优先级：收单主链场景参数 SubOpenID（收银台 OAuth 换得）→ Extra["openid"]（兼容旧调用）。
+	openid := req.SubOpenID
+	if openid == "" && req.Extra != nil {
 		openid = req.Extra["openid"]
 	}
 	if openid == "" {
@@ -33,7 +34,17 @@ func (Channel) Create(ctx context.Context, cfg channel.Config, req channel.Creat
 	if err != nil {
 		return channel.CreateResp{}, err
 	}
-	body["payer"] = map[string]string{"openid": openid}
+	// payer：直连用 openid；服务商模式用 sp_openid（配了 sub_appid 则用 sub_openid，
+	// 因 openid 是在子商户 appid 下授权得到的），对齐 epay wxpaynp jspay:232-245。
+	if wxbase.IsPartner(cfg) {
+		if wxbase.SubAppID(cfg) != "" {
+			body["payer"] = map[string]string{"sub_openid": openid}
+		} else {
+			body["payer"] = map[string]string{"sp_openid": openid}
+		}
+	} else {
+		body["payer"] = map[string]string{"openid": openid}
+	}
 
 	respBody, err := wxbase.Prepay(ctx, cfg, "jsapi", body)
 	if err != nil {

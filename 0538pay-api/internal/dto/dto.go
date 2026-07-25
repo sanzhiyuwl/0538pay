@@ -186,11 +186,32 @@ func (q *ChannelQuery) Normalize() {
 
 // MerchantDashboard 商户工作台聚合数据，对齐前端 mock/merchant/dashboard.ts。
 type MerchantDashboard struct {
-	Info     MerchantDashInfo    `json:"merchantInfo"`
-	Alerts   MerchantAlerts      `json:"alerts"`
-	Channels []MerchantChannel   `json:"channels"`
-	Announces []AnnounceView     `json:"announces"`
-	Trend    SettleTrendView     `json:"trend"`
+	Info      MerchantDashInfo  `json:"merchantInfo"`
+	Alerts    MerchantAlerts    `json:"alerts"`
+	Guides    MerchantGuides    `json:"guides"` // 开工引导（受后台开关控制）
+	Channels  []MerchantChannel `json:"channels"`
+	Announces []AnnounceView    `json:"announces"`
+	Trend     SettleTrendView   `json:"trend"`
+}
+
+// MerchantGuides 工作台开工引导卡片数据。仅在后台开启对应开关且商户未完成时 show=true。
+// 关闭开关（cert_force / user_deposit=0）→ 对应引导 show=false，前端不渲染，不强制。
+type MerchantGuides struct {
+	Cert    CertGuide    `json:"cert"`    // 实名认证引导
+	Deposit DepositGuide `json:"deposit"` // 保证金缴纳引导
+}
+
+// CertGuide 实名认证引导。Show 仅当商户 cert==0（未实名）为真——实名依法必须，不绑开关。
+type CertGuide struct {
+	Show bool `json:"show"`
+}
+
+// DepositGuide 保证金缴纳引导。Show 仅当 user_deposit=1 且当前保证金 < 门槛 为真。
+type DepositGuide struct {
+	Show    bool    `json:"show"`
+	Min     float64 `json:"min"`     // 门槛金额 user_deposit_min
+	Current float64 `json:"current"` // 当前保证金
+	Gap     float64 `json:"gap"`     // 差额 = min - current（>0）
 }
 
 // MerchantDashInfo 工作台商户信息（status 用字符串枚举，对齐前端 mock 消费方式）。
@@ -1096,9 +1117,10 @@ type GroupRateItem struct {
 
 // GroupCurrentView 当前会员状态。
 type GroupCurrentView struct {
-	GID    int    `json:"gid"`
-	Name   string `json:"name"`
-	Expire string `json:"expire"` // 到期时间（"—"=永久/无）
+	GID    int             `json:"gid"`
+	Name   string          `json:"name"`
+	Expire string          `json:"expire"` // 到期时间（"—"=永久/无）
+	Rates  []GroupRateItem `json:"rates"`  // 当前组可用通道及费率（含默认组）
 }
 
 // GroupBuyReq 购买会员入参。

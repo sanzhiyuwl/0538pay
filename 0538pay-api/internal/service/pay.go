@@ -52,8 +52,13 @@ type PayService struct {
 	notice    *NoticeService    // 对外通知中枢（可空；SetNoticeService 注入。order 支付成功商户通知）
 	paytypes  *repository.PayTypeRepo // 支付方式（可空；SetPayTypeRepo 注入。device 分端过滤用）
 	subchannels *repository.SubChannelRepo // 子通道（可空；SetSubChannelRepo 注入。B1-34 下单/退款子通道占位覆盖用）
+	weixins     *repository.WeixinRepo     // 微信公众号（可空；SetWeixinRepo 注入。JSAPI 收银台网页授权换 openid 用）
 	regPayHook func(param string) error   // B1-51 付费注册 tid=1 回调建号钩子（可空；SetRegPayHook 注入，避免与 reg 服务循环依赖）
 }
+
+// SetWeixinRepo 注入微信公众号仓储（JSAPI 收银台网页授权：据通道绑定公众号 appwxmp 取 appid/appsecret 换 openid）。
+// nil 则 JSAPI 收银台无法自动获取 openid（需外部传入），向后兼容。
+func (s *PayService) SetWeixinRepo(r *repository.WeixinRepo) { s.weixins = r }
 
 // SetRegPayHook 注入付费注册回调建号钩子（B1-51）。tid=1 注册费订单支付成功后调用，参数为订单 param（注册信息 JSON）。
 // nil 则 tid=1 订单支付后不建号（向后兼容 reg_pay=0）。
@@ -608,7 +613,7 @@ func (s *PayService) createBareOrderForCashier(ctx context.Context, m *model.Mer
 // ChooseCashierPay 收银台选定支付方式（B1-04，对齐 epay cashier.php 选方式后对既有订单取通道信息）。
 // 无需商户签名：订单已在空 type 下单时验签建号，此处仅凭 trade_no 对既有裸单补选通道并下单。
 // device 为请求端标识（PC/mobile），用于设备过滤。仅允许对未支付(status=0)裸单(channel=0)操作。
-func (s *PayService) ChooseCashierPay(ctx context.Context, tradeNo, payType, device string) (*dto.SubmitResp, error) {
+func (s *PayService) ChooseCashierPay(ctx context.Context, tradeNo, payType, device, openid string) (*dto.SubmitResp, error) {
 	if strings.TrimSpace(payType) == "" {
 		return nil, payErr("请选择支付方式")
 	}
@@ -627,6 +632,10 @@ func (s *PayService) ChooseCashierPay(ctx context.Context, tradeNo, payType, dev
 		return nil, payErr("商户不存在")
 	}
 	params := map[string]string{"device": device}
+	// JSAPI 收银台：微信网页授权换得的买家 openid 透传给渠道下单（sceneFromParams 读 sub_openid → SubOpenID）。
+	if openid != "" {
+		params["sub_openid"] = openid
+	}
 	return s.upgradeBareOrder(ctx, m, o, params, payType, o.Money)
 }
 
@@ -694,11 +703,15 @@ func (s *PayService) resolveChannel(m *model.Merchant, payType, device string, a
 			if err != nil {
 				return channelSelection{}, err
 			}
-			return channelSelection{
+			sel := channelSelection{
 				plugin: res.Plugin, channelID: res.ChannelID,
 				subchannelID: res.Subchannel, rate: res.Rate, apptype: res.AppType,
 				payMin: res.PayMin, payMax: res.PayMax,
-			}, nil
+			}
+			if err := s.checkPluginEnabled(sel.plugin); err != nil {
+				return channelSelection{}, err
+			}
+			return sel, nil
 		}
 	}
 	// 退回旧版：type 当 plugin 名定位单一已开启通道。找不到则记 mock/零费率（阶段A向后兼容）。
@@ -717,7 +730,23 @@ func (s *PayService) resolveChannel(m *model.Merchant, payType, device string, a
 			sel.payMax = ch.PayMax
 		}
 	}
+	if err := s.checkPluginEnabled(sel.plugin); err != nil {
+		return channelSelection{}, err
+	}
 	return sel, nil
+}
+
+// checkPluginEnabled 若选定通道所用插件已被后台禁用（plugin_disabled），拒绝下单（对齐插件开关的收单拦截）。
+// plugin 为空或 mock（阶段A兜底）或未注入 cfg 时放行，保证向后兼容。
+func (s *PayService) checkPluginEnabled(plugin string) error {
+	plugin = strings.TrimSpace(plugin)
+	if plugin == "" || plugin == "mock" || s.cfg == nil {
+		return nil
+	}
+	if !s.cfg.PluginEnabled(plugin) {
+		return payErr("该支付方式暂停服务，请稍后再试或选择其他支付方式")
+	}
+	return nil
 }
 
 // channelSelection 选通道结果（含 apptype，供下单场景按子形态分派 JSAPI/H5/scan 等，对齐 epay getSubmitInfo）。
@@ -909,6 +938,7 @@ func (s *PayService) RefundViaChannel(ctx context.Context, o *model.Order, money
 		Money:       money,
 		TotalMoney:  total,
 		Reason:      "订单退款",
+		TypeName:    o.TypeName,
 	})
 	if err != nil {
 		return false, err
@@ -1002,6 +1032,9 @@ func (s *PayService) payTypeOptionsForOrder(o *model.Order) []dto.PayTypeOption 
 		}
 		if _, ok := channel.Get(ch.Plugin); !ok {
 			continue // 插件未实现（seed 显示名），不作为可选项
+		}
+		if s.cfg != nil && !s.cfg.PluginEnabled(ch.Plugin) {
+			continue // 插件被后台禁用，收银台不列为可选项
 		}
 		if seen[ch.Plugin] {
 			continue

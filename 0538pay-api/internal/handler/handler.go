@@ -562,6 +562,50 @@ func (h *ChannelHandler) PluginMeta(c *gin.Context) {
 	resp.OK(c, h.svc.PluginMeta())
 }
 
+// SetPluginStatus PUT /api/admin/channels/plugins/:key/status
+// 启用/禁用某已注册插件（后台开关，禁用后收单选通道跳过该插件）。
+func (h *ChannelHandler) SetPluginStatus(c *gin.Context) {
+	key := strings.TrimSpace(c.Param("key"))
+	if key == "" {
+		resp.Fail(c, 400, "插件标识不能为空")
+		return
+	}
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SetPluginEnabled(key, req.Enabled); err != nil {
+		failFromChannelErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"key": key, "enabled": req.Enabled})
+}
+
+// SetPluginsStatus PUT /api/admin/channels/plugins/status
+// 批量启用/禁用多个已注册插件（品牌卡「一键关停/开启整个品牌」）。
+func (h *ChannelHandler) SetPluginsStatus(c *gin.Context) {
+	var req struct {
+		Keys    []string `json:"keys"`
+		Enabled bool     `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if len(req.Keys) == 0 {
+		resp.Fail(c, 400, "插件标识不能为空")
+		return
+	}
+	if err := h.svc.SetPluginsEnabled(req.Keys, req.Enabled); err != nil {
+		failFromChannelErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"keys": req.Keys, "enabled": req.Enabled})
+}
+
 // channelIDParam 解析路径 :id，失败返回 0。
 func channelIDParam(c *gin.Context) uint {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)

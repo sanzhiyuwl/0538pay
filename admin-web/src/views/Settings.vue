@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { Save, Upload, UploadCloud, X } from 'lucide-vue-next'
+import { Save, Upload, UploadCloud, X, Plus, Trash2, ArrowUp, ArrowDown, ImageOff } from 'lucide-vue-next'
 import { Panel, Button, Switch, ImageUpload } from '@/components/ui'
-import { logoItems } from '@/lib/mock/settings'
+import { logoItems, type HomeSlide } from '@/lib/mock/settings'
 import { useSiteStore } from '@/stores/site'
 import { useToast } from '@/composables/useToast'
 
 const tabs = [
   { key: 'site', label: '网站信息' },
+  { key: 'slides', label: '幻灯片设置' },
   { key: 'contact', label: '联系方式' },
   { key: 'beian', label: '版权备案' },
   { key: 'float', label: '悬浮栏' },
@@ -65,6 +66,24 @@ async function save() {
     toast.error('保存失败，请重试')
   }
 }
+
+// ===== 幻灯片管理（草稿态，点保存才落库）=====
+function ensureSlides(): HomeSlide[] {
+  if (!Array.isArray(site.slides)) site.slides = []
+  return site.slides
+}
+function addSlide() {
+  ensureSlides().push({ image: '', link: '', title: '', subtitle: '' })
+}
+function removeSlide(i: number) {
+  ensureSlides().splice(i, 1)
+}
+function moveSlide(i: number, dir: -1 | 1) {
+  const arr = ensureSlides()
+  const j = i + dir
+  if (j < 0 || j >= arr.length) return
+  ;[arr[i], arr[j]] = [arr[j], arr[i]]
+}
 </script>
 
 <template>
@@ -89,19 +108,12 @@ async function save() {
 
       <!-- 网站信息 -->
       <div v-if="activeTab === 'site'" class="max-w-2xl space-y-6">
-        <!-- 基础信息 -->
+        <!-- 基础信息（含 SEO） -->
         <div class="space-y-3.5">
           <h4 class="text-sm font-medium">基础信息</h4>
           <div class="row-field">
             <label class="lbl">网站名称</label>
             <input v-model="site.sitename" class="field-input flex-1" />
-          </div>
-          <div class="row-field">
-            <label class="lbl">商户名称</label>
-            <div class="min-w-0 flex-1">
-              <input v-model="site.merchantName" class="field-input w-full" />
-              <p class="mt-1.5 text-xs text-muted-foreground">商户中心登录/注册页左侧品牌名，末尾 Pay / PAY 自动高亮。</p>
-            </div>
           </div>
           <div class="row-field">
             <label class="lbl">首页标题</label>
@@ -111,11 +123,6 @@ async function save() {
             <label class="lbl">公司名称</label>
             <input v-model="site.company" class="field-input flex-1" />
           </div>
-        </div>
-
-        <!-- SEO 信息 -->
-        <div class="space-y-3.5 border-t border-border/60 pt-5">
-          <h4 class="text-sm font-medium">SEO 信息</h4>
           <div class="row-field">
             <label class="lbl">关键字</label>
             <input v-model="site.keywords" class="field-input flex-1" />
@@ -124,6 +131,90 @@ async function save() {
             <label class="lbl">网站描述</label>
             <input v-model="site.description" class="field-input flex-1" />
           </div>
+        </div>
+
+        <!-- 商户页面（独立分区） -->
+        <div class="space-y-3.5 border-t border-border/60 pt-5">
+          <h4 class="text-sm font-medium">商户页面</h4>
+          <div class="row-field items-start">
+            <label class="lbl lbl-top">商户名称</label>
+            <div class="min-w-0 flex-1">
+              <input v-model="site.merchantName" class="field-input w-full" />
+            </div>
+          </div>
+          <div class="row-field items-start">
+            <label class="lbl lbl-top">登录标语</label>
+            <div class="min-w-0 flex-1">
+              <textarea v-model="site.loginSlogan" rows="2" class="field-input !h-auto w-full resize-none py-2 leading-relaxed"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 幻灯片设置 -->
+      <div v-else-if="activeTab === 'slides'" class="max-w-3xl space-y-6">
+        <!-- 总开关 + 间隔 -->
+        <div class="space-y-3.5">
+          <h4 class="text-sm font-medium">幻灯片</h4>
+          <div class="row-switch">
+            <span>官网首页顶部幻灯片</span>
+            <Switch v-model="site.slidesOn" />
+          </div>
+          <div class="row-field">
+            <label class="lbl">切换间隔</label>
+            <div class="flex items-center gap-2">
+              <input v-model.number="site.slideInterval" type="number" min="2" max="30" class="field-input w-24" />
+              <span class="text-sm text-muted-foreground">秒（2–30）</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 幻灯片列表 -->
+        <div class="space-y-3.5 border-t border-border/60 pt-5">
+          <div class="flex items-center justify-between">
+            <h4 class="text-sm font-medium">图片列表</h4>
+            <Button size="sm" variant="outline" @click="addSlide"><Plus class="size-4" />添加幻灯片</Button>
+          </div>
+
+          <!-- 空态 -->
+          <div
+            v-if="!site.slides || site.slides.length === 0"
+            class="flex flex-col items-center justify-center gap-2 rounded-md bg-muted/40 py-10 text-muted-foreground/70"
+          >
+            <ImageOff class="size-7" />
+            <span class="text-sm">暂无幻灯片，点击右上角「添加幻灯片」</span>
+          </div>
+
+          <!-- 每张幻灯片一张卡 -->
+          <div
+            v-for="(slide, i) in site.slides"
+            :key="i"
+            class="flex gap-4 rounded-md bg-muted/40 p-4"
+          >
+            <ImageUpload v-model="slide.image" dir="cover" compact label="上传图片" />
+            <div class="min-w-0 flex-1 space-y-2.5">
+              <div class="row-field">
+                <label class="lbl">跳转链接</label>
+                <input v-model="slide.link" class="field-input flex-1" placeholder="选填，留空则不可点击" />
+              </div>
+              <div class="row-field">
+                <label class="lbl">标题</label>
+                <input v-model="slide.title" class="field-input flex-1" placeholder="选填，显示在图片左下角" />
+              </div>
+              <div class="row-field">
+                <label class="lbl">副标题</label>
+                <input v-model="slide.subtitle" class="field-input flex-1" placeholder="选填" />
+              </div>
+            </div>
+            <!-- 排序 / 删除 -->
+            <div class="flex shrink-0 flex-col items-center gap-1">
+              <button type="button" class="slide-op" title="上移" :disabled="i === 0" @click="moveSlide(i, -1)"><ArrowUp class="size-4" /></button>
+              <button type="button" class="slide-op" title="下移" :disabled="i === site.slides.length - 1" @click="moveSlide(i, 1)"><ArrowDown class="size-4" /></button>
+              <button type="button" class="slide-op slide-op-danger" title="删除" @click="removeSlide(i)"><Trash2 class="size-4" /></button>
+            </div>
+          </div>
+
+          <p class="text-xs text-muted-foreground/70">建议图片尺寸 1920×480，宽屏大图展示。多张时首页自动轮播，可拖动排序调整播放顺序。</p>
         </div>
       </div>
 
@@ -358,5 +449,35 @@ async function save() {
   margin-top: 0.375rem;
   font-size: 0.75rem;
   color: var(--muted-foreground);
+}
+/* row-field 顶对齐时，标签撑到与输入框(.field-input 2.25rem)等高并垂直居中，
+   使标签与输入框（控件）中心对齐，说明文字挂在下方——与上方单行字段行为一致 */
+.lbl-top {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 2.25rem;
+}
+/* 幻灯片行操作按钮（上移/下移/删除） */
+.slide-op {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-sm);
+  color: var(--muted-foreground);
+  transition: background 0.15s, color 0.15s;
+}
+.slide-op:hover:not(:disabled) {
+  background: var(--background);
+  color: var(--foreground);
+}
+.slide-op:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.slide-op-danger:hover:not(:disabled) {
+  color: var(--destructive);
 }
 </style>

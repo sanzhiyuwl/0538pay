@@ -98,6 +98,7 @@ type RefundReq struct {
 	Money       decimal.Decimal // 本次退款金额
 	TotalMoney  decimal.Decimal // 原订单总额（微信 APIv3 退款必填）
 	Reason      string          // 退款原因
+	TypeName    string          // 原订单支付方式（alipay/wxpay/bank，富友等按方式区分退款接口时用；可空）
 }
 
 // RefundResp 统一退款出参。
@@ -208,12 +209,18 @@ func Keys() []string {
 
 // PluginMeta 渠道插件的能力与配置元数据（供后台动态渲染密钥表单/展示能力）。
 type PluginMeta struct {
-	Key           string        `json:"key"`
-	Inputs        []FieldInput  `json:"inputs"`   // 配置字段（实现 Configurable 才有）
-	Products      []ProductType `json:"products"` // 支持产品（实现 Configurable 才有）
-	CanRefund     bool          `json:"can_refund"`     // 是否实现 Refunder
-	CanTransfer   bool          `json:"can_transfer"`   // 是否实现 Transferer
-	Configurable  bool          `json:"configurable"`   // 是否实现 Configurable
+	Key      string        `json:"key"`
+	ShowName string        `json:"showname"` // 完整中文名（Describe 提供，单一数据源）
+	Brand    string        `json:"brand"`    // 品牌族（前端分组折叠用）
+	Protocol string        `json:"protocol"` // 协议/版本（APIv3/APIv2/V1(MD5)…）
+	Form     string        `json:"form"`     // 支付形态（Native 扫码/JSAPI/H5…）
+	Methods  []string      `json:"methods"`  // 支持的支付方式（alipay/wxpay/qqpay/bank），前端按支付方式过滤插件候选
+	Inputs   []FieldInput  `json:"inputs"`   // 配置字段（实现 Configurable 才有）
+	Products []ProductType `json:"products"` // 支持产品（实现 Configurable 才有）
+	CanRefund    bool `json:"can_refund"`   // 是否实现 Refunder
+	CanTransfer  bool `json:"can_transfer"` // 是否实现 Transferer
+	Configurable bool `json:"configurable"` // 是否实现 Configurable
+	Enabled      bool `json:"enabled"`      // 是否启用（后台开关，禁用后收单/选通道跳过；由 service 据 plugin_disabled 覆盖，默认 true）
 }
 
 // Meta 返回某渠道的能力元数据（key 未注册返回 ok=false）。
@@ -222,7 +229,8 @@ func Meta(key string) (PluginMeta, bool) {
 	if !ok {
 		return PluginMeta{}, false
 	}
-	m := PluginMeta{Key: key}
+	d := Describe(key)
+	m := PluginMeta{Key: key, ShowName: d.ShowName, Brand: d.Brand, Protocol: d.Protocol, Form: d.Form, Methods: d.Methods, Enabled: true}
 	if _, ok := c.(Refunder); ok {
 		m.CanRefund = true
 	}

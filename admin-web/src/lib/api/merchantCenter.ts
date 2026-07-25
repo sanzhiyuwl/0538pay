@@ -23,6 +23,19 @@ export interface DashboardAlerts {
   noSecurity: boolean
   noLoginPwd: boolean
 }
+export interface DashboardCertGuide {
+  show: boolean
+}
+export interface DashboardDepositGuide {
+  show: boolean
+  min: number
+  current: number
+  gap: number
+}
+export interface DashboardGuides {
+  cert: DashboardCertGuide
+  deposit: DashboardDepositGuide
+}
 export interface DashboardChannel {
   typename: string
   showname: string
@@ -44,6 +57,7 @@ export interface DashboardTrend {
 export interface MerchantDashboard {
   merchantInfo: DashboardInfo
   alerts: DashboardAlerts
+  guides: DashboardGuides
   channels: DashboardChannel[]
   announces: DashboardAnnounce[]
   trend: DashboardTrend
@@ -163,6 +177,7 @@ export interface ProfileReq {
   refund?: number
   transfer?: number
   remain_money?: string
+  password?: string // 改动收款账号/姓名/结算方式时登录密码二次确认
 }
 export function updateProfile(body: ProfileReq): Promise<{ ok: boolean }> {
   return request('/merchant/profile', { method: 'PUT', body })
@@ -217,6 +232,7 @@ export interface GroupCurrent {
   gid: number
   name: string
   expire: string // 到期时间，"—"=永久/无
+  rates: GroupRateItem[] // 当前组可用通道及费率（含默认组）
 }
 export function fetchGroups(): Promise<{ plans: GroupPlan[]; current: GroupCurrent }> {
   return request('/merchant/groups')

@@ -32,6 +32,13 @@ import (
 	_ "github.com/epvia/api/internal/channel/wxnative"
 	_ "github.com/epvia/api/internal/channel/wxjsapi"
 	_ "github.com/epvia/api/internal/channel/wxh5"
+	_ "github.com/epvia/api/internal/channel/wxv2native"
+	_ "github.com/epvia/api/internal/channel/wxv2jsapi"
+	_ "github.com/epvia/api/internal/channel/wxv2h5"
+	_ "github.com/epvia/api/internal/channel/wxapp"
+	_ "github.com/epvia/api/internal/channel/wxv2app"
+	_ "github.com/epvia/api/internal/channel/wxv2micro"
+	_ "github.com/epvia/api/internal/channel/fuiou2"
 )
 
 func main() {
@@ -76,6 +83,7 @@ func main() {
 	orderSvc := service.NewOrderService(orderRepo)
 	merchantSvc := service.NewMerchantService(merchantRepo, accountRepo, groupRepo)
 	groupSvc := service.NewGroupService(groupRepo, merchantRepo)
+	groupSvc.SetPayTypeRepo(repository.NewPayTypeRepo(db)) // 用户组列表「可用通道及费率」标签展示（对齐 epay group display_info）
 	channelSvc := service.NewChannelService(channelRepo)
 	// 通道轮询组 / 子通道服务（repo 已在选通道分发器处创建，复用）。
 	paySvc := service.NewPayService(merchantRepo, orderRepo, accountRepo, channelRepo)
@@ -88,6 +96,7 @@ func main() {
 	paySvc.SetSubChannelRepo(subChannelRepo) // B1-34：下单/退款按子通道 info 覆盖主通道 config 占位
 	payTypeRepo := repository.NewPayTypeRepo(db)
 	paySvc.SetPayTypeRepo(payTypeRepo) // device 分端过滤：移动端不出仅PC通道（对齐 epay Channel::submit）
+	paySvc.SetWeixinRepo(repository.NewWeixinRepo(db)) // JSAPI 收银台网页授权换 openid（通道绑定公众号 appid/secret）
 	rollSvc := service.NewRollService(rollRepo, channelRepo)
 	subChannelSvc := service.NewSubChannelService(subChannelRepo, channelRepo, merchantRepo)
 	payTypeSvc := service.NewPayTypeService(payTypeRepo, channelRepo)
@@ -97,6 +106,7 @@ func main() {
 	channelSvc.SetSubChannelRepo(subChannelRepo)  // 删主通道级联删子通道
 	channelSvc.SetOrderRepo(orderRepo)            // 通道列表今昨收款/成功率实时聚合
 	channelSvc.SetPayService(paySvc) // 后台测试支付定向下测试单走收单链
+	channelSvc.SetConfigService(configSvc) // 插件启停开关（plugin_disabled）读写
 	orderSvc.SetWriteDeps(accountRepo, channelRepo, adminRepo, paySvc) // 订单写操作依赖
 	settleRepo := repository.NewSettleRepo(db)
 	settleSvc := service.NewSettleService(settleRepo, merchantRepo)
@@ -137,6 +147,7 @@ func main() {
 		merchantRepo, orderRepo, recordRepo, settleRepo, accountRepo, channelRepo, groupRepo, paySvc,
 	)
 	merchantCenterSvc.SetCertVerify(service.NewCertVerifyService(configSvc)) // 实名第三方核验
+	merchantCenterSvc.SetPayTypeRepo(payTypeRepo)                            // 会员套餐「可用支付通道及费率」展示（对齐 epay groupbuy display_info）
 	// 邀请返现：支付成功钩子返现到上级余额 + 统计（对齐 epay invite.php + functions.php）。
 	inviteRewardSvc := service.NewInviteRewardService(merchantRepo, accountRepo, recordRepo, configSvc)
 	inviteRewardSvc.SetGroupRepo(groupRepo) // 邀请返现读上级所在组的组级 invite_* 覆盖

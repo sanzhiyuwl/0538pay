@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sort"
 	"strings"
 	"sync"
 
@@ -74,6 +75,8 @@ var configDefaults = map[string]string{
 	"pay_domain_forbid": "0", // 域名白名单全局开关(1开启白名单校验/0不校验；对齐 epay pay_domain_forbid)
 	"pageordername":     "0", // 收银台商品名强制为 onlinepay (1开/0关；对齐 epay pageordername)
 	"ordername":         "",  // 全局订单名模板([name]/[order]/[outorder]/[qq]/[phone]占位；对齐 epay ordername)
+	// 插件启停：被禁用的插件 key 列表（逗号分隔），默认空=全部启用（符合"编译期注册即可用"语义，只记禁用的少数）。
+	"plugin_disabled": "",
 	// 站点 site
 	"sitename": "Epvia Neo 聚合支付平台",
 	"kfqq":     "",
@@ -285,6 +288,68 @@ func (s *ConfigService) Bool(key string) bool {
 	v, _ := s.raw(key)
 	v = strings.TrimSpace(v)
 	return v == "1" || v == "true"
+}
+
+// keyPluginDisabled 被禁用插件 key 列表（逗号分隔）的配置键。
+const keyPluginDisabled = "plugin_disabled"
+
+// DisabledPlugins 返回被禁用插件 key 的集合（默认空=全部启用）。
+func (s *ConfigService) DisabledPlugins() map[string]bool {
+	out := map[string]bool{}
+	for _, k := range strings.Split(s.Str(keyPluginDisabled), ",") {
+		if k = strings.TrimSpace(k); k != "" {
+			out[k] = true
+		}
+	}
+	return out
+}
+
+// PluginEnabled 判断某插件是否启用（不在禁用集合中即启用）。
+func (s *ConfigService) PluginEnabled(key string) bool {
+	return !s.DisabledPlugins()[key]
+}
+
+// SetPluginEnabled 启用/禁用某插件：改写 plugin_disabled 列表并重载缓存 + 通知订阅者。
+func (s *ConfigService) SetPluginEnabled(key string, enabled bool) error {
+	return s.SetPluginsEnabled([]string{key}, enabled)
+}
+
+// SetPluginsEnabled 批量启用/禁用多个插件（品牌卡「一键关停/开启」用）：
+// 一次改写 plugin_disabled 列表并只 Load/notify 一次，避免逐个写造成多次缓存重载。
+func (s *ConfigService) SetPluginsEnabled(keys []string, enabled bool) error {
+	disabled := s.DisabledPlugins()
+	changed := false
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if enabled {
+			if disabled[key] {
+				delete(disabled, key)
+				changed = true
+			}
+		} else if !disabled[key] {
+			disabled[key] = true
+			changed = true
+		}
+	}
+	if !changed {
+		return nil // 无变化，跳过写库
+	}
+	list := make([]string, 0, len(disabled))
+	for k := range disabled {
+		list = append(list, k)
+	}
+	sort.Strings(list) // 稳定顺序，便于比对/审计
+	if err := s.repo.SetMany(map[string]string{keyPluginDisabled: strings.Join(list, ",")}); err != nil {
+		return err
+	}
+	if err := s.Load(); err != nil {
+		return err
+	}
+	s.notify()
+	return nil
 }
 
 // 平台 RSA 密钥的配置键（对齐 epay $conf['private_key']/$conf['public_key']，用于 V2 mapi 回包签名）。

@@ -27,6 +27,16 @@ const msg = reactive({ ...msgConfig })
 const mode = reactive({ ...modeConfig })
 const binds = reactive({ ...bindConfig }) // 第三方绑定：绑定跳转需真实 OAuth 凭证
 
+// 收款账号原值快照（判断是否改动结算落点，改了才需登录密码二次确认，对齐后端 F-1）。
+const settleOrigin = reactive({ stype: '', account: '', username: '' })
+const settlePwd = ref('')
+const settleChanged = computed(
+  () =>
+    settle.stype !== settleOrigin.stype ||
+    settle.account !== settleOrigin.account ||
+    settle.username !== settleOrigin.username,
+)
+
 // 拉当前商户资料填充（收款账号/联系方式/扣费模式为真数据）
 onMounted(async () => {
   try {
@@ -34,6 +44,9 @@ onMounted(async () => {
     settle.stype = String(info.settle_id || 1)
     settle.account = info.account
     settle.username = info.username
+    settleOrigin.stype = settle.stype
+    settleOrigin.account = settle.account
+    settleOrigin.username = settle.username
     contact.phone = info.phone
     contact.email = info.email
     contact.qq = info.qq
@@ -134,9 +147,15 @@ const accountLabel = computed(() => {
 })
 
 const saving = ref(false)
-// 保存资料（收款账号 + 联系方式 + 扣费模式，一次提交后端已有字段）
+// 保存资料（收款账号 + 联系方式 + 扣费模式，一次提交后端已有字段）。
+// 改动收款账号/姓名/结算方式时需登录密码二次确认（对齐后端 F-1 资金安全校验）。
 async function save() {
   if (saving.value) return
+  // 前置校验：结算落点有改动但未填登录密码，直接提示，不发请求。
+  if (settleChanged.value && !settlePwd.value.trim()) {
+    toast.error('修改收款账号需输入登录密码确认身份')
+    return
+  }
   saving.value = true
   try {
     await updateProfile({
@@ -151,8 +170,14 @@ async function save() {
       refund: contact.refund ? 1 : 0,
       transfer: contact.transfer ? 1 : 0,
       remain_money: contact.remain_money,
+      password: settleChanged.value ? settlePwd.value : undefined,
     })
     toast.success('资料已保存')
+    // 成功后刷新快照，密码框清空
+    settleOrigin.stype = settle.stype
+    settleOrigin.account = settle.account
+    settleOrigin.username = settle.username
+    settlePwd.value = ''
     await merchantAuth.refreshInfo() // 同步顶栏/工作台
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '保存失败')
@@ -189,6 +214,14 @@ function toggleBind(key: 'qq' | 'wx' | 'alipay') {
         <div class="row-field">
           <label class="lbl">真实姓名</label>
           <input v-model="settle.username" class="field-input flex-1" />
+        </div>
+        <!-- 改动结算落点（账号/姓名/结算方式）时才需登录密码二次确认，保障资金安全 -->
+        <div v-if="settleChanged" class="row-field">
+          <label class="lbl">登录密码</label>
+          <div class="flex flex-1 flex-col gap-1">
+            <input v-model="settlePwd" type="password" placeholder="请输入登录密码确认身份" class="field-input w-60" />
+            <span class="text-xs text-muted-foreground">收款账号涉及资金安全，修改需验证登录密码。</span>
+          </div>
         </div>
       </div>
       <div class="mt-5 border-t border-border/60 pt-4"><Button @click="save"><Save />保存收款账号</Button></div>

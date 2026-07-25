@@ -113,6 +113,7 @@ func (h *PayHandler) ChoosePay(c *gin.Context) {
 	var body struct {
 		TradeNo string `json:"trade_no"`
 		Type    string `json:"type"`
+		OpenID  string `json:"openid"` // JSAPI 收银台：微信网页授权换得的买家 openid
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
@@ -123,7 +124,7 @@ func (h *PayHandler) ChoosePay(c *gin.Context) {
 	if device == "" {
 		device = deviceFromUA(c)
 	}
-	out, err := h.svc.ChooseCashierPay(c.Request.Context(), body.TradeNo, body.Type, device)
+	out, err := h.svc.ChooseCashierPay(c.Request.Context(), body.TradeNo, body.Type, device, body.OpenID)
 	if err != nil {
 		if pe, ok := err.(*service.PayError); ok {
 			resp.Fail(c, pe.Code, pe.Msg)
@@ -133,6 +134,42 @@ func (h *PayHandler) ChoosePay(c *gin.Context) {
 		return
 	}
 	resp.OK(c, out)
+}
+
+// WxAuthURL GET /api/pay/wx/authurl?trade_no=..&redirect=..
+// JSAPI 收银台：据订单通道绑定公众号生成微信网页授权跳转 URL（snsapi_base 静默授权）。
+// 前端在微信内置浏览器发现需 openid 时，跳转到本接口返回的 URL；微信带 code 跳回 redirect。
+func (h *PayHandler) WxAuthURL(c *gin.Context) {
+	tradeNo := c.Query("trade_no")
+	redirect := c.Query("redirect")
+	authURL, err := h.svc.CashierWxAuthURL(tradeNo, redirect)
+	if err != nil {
+		if pe, ok := err.(*service.PayError); ok {
+			resp.Fail(c, pe.Code, pe.Msg)
+			return
+		}
+		resp.Fail(c, 1199, "生成授权地址失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"auth_url": authURL})
+}
+
+// WxOpenID GET /api/pay/wx/openid?trade_no=..&code=..
+// JSAPI 收银台：微信授权跳回后，用 code 换买家 openid（据订单通道公众号 appid/appsecret）。
+// 前端拿到 openid 后调 /api/pay/choose 携带 openid 真正 JSAPI 下单。
+func (h *PayHandler) WxOpenID(c *gin.Context) {
+	tradeNo := c.Query("trade_no")
+	code := c.Query("code")
+	openid, err := h.svc.CashierWxOpenID(c.Request.Context(), tradeNo, code)
+	if err != nil {
+		if pe, ok := err.(*service.PayError); ok {
+			resp.Fail(c, pe.Code, pe.Msg)
+			return
+		}
+		resp.Fail(c, 1199, "获取 openid 失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"openid": openid})
 }
 
 // collectParams 汇集请求全部参数（form + query）为 string map，供验签与业务读取。

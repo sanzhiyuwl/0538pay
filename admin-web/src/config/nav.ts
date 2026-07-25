@@ -20,7 +20,9 @@ import {
   Gift,
   HelpCircle,
   Globe,
-  Mail,
+  Layers,
+  Plug,
+  MessageCircle,
 } from 'lucide-vue-next'
 
 export interface NavLeaf {
@@ -41,13 +43,12 @@ export interface NavNode {
 export const navMenu: NavNode[] = [
   { title: '平台概况', icon: LayoutDashboard, to: '/admin' },
   {
-    title: '交易管理',
+    title: '交易中心',
     icon: ReceiptText,
     children: [
       { title: '订单管理', to: '/admin/orders' },
       { title: '结算管理', to: '/admin/settle' },
       { title: '分账记录', to: '/admin/profit-sharing' },
-      { title: '结算设置', to: '/admin/settle-settings' },
     ],
   },
   {
@@ -57,12 +58,25 @@ export const navMenu: NavNode[] = [
       { title: '商户列表', to: '/admin/merchants' },
       { title: '用户组 / 套餐', to: '/admin/groups' },
       { title: '邀请码管理', to: '/admin/invite-codes' },
-      { title: '资金明细', to: '/admin/records' },
+      { title: '授权域名', to: '/admin/domains' },
+    ],
+  },
+  {
+    title: '数据统计',
+    icon: BarChart3,
+    children: [
       { title: '支付统计', to: '/admin/merchant-stats' },
       { title: '支付用户统计', to: '/admin/buyer-stats' },
-      { title: '授权域名', to: '/admin/domains' },
-      { title: '站内信下发', to: '/admin/messages' },
-      { title: '使用说明', to: '/admin/help-settings' },
+      { title: '资金明细', to: '/admin/records' },
+    ],
+  },
+  {
+    title: '代付管理',
+    icon: Wallet,
+    children: [
+      { title: '转账付款', to: '/admin/transfer' },
+      { title: '付款记录', to: '/admin/transfer-records' },
+      { title: '账单中心', to: '/admin/billing', badge: 'New' },
     ],
   },
   {
@@ -73,21 +87,17 @@ export const navMenu: NavNode[] = [
       { title: '支付方式', to: '/admin/pay-types' },
       { title: '支付插件', to: '/admin/plugins' },
       { title: '通道轮询', to: '/admin/rolls' },
+    ],
+  },
+  {
+    title: '微信配置',
+    icon: MessageCircle,
+    children: [
       { title: '公众号 / 小程序', to: '/admin/wechat' },
       { title: '企业微信', to: '/admin/wework' },
       { title: '微信客服支付', to: '/admin/wxkf-settings' },
       { title: '获取用户标识', to: '/admin/gettoken' },
-      { title: '支付设置', to: '/admin/pay-settings' },
-    ],
-  },
-  {
-    title: '财务管理',
-    icon: Wallet,
-    children: [
-      { title: '转账付款', to: '/admin/transfer' },
-      { title: '付款记录', to: '/admin/transfer-records' },
-      { title: '转账设置', to: '/admin/transfer-settings' },
-      { title: '账单中心', to: '/admin/billing', badge: 'New' },
+      { title: '消息提醒', to: '/admin/notice-settings' },
     ],
   },
   {
@@ -96,7 +106,19 @@ export const navMenu: NavNode[] = [
     children: [
       { title: '风控记录', to: '/admin/risk' },
       { title: '黑名单', to: '/admin/blacklist' },
-      { title: '风控设置', to: '/admin/risk-settings' },
+    ],
+  },
+  {
+    title: '内容运营',
+    icon: Globe,
+    children: [
+      { title: '首页内容', to: '/admin/site-content' },
+      { title: '文章管理', to: '/admin/articles' },
+      { title: '文档管理', to: '/admin/docs-content' },
+      { title: '首页模板', to: '/admin/template-settings' },
+      { title: '网站公告', to: '/admin/announcements' },
+      { title: '使用说明', to: '/admin/help-settings' },
+      { title: '站内信下发', to: '/admin/messages' },
     ],
   },
   {
@@ -110,14 +132,12 @@ export const navMenu: NavNode[] = [
     ],
   },
   {
-    title: '官网管理',
-    icon: Globe,
+    title: '三方配置',
+    icon: Plug,
     children: [
-      { title: '首页内容', to: '/admin/site-content' },
-      { title: '文章管理', to: '/admin/articles' },
-      { title: '文档管理', to: '/admin/docs-content' },
-      { title: '首页模板', to: '/admin/template-settings' },
-      { title: '网站公告', to: '/admin/announcements' },
+      { title: '快捷登录', to: '/admin/oauth-settings' },
+      { title: '实名认证', to: '/admin/cert-settings' },
+      { title: '邮箱短信', to: '/admin/mail-settings' },
     ],
   },
   {
@@ -126,13 +146,13 @@ export const navMenu: NavNode[] = [
     children: [
       // 站点基础
       { title: '网站设置', to: '/admin/settings' },
+      // 交易/资金配置
+      { title: '支付设置', to: '/admin/pay-settings' },
+      { title: '结算设置', to: '/admin/settle-settings' },
+      { title: '转账设置', to: '/admin/transfer-settings' },
+      { title: '风控设置', to: '/admin/risk-settings' },
       // 注册与登录鉴权
       { title: '注册登录', to: '/admin/reg-settings' },
-      { title: '快捷登录', to: '/admin/oauth-settings' },
-      { title: '实名认证', to: '/admin/cert-settings' },
-      // 消息通知
-      { title: '消息提醒', to: '/admin/notice-settings' },
-      { title: '邮箱短信', to: '/admin/mail-settings' },
       // 运维
       { title: '计划任务', to: '/admin/cron-settings' },
       { title: '数据清理', to: '/admin/clean' },
@@ -171,7 +191,7 @@ export const consoleLeaves: NavLeaf[] = consoleNav.map((n) => ({
 
 /**
  * 商户中心（/m）专属导航。商户自助端，两级折叠分组，独立于主后台 navMenu。
- * 见 docs/商户中心开发规划.txt。条件功能（提现/充值/代付/购买会员/邀请）在真实环境由平台开关控制，
+ * 见 docs/商户中心开发规划.txt。条件功能（提现/充值/代付/通道套餐/邀请）在真实环境由平台开关控制，
  * 原型阶段全部展示。
  */
 export const merchantNav: NavNode[] = [
@@ -202,20 +222,13 @@ export const merchantNav: NavNode[] = [
     icon: QrCode,
     children: [
       { title: '授权域名', to: '/m/domains' },
-      { title: '聚合收款码', to: '/m/onecode' },
+      { title: '聚合收款', to: '/m/onecode' },
       { title: '测试支付', to: '/m/test' },
       { title: '代付管理', to: '/m/transfer' },
     ],
   },
-  {
-    title: '推广增值',
-    icon: Gift,
-    children: [
-      { title: '购买会员', to: '/m/groupbuy' },
-      { title: '邀请返现', to: '/m/invite' },
-    ],
-  },
-  { title: '站内信', icon: Mail, to: '/m/messages' },
+  { title: '通道套餐', icon: Layers, to: '/m/groupbuy' },
+  { title: '邀请返现', icon: Gift, to: '/m/invite' },
   { title: '使用说明', icon: HelpCircle, to: '/m/help' },
 ]
 

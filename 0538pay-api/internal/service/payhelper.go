@@ -45,7 +45,7 @@ func hostOf(rawURL string) string {
 // 这些键与前端「配置密钥」表单、通道插件读取保持一致。
 var channelConfigKeys = map[string]bool{
 	"appid": true, "mch_id": true, "serial_no": true,
-	"api_v3_key": true, "private_key": true, "public_key": true,
+	"api_v3_key": true, "api_key": true, "private_key": true, "public_key": true,
 	"public_key_id": true, "notify_url": true,
 }
 
@@ -97,7 +97,8 @@ func buildChannelConfigFromKV(kv map[string]string) channel.Config {
 			cfg.MchID = v
 		case "serial_no":
 			cfg.SerialNo = v
-		case "api_v3_key":
+		case "api_v3_key", "api_key":
+			// V3 用 APIv3 密钥、V2 用 APIv2 密钥，二者互斥地映射到 cfg.Key（同一渠道只会配其一）。
 			cfg.Key = v
 		case "private_key":
 			cfg.PrivateKey = v
