@@ -7,18 +7,15 @@ import { fetchCaptcha, merchantFindPwd } from '@/lib/api/merchantAuth'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 import { useSiteStore } from '@/stores/site'
+import { splitBrand } from '@/lib/utils'
 
 const router = useRouter()
 const toast = useToast()
 
-// 品牌名来自后台「网站设置 / 网站信息」，实时联动；末尾 Pay/PAY 拆出高亮
+// 品牌名来自后台「网站设置 / 网站信息」，实时联动；末尾一个词高亮
 const siteStore = useSiteStore()
 onMounted(() => siteStore.hydrate())
-const brandName = computed(() => siteStore.config.merchantName || '三只鱼PAY')
-const brand = computed(() => {
-  const m = brandName.value.match(/^(.*?)(pay)$/i)
-  return m ? { lead: m[1], accent: m[2] } : { lead: brandName.value, accent: '' }
-})
+const brand = computed(() => splitBrand(siteStore.config.merchantName))
 
 const type = ref('email')
 const typeOptions = [

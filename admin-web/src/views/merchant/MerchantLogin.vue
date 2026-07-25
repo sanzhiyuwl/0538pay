@@ -10,20 +10,17 @@ import WechatIcon from '@/components/site/icons/WechatIcon.vue'
 import QQIcon from '@/components/site/icons/QQIcon.vue'
 import { ApiError } from '@/lib/api/client'
 import { fetchOAuthURL } from '@/lib/api/merchantAuth'
+import { splitBrand } from '@/lib/utils'
 
 const router = useRouter()
 const route = useRoute()
 const toast = useToast()
 const merchantAuth = useMerchantAuthStore()
 
-// 品牌名来自后台「网站设置 / 网站信息」，实时联动；末尾 Pay/PAY 拆出高亮
+// 品牌名来自后台「网站设置 / 网站信息」，实时联动；末尾一个词高亮
 const siteStore = useSiteStore()
 onMounted(() => siteStore.hydrate())
-const brandName = computed(() => siteStore.config.merchantName || '三只鱼PAY')
-const brand = computed(() => {
-  const m = brandName.value.match(/^(.*?)(pay)$/i)
-  return m ? { lead: m[1], accent: m[2] } : { lead: brandName.value, accent: '' }
-})
+const brand = computed(() => splitBrand(siteStore.config.merchantName))
 
 // 登录页主标语：后台可配，用 \n 换行，最后一行黄色下划线高亮
 const sloganLines = computed(() => {

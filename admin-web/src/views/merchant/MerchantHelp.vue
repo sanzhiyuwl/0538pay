@@ -8,7 +8,7 @@ import { useToast } from '@/composables/useToast'
 
 const toast = useToast()
 const content = ref('')
-const sitename = ref('0538Pay')
+const sitename = ref('Epvia Neo')
 const loading = ref(false)
 
 async function load() {
@@ -16,7 +16,7 @@ async function load() {
   try {
     const res = await fetchHelp()
     content.value = res.content || ''
-    sitename.value = res.sitename || '0538Pay'
+    sitename.value = res.sitename || 'Epvia Neo'
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '加载使用说明失败')
   } finally {

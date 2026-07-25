@@ -14,12 +14,19 @@ import {
   type CashierOrder,
   type CashierSubmitResp,
 } from '@/lib/api/pay'
+import { useSiteStore } from '@/stores/site'
+import { splitBrand } from '@/lib/utils'
 
 // 收银台中间页。真实渠道(有 qrcode)渲染真二维码 + 轮询查单；mock 渠道无二维码，
 // 用"模拟支付成功"按钮直接触发后端回调走完整链路。对齐 epay cashier.php 语义。
 const route = useRoute()
 const router = useRouter()
 const tradeNo = route.params.trade_no as string
+
+// 收银台品牌名取网站名称，末尾一个词高亮
+const siteStore = useSiteStore()
+siteStore.hydrate()
+const brand = computed(() => splitBrand(siteStore.config.sitename))
 
 const order = ref<CashierOrder | null>(null)
 const loading = ref(true)
@@ -283,7 +290,7 @@ async function pay() {
 <template>
   <div class="flex min-h-screen flex-col items-center justify-center bg-content px-4 py-10">
     <div class="mb-6 flex items-center gap-2 text-lg font-bold tracking-tight">
-      <span class="text-primary">三只鱼</span>PAY 收银台
+      <span>{{ brand.lead }}<span v-if="brand.accent" class="text-primary">{{ brand.accent }}</span></span> 收银台
     </div>
 
     <!-- 加载态 -->

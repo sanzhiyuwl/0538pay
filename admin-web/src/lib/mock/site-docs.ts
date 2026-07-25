@@ -377,13 +377,13 @@ if ($epay->verify($_GET)) {
 export const defaultDocPages: DocPage[] = [
   page(1, 'system', 'preface', '序言', '序言 文档 阅读指南 接口说明 开发者', 10, [
     section('preface-main', 'preface', '序言', [
-      richText('preface-intro', '<p>欢迎使用 0538Pay 开发者文档。本手册面向需要接入聚合收款、订单管理与代付能力的开发者，覆盖从获取密钥、请求签名到支付通知处理的完整流程。</p><p>首次接入建议依次阅读“接入概述”“签名规则”和“支付方式列表”，再根据业务场景选择页面跳转支付或 API 下单。</p>'),
+      richText('preface-intro', '<p>欢迎使用 Epvia Neo 开发者文档。本手册面向需要接入聚合收款、订单管理与代付能力的开发者，覆盖从获取密钥、请求签名到支付通知处理的完整流程。</p><p>首次接入建议依次阅读“接入概述”“签名规则”和“支付方式列表”，再根据业务场景选择页面跳转支付或 API 下单。</p>'),
       callout('preface-tip', 'info', '<p>接口地址、商户 ID 与密钥请以商户中心展示为准。生产环境上线前，请完成金额校验、通知验签和订单幂等处理。</p>'),
     ]),
   ]),
   page(2, 'system', 'product-intro', '产品介绍', '产品介绍 聚合支付 收款 订单 退款 代付 商户', 20, [
     section('product-intro-main', 'product-intro', '产品介绍', [
-      richText('product-intro-content', '<p>0538Pay 提供统一的聚合支付 API，一次接入即可使用支付宝、微信支付、QQ 钱包及云闪付 / 银行卡等渠道，并统一管理订单、退款、通知与对账。</p><p>平台同时提供页面收银台、服务端 API 下单、商户信息查询和代付接口，适用于网站、移动端、公众号、小程序及企业结算等场景。</p>'),
+      richText('product-intro-content', '<p>Epvia Neo 提供统一的聚合支付 API，一次接入即可使用支付宝、微信支付、QQ 钱包及云闪付 / 银行卡等渠道，并统一管理订单、退款、通知与对账。</p><p>平台同时提供页面收银台、服务端 API 下单、商户信息查询和代付接口，适用于网站、移动端、公众号、小程序及企业结算等场景。</p>'),
       steps('product-intro-capabilities', [
         '统一下单：通过页面跳转或 API 创建支付订单。',
         '交易管理：查询订单、发起退款并接收支付结果通知。',

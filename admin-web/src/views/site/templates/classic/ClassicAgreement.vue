@@ -5,7 +5,7 @@ import { useSiteStore } from '@/stores/site'
 // 服务协议：站点名从网站设置 CMS 读取（后台可改，官网实时联动）。
 const site = useSiteStore()
 onMounted(() => site.hydrate())
-const brand = computed(() => site.config.sitename || '0538Pay')
+const brand = computed(() => site.config.sitename || 'Epvia Neo')
 
 const sections = computed(() => [
   {

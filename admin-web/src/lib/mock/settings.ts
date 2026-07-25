@@ -24,19 +24,19 @@ export const logoItems = [
 
 /** 网站信息设置（set.php mod=site 精简） */
 export const siteConfig = {
-  sitename: '0538Pay 聚合支付',
-  // 商户中心品牌名（登录/注册页左侧品牌区展示，末尾 Pay/PAY 自动高亮）
-  merchantName: '三只鱼PAY',
+  sitename: 'Epvia Neo',
+  // 商户中心品牌名（登录/注册页左侧品牌区展示，末尾一个词自动高亮）
+  merchantName: 'Epvia Neo',
   // 商户登录页左侧主标语（用 \n 换行，最后一行黄色下划线高亮）
   loginSlogan: '让每一笔收款\n稳稳到账',
-  title: '0538Pay - 专业的聚合支付平台',
+  title: 'Epvia Neo - 专业的聚合支付平台',
   keywords: '聚合支付,支付宝,微信支付,第三方支付',
-  description: '0538Pay 提供支付宝、微信、QQ钱包、云闪付等多渠道聚合支付服务',
+  description: 'Epvia Neo 提供支付宝、微信、QQ钱包、云闪付等多渠道聚合支付服务',
   company: '泰安市数智支付科技有限公司',
   email: 'service@epvia.com',
   qq: '800820538',
   copyrightLink: 'https://beian.miit.gov.cn/',
-  copyright: 'Copyright © 2026 0538Pay 版权所有',
+  copyright: 'Copyright © 2026 Epvia Neo 版权所有',
   icp: '鲁ICP备2026000538号-1',
   police: '鲁公网安备 37098202000538号',
   qingsuan: '中国支付清算协会会员',

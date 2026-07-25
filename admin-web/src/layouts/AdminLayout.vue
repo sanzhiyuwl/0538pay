@@ -13,7 +13,8 @@ import {
 } from 'lucide-vue-next'
 import { navMenu, allLeaves, consoleEntry, type NavNode } from '@/config/nav'
 import { useThemeStore } from '@/stores/theme'
-import { cn } from '@/lib/utils'
+import { useSiteStore } from '@/stores/site'
+import { cn, splitBrand } from '@/lib/utils'
 import NotificationDrawer from '@/components/NotificationDrawer.vue'
 import UserMenu from '@/components/UserMenu.vue'
 
@@ -21,6 +22,10 @@ const theme = useThemeStore()
 const route = useRoute()
 const mobileOpen = ref(false)
 const noticeOpen = ref(false)
+
+// 品牌 logo 文字来自后台「网站设置 / 网站信息」的网站名称，末尾一个词高亮
+const site = useSiteStore()
+const brand = computed(() => splitBrand(site.config.sitename))
 
 // 当前路由属于哪个一级菜单
 function nodeActive(node: NavNode) {
@@ -72,7 +77,7 @@ const currentParent = computed(
           <Zap class="size-[18px]" />
         </div>
         <span class="text-lg font-bold tracking-tight"
-          >0538<span class="text-primary">Pay</span></span
+          >{{ brand.lead }}<span v-if="brand.accent" class="text-primary">{{ brand.accent }}</span></span
         >
       </div>
 

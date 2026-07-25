@@ -336,7 +336,7 @@ router.afterEach((to) => {
   if (!isManaged) return // 官网页面交给 SEO 标题
 
   const site = useSiteStore()
-  const siteName = site.config.sitename || '0538Pay'
+  const siteName = site.config.sitename || 'Epvia Neo'
   const pageName = pathTitleMap[path]
   const suffix = suffixFor(path, siteName)
   document.title = pageName ? `${pageName} · ${suffix}` : suffix

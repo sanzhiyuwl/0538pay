@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink, useRouter, useRoute } from 'vue-router'
 import { Zap, Menu, X, Sun, Moon, Info } from 'lucide-vue-next'
 import { useThemeStore } from '@/stores/theme'
 import { Button } from '@/components/ui'
 import { useSiteStore } from '@/stores/site'
+import { splitBrand } from '@/lib/utils'
 
 // solid=true：导航常驻实底（文档等独立页用）；false：首页透明→滚动变实
 const props = defineProps<{ solid?: boolean }>()
@@ -12,6 +13,8 @@ const props = defineProps<{ solid?: boolean }>()
 const theme = useThemeStore()
 // 站点配置来自后台「网站设置」，实时联动
 const site = useSiteStore().config
+// 导航 logo 文字取网站名称，末尾一个词高亮
+const brand = computed(() => splitBrand(site.sitename))
 const router = useRouter()
 const route = useRoute()
 
@@ -120,7 +123,7 @@ async function navClick(to: string) {
           <div class="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Zap class="size-[18px]" />
           </div>
-          <span class="text-lg font-bold tracking-tight">0538<span class="text-primary">Pay</span></span>
+          <span class="text-lg font-bold tracking-tight">{{ brand.lead }}<span v-if="brand.accent" class="text-primary">{{ brand.accent }}</span></span>
         </RouterLink>
 
         <!-- 桌面导航 -->

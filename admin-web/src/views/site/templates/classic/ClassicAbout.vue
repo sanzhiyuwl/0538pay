@@ -51,7 +51,7 @@ const contacts = computed(() => [
           <div class="flex size-11 items-center justify-center rounded-lg bg-primary/[0.08] text-primary"><Building2 class="size-5" /></div>
           <h2 class="mt-4 text-xl font-semibold">公司简介</h2>
           <p class="mt-3 leading-relaxed text-muted-foreground">
-            0538Pay 是一家专注聚合支付的技术服务商，为电商、零售、生活服务等各行业商户提供支付宝、微信、QQ钱包、云闪付等多渠道聚合收款方案。
+            {{ site.config.sitename || 'Epvia Neo' }} 是一家专注聚合支付的技术服务商，为电商、零售、生活服务等各行业商户提供支付宝、微信、QQ钱包、云闪付等多渠道聚合收款方案。
             平台以服务商模式运营，一次对接即可覆盖全渠道，配合开放 API 与完善的商户中心，帮助商户快速开启并高效管理线上收款业务。
           </p>
         </div>

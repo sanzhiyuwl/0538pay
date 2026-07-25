@@ -15,6 +15,22 @@ export function formatMoney(v: number | string): string {
   })
 }
 
+/**
+ * 品牌名拆分：末尾一个词拆出来给 logo 高亮用。
+ * 优先按空格分隔取最后一段（如「Epvia Neo」→ Epvia / Neo）；
+ * 无空格时按驼峰边界拆末尾大写词（如「EpviaNeo」→ Epvia / Neo）；
+ * 都不匹配则整串作 lead、accent 为空（不高亮）。
+ */
+export function splitBrand(name: string): { lead: string; accent: string } {
+  const raw = (name || '').trim()
+  if (!raw) return { lead: '', accent: '' }
+  const sp = raw.match(/^(.*\S)\s+(\S+)$/)
+  if (sp) return { lead: sp[1], accent: sp[2] }
+  const camel = raw.match(/^(.*[a-z])([A-Z][a-zA-Z]*)$/)
+  if (camel) return { lead: camel[1], accent: camel[2] }
+  return { lead: raw, accent: '' }
+}
+
 /** 大数字缩写：12345 -> 1.23万 */
 export function formatCompact(v: number): string {
   if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿'

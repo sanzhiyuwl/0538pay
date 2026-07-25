@@ -3,13 +3,20 @@ import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { User, Lock, Eye, EyeOff, Smartphone, ShieldCheck } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
+import { useSiteStore } from '@/stores/site'
 import { useToast } from '@/composables/useToast'
 import { ApiError } from '@/lib/api/client'
+import { splitBrand } from '@/lib/utils'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 const toast = useToast()
+
+// 品牌墙文字取后台「网站设置 / 网站信息」的网站名称，末尾一个词高亮
+const site = useSiteStore()
+site.hydrate()
+const brand = computed(() => splitBrand(site.config.sitename))
 
 // 登录方式：account 账号登录 / sms 短信登录（短信为后续接入占位）
 const mode = ref<'account' | 'sms'>('account')
@@ -71,7 +78,7 @@ async function login() {
         <!-- 品牌墙装饰纹理与盾牌由 login-bg-tech.jpg 承担（见 .brand-wall 背景） -->
         <div class="brand-wall-inner">
           <div class="brand-copy">
-            <h2 class="brand-slogan">三只鱼<span class="brand-pay">PAY</span></h2>
+            <h2 class="brand-slogan">{{ brand.lead }}<span v-if="brand.accent" class="brand-pay">{{ brand.accent }}</span></h2>
             <span class="brand-rule" aria-hidden="true"></span>
             <p class="brand-sub">一站式支付进件 · 聚合清算 · 智能风控服务</p>
           </div>
@@ -156,7 +163,7 @@ async function login() {
       </section>
     </div>
 
-    <p class="page-sign">0538Pay 运营管理系统 · 技术支持 0538Pay Team</p>
+    <p class="page-sign">{{ site.config.sitename }} 运营管理系统 · 技术支持 {{ site.config.sitename }} Team</p>
   </div>
 </template>
 

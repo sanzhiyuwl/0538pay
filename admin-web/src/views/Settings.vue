@@ -265,7 +265,7 @@ function moveSlide(i: number, dir: -1 | 1) {
               <textarea
                 v-model="site.copyright"
                 rows="3"
-                placeholder="Copyright © 2026 0538Pay 版权所有"
+                placeholder="Copyright © 2026 Epvia Neo 版权所有"
                 class="field-input w-full resize-none py-2"
                 style="height: auto"
               />

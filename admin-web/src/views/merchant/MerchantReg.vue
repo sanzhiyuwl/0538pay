@@ -4,20 +4,17 @@ import { useRouter } from 'vue-router'
 import { Eye, EyeOff, ArrowRight, Zap } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import { useSiteStore } from '@/stores/site'
+import { splitBrand } from '@/lib/utils'
 import { fetchCaptcha, merchantRegister } from '@/lib/api/merchantAuth'
 import { ApiError } from '@/lib/api/client'
 
 const router = useRouter()
 const toast = useToast()
 
-// 品牌名来自后台「网站设置 / 网站信息」，实时联动；末尾 Pay/PAY 拆出高亮
+// 品牌名来自后台「网站设置 / 网站信息」，实时联动；末尾一个词高亮
 const siteStore = useSiteStore()
 onMounted(() => siteStore.hydrate())
-const brandName = computed(() => siteStore.config.merchantName || '三只鱼PAY')
-const brand = computed(() => {
-  const m = brandName.value.match(/^(.*?)(pay)$/i)
-  return m ? { lead: m[1], accent: m[2] } : { lead: brandName.value, accent: '' }
-})
+const brand = computed(() => splitBrand(siteStore.config.merchantName))
 
 const verifyType = ref<'phone' | 'email'>('phone')
 
@@ -122,7 +119,7 @@ const steps = [
         <div class="panel-inner">
           <header class="c-head">
             <h1><b>注册</b>商户账户</h1>
-            <p class="c-sub">加入 {{ brandName }}，开启你的收款之旅</p>
+            <p class="c-sub">加入 {{ siteStore.config.merchantName }}，开启你的收款之旅</p>
           </header>
 
           <div class="tabs">

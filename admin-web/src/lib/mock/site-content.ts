@@ -104,7 +104,7 @@ export const defaultSiteContent: SiteContent = {
     { target: 99.9, suffix: '%', label: '支付成功率', decimals: 1 },
     { target: 8, suffix: 'ms', label: '平均响应', decimals: 0 },
   ],
-  featuresTitle: '为什么选择 0538Pay',
+  featuresTitle: '为什么选择 Epvia Neo',
   featuresSubtitle: '一站式聚合支付解决方案，让收款更简单',
   features: [
     { icon: 'Waypoints', title: '多渠道聚合', desc: '一次对接，支持支付宝、微信、QQ钱包、云闪付等主流支付方式。' },
@@ -169,7 +169,7 @@ export const defaultSiteContent: SiteContent = {
   ],
   newsTitle: '最新动态',
   newsSubtitle: '产品更新、公司新闻与行业资讯，尽在掌握',
-  testimonialsTitle: '他们都在用 0538Pay',
+  testimonialsTitle: '他们都在用 Epvia Neo',
   testimonialsSubtitle: '覆盖零售、电商、医药、科技等各行业的合作商户',
   testimonials: [
     { name: '蓝鸥到家', desc: '蓝鸥到家是实现 1 小时配送到家的移动互联网社区购物平台，整合超市资源，服务日常生活所需。', image: '/assets/our-customers01.png' },

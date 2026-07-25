@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { Zap, MessageCircle, Mail, ShieldCheck, QrCode } from 'lucide-vue-next'
 import { useSiteStore } from '@/stores/site'
+import { splitBrand } from '@/lib/utils'
 import SiteHeader from '@/components/site/SiteHeader.vue'
 import WechatIcon from '@/components/site/icons/WechatIcon.vue'
 import QQIcon from '@/components/site/icons/QQIcon.vue'
@@ -12,6 +13,9 @@ const store = useSiteStore()
 const site = store.config
 // 官网加载时从后端拉取最新网站设置（本地缓存先渲染，后端到达后覆盖 + 刷新 SEO）
 onMounted(() => { store.hydrate() })
+
+// 页脚品牌 logo 文字取网站名称，末尾一个词高亮
+const brand = computed(() => splitBrand(site.sitename))
 
 // 页脚链接列
 const footerCols = [
@@ -54,7 +58,7 @@ const currentQr = computed(() => footerQrcodes.value.find((q) => q.key === activ
               <div class="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-lg shadow-primary/25">
                 <Zap class="size-5" />
               </div>
-              <span class="text-lg font-bold tracking-tight text-foreground">0538<span class="text-primary">Pay</span></span>
+              <span class="text-lg font-bold tracking-tight text-foreground">{{ brand.lead }}<span v-if="brand.accent" class="text-primary">{{ brand.accent }}</span></span>
             </div>
             <p class="mt-4 max-w-xs text-sm leading-relaxed text-muted-foreground">
               专业的聚合支付服务平台，支持多渠道收款、实时到账、开放 API 对接。
