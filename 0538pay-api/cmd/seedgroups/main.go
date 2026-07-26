@@ -33,12 +33,14 @@ func main() {
 
 	groups := []model.Group{
 		{GID: 1, Name: "普通商户", IsBuy: 0, Price: dec("0"), Expire: 0, Sort: 0, Info: ""},
+		// rate = 给商户的到账/分成比例（对齐 epay pay_group.info，calcFee 按到账比例用）：
+		// 99.65 = 到账 99.65%、平台抽 0.35%。等级越高抽成越低、到账越高。
 		{GID: 2, Name: "白银会员", IsBuy: 1, Price: dec("30"), Expire: 1, Sort: 1,
-			Info: `[{"label":"支付宝","rate":"0.35"},{"label":"微信","rate":"0.35"},{"label":"QQ钱包","rate":"0.55"}]`},
+			Info: `[{"label":"支付宝","rate":"99.65"},{"label":"微信","rate":"99.65"},{"label":"QQ钱包","rate":"99.45"}]`},
 		{GID: 3, Name: "黄金会员", IsBuy: 1, Price: dec("88"), Expire: 1, Sort: 2,
-			Info: `[{"label":"支付宝","rate":"0.30"},{"label":"微信","rate":"0.30"},{"label":"QQ钱包","rate":"0.50"}]`},
+			Info: `[{"label":"支付宝","rate":"99.70"},{"label":"微信","rate":"99.70"},{"label":"QQ钱包","rate":"99.50"}]`},
 		{GID: 4, Name: "钻石会员", IsBuy: 1, Price: dec("1288"), Expire: 0, Sort: 3,
-			Info: `[{"label":"支付宝","rate":"0.28"},{"label":"微信","rate":"0.28"},{"label":"QQ钱包","rate":"0.45"}]`},
+			Info: `[{"label":"支付宝","rate":"99.72"},{"label":"微信","rate":"99.72"},{"label":"QQ钱包","rate":"99.55"}]`},
 	}
 
 	created := 0

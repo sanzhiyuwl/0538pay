@@ -383,7 +383,7 @@ async function confirmDelete() {
                 <span>{{ a.typeName }}</span>
                 <span class="flex items-center gap-1.5">
                   <span class="text-[13px] text-muted-foreground">{{ a.target }}</span>
-                  <b v-if="a.rate" class="tabular-nums text-primary">{{ a.rate }}%</b>
+                  <b v-if="a.rate" class="tabular-nums text-primary" title="给商户的到账比例">到账 {{ a.rate }}%</b>
                 </span>
               </div>
             </div>
@@ -480,13 +480,14 @@ async function confirmDelete() {
         <div class="border-t border-border/60 pt-3">
           <div class="mb-2 text-sm font-medium">通道分配</div>
           <p class="mb-2.5 text-xs text-muted-foreground">
-            为每种支付方式指定通道来源：关闭 / 随机可用通道 / 用户自定义子通道 / 固定某通道或轮询组。费率留空则用通道默认费率。
+            为每种支付方式指定通道来源：关闭 / 随机可用通道 / 用户自定义子通道 / 固定某通道或轮询组。
+            分成比例 = 给本组商户的到账比例（如 99.65 表示到账 99.65%、抽成 0.35%），留空则用通道默认。
           </p>
           <div v-for="row in form.assigns" :key="row.type" class="mb-2 flex items-center gap-2">
             <span class="w-20 shrink-0 text-sm">{{ row.typeName }}</span>
             <Select v-model="row.value" :options="assignOptions(row.type)" class="flex-1" />
             <div class="flex items-center gap-1">
-              <input v-model="row.rate" placeholder="费率" class="field-input w-16" />
+              <input v-model="row.rate" placeholder="到账%" class="field-input w-16" />
               <span class="text-sm text-muted-foreground">%</span>
             </div>
           </div>

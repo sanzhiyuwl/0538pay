@@ -35,23 +35,29 @@ func main() {
 
 	channels := []model.Channel{
 		{
+			// Rate = 给商户的到账/分成比例(对齐 epay pay_channel.rate，calcFee 按 getmoney=money*rate/100)。
+			// 98.00 表示商户到账 98%、平台抽 2%。CostRate 才是成本费率%(profit 用 realmoney*costrate/100)。
 			Name: "模拟支付通道", Type: 0, TypeName: "mock", TypeShow: "模拟支付",
-			Plugin: "mock", Mode: 0, Rate: dec("2.00"), CostRate: dec("1.50"),
+			Plugin: "mock", Mode: 0, Rate: dec("98.00"), CostRate: dec("1.50"),
 			DayTop: 0, Status: 1,
 		},
 		{
+			// Plugin 必须是渠道注册表键(channel.Register 的 Key)，否则 channel.Get 命中不了、
+			// 收银台可选支付方式恒空。支付宝当面付扫码 = alipayf2f。
 			Name: "支付宝官方直连", Type: 1, TypeName: "alipay", TypeShow: "支付宝",
-			Plugin: "alipay", Mode: 0, Rate: dec("0.38"), CostRate: dec("0.23"),
+			Plugin: "alipayf2f", Mode: 0, Rate: dec("99.62"), CostRate: dec("0.23"),
 			DayTop: 0, PayMin: "0.01", PayMax: "50000.00", Status: 1,
 		},
 		{
+			// 微信 Native 扫码 = wxnative（注册表键）。
 			Name: "微信服务商A", Type: 2, TypeName: "wxpay", TypeShow: "微信支付",
-			Plugin: "wxpay", Mode: 0, Rate: dec("0.60"), CostRate: dec("0.38"),
+			Plugin: "wxnative", Mode: 0, Rate: dec("99.40"), CostRate: dec("0.38"),
 			DayTop: 100000, Status: 1,
 		},
 		{
+			// QQ钱包无独立插件，示例走易支付聚合(epay)通道，保持禁用。
 			Name: "QQ钱包官方", Type: 3, TypeName: "qqpay", TypeShow: "QQ钱包",
-			Plugin: "qqpay", Mode: 1, Rate: dec("1.00"), CostRate: dec("0.60"),
+			Plugin: "epay", Mode: 1, Rate: dec("99.00"), CostRate: dec("0.60"),
 			DayTop: 0, Status: 0,
 		},
 	}

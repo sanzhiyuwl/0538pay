@@ -437,10 +437,8 @@ func (s *MerchantCenterService) BuyGroup(uid uint, req dto.GroupBuyReq) error {
 // info 主格式为 epay 的通道分配 map：{"支付方式ID":{"channel","rate","type"}}。
 //   - channel=="0"：该支付方式在本组未开通，跳过（对齐 epay `if($v['channel']==0)continue`）。
 //   - 其余（-1随机 / -2子通道 / 正整数固定通道或轮询组）：显示「支付方式名(费率%)」。
-//     费率数值原样取组级覆盖 rate，与后台 Groups.vue 编辑页口径一致；rate 为空则只显示方式名。
-//   - ⚠️ 费率口径存在历史矛盾：calcFee 按 epay「到账比例」用 rate（getmoney=money*rate/100），
-//     但 seed 与后台编辑页按「费率%」填写小数值，两者语义相反。展示层不擅自换算，
-//     统一待优化待办 #14 专项核对后再定，避免与后台展示不一致。
+//     组级覆盖 rate 存的是「到账比例」（与 calcFee/后台一致），商户端展示手续费率 = 100-rate
+//     （对齐 epay groupbuy.php:29 `round(100-$v['rate'],2)`）；rate 为空则只显示方式名。
 //   - label 用 pay_type.showname；名录缺失时回退「支付方式#ID」保证不空白。
 //
 // 兼容旧的数组格式 [{label,rate}]（早期 mock 残留）：解析成功即原样返回。
@@ -468,18 +466,27 @@ func groupRateLabels(info string, names map[int]string) []dto.GroupRateItem {
 			if label == "" {
 				label = "支付方式#" + strconv.Itoa(id)
 			}
-			rate := strings.TrimSpace(a.Rate)
-			if _, ok := parseRateOverride(rate); !ok {
-				rate = "" // 无有效组级覆盖 → 费率随通道默认，此处不展示具体数值
+			// 组级 rate 存的是「到账比例」（如 99.65），商户端展示的是「手续费率」，
+			// 需换算 100-rate（对齐 epay groupbuy.php:29 `round(100-$v['rate'],2)`）。
+			rate := ""
+			if payout, ok := parseRateOverride(strings.TrimSpace(a.Rate)); ok {
+				rate = decimal.NewFromInt(100).Sub(payout).Round(2).String()
 			}
-			// 费率数值口径与后台 Groups.vue 编辑页保持一致，原样展示（详见优化待办 #14 口径核对）。
+			// rate 为空 → 无有效组级覆盖，费率随通道默认，不展示具体数值。
 			items = append(items, dto.GroupRateItem{Label: label, Rate: rate})
 		}
 		return items
 	}
-	// 回退：旧数组格式 [{label,rate}]。
+	// 回退：数组格式 [{label,rate}]（seed 播种用），rate 同为「到账比例」，展示同样换算 100-rate 为手续费率。
 	var arr []dto.GroupRateItem
 	if err := json.Unmarshal([]byte(info), &arr); err == nil {
+		for i := range arr {
+			if payout, ok := parseRateOverride(strings.TrimSpace(arr[i].Rate)); ok {
+				arr[i].Rate = decimal.NewFromInt(100).Sub(payout).Round(2).String()
+			} else {
+				arr[i].Rate = ""
+			}
+		}
 		return arr
 	}
 	return []dto.GroupRateItem{}

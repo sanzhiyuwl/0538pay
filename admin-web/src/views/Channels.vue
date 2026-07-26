@@ -631,10 +631,13 @@ async function saveConfig() {
         <div class="row-field">
           <label class="lbl">分成比例<span class="text-destructive">*</span></label>
           <div class="flex flex-1 items-center gap-2">
-            <input v-model="form.rate" placeholder="如 0.38" class="field-input flex-1" />
+            <input v-model="form.rate" placeholder="给商户的到账比例，如 99.62" class="field-input flex-1" />
             <span class="text-sm text-muted-foreground">%</span>
           </div>
         </div>
+        <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          分成比例 = 给商户的到账比例。填 99.62 表示商户到账 99.62%、平台手续费 0.38%；填 100 则不收手续费。
+        </p>
         <div class="row-field">
           <label class="lbl">通道成本</label>
           <div class="flex flex-1 items-center gap-2">

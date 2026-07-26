@@ -161,7 +161,9 @@ func parseRate(s string, allowEmpty bool, field string) (decimal.Decimal, error)
 	if err != nil {
 		return decimal.Zero, chErr(field + "格式不正确")
 	}
-	if d.IsNegative() || d.GreaterThanOrEqual(decimal.NewFromInt(100)) {
+	// 分成比例(到账比例)可取满 100（对齐 epay pay_channel.rate 默认 100.00=零手续费）；
+	// 成本费率同区间上限即可。
+	if d.IsNegative() || d.GreaterThan(decimal.NewFromInt(100)) {
 		return decimal.Zero, chErr(field + "须在 0~100 之间")
 	}
 	return d, nil
