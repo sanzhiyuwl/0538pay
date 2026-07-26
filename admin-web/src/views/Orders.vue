@@ -130,16 +130,19 @@ function resetFilters() {
     dstatus: -1,
   }
   page.value = 1
+  selected.value = new Set() // 切筛选清空选中，避免批量操作误伤不可见行
   loadOrders()
 }
 
 // 搜索/翻页/重置都重新拉后端
 function search() {
   page.value = 1
+  selected.value = new Set() // 切筛选清空选中，避免批量操作误伤不可见行
   loadOrders()
 }
 function go(p: number) {
   page.value = Math.min(Math.max(1, p), pageCount.value)
+  selected.value = new Set() // 翻页清空选中，批量只作用于当前可见页
   loadOrders()
 }
 

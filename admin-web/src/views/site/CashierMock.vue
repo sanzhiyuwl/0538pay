@@ -381,7 +381,7 @@ async function pay() {
             <QrCode v-else class="size-20 text-muted-foreground/50" />
           </div>
           <p class="mt-3 text-xs text-muted-foreground">
-            请使用{{ order.plugin.startsWith('wx') ? '微信' : order.plugin.startsWith('ali') ? '支付宝' : '对应 App' }}扫码完成支付
+            请使用{{ order.plugin?.startsWith('wx') ? '微信' : order.plugin?.startsWith('ali') ? '支付宝' : '对应 App' }}扫码完成支付
           </p>
           <div class="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 class="size-3.5 animate-spin" /> 等待支付中，支付后自动跳转…

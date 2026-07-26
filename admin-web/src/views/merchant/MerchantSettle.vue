@@ -55,6 +55,17 @@ function showFail(s: SettleRecord) {
   failRow.value = s
   failOpen.value = true
 }
+
+// 确认收款（对齐 epay settle.php:106 showQrcode(jumpurl)）：微信直付通结算需商户扫码到微信侧确认。
+// jumpurl 来自微信直付通结算回执（乙类，待真实渠道凭证），暂无数据时提示。
+function confirmReceipt(s: SettleRecord) {
+  const jump = (s as SettleRecord & { jumpurl?: string }).jumpurl
+  if (jump) {
+    window.open(jump, '_blank')
+  } else {
+    toast.info('确认收款需微信直付通结算跳转数据，接入真实微信直付通结算后启用')
+  }
+}
 </script>
 
 <template>
@@ -108,7 +119,7 @@ function showFail(s: SettleRecord) {
                 <Button v-if="s.status === 3" variant="ghost" size="sm" class="text-destructive hover:text-destructive" @click="showFail(s)">
                   <AlertCircle class="size-4" />
                 </Button>
-                <Button v-else-if="s.status === 1 && s.type === 2" variant="ghost" size="sm" title="确认收款">
+                <Button v-else-if="s.status === 1 && s.type === 2" variant="ghost" size="sm" title="确认收款" @click="confirmReceipt(s)">
                   <QrCode class="size-4" />
                 </Button>
                 <span v-else class="dim">—</span>

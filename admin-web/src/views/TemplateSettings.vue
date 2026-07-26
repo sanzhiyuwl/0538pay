@@ -40,7 +40,9 @@ const entryMap = Object.fromEntries(templates.map((t) => [t.id, t])) as Record<s
 
 // ===== 当前应用 / 选中态 =====
 const STORAGE_KEY = 'site-template'
-const applied = ref(localStorage.getItem(STORAGE_KEY) || 'default') // 官网正在用的模板
+// 读 localStorage 时校验：脏值/遗留键(不在 entryMap 内)回退 default，否则 activeEntry 为 undefined 会挂载白屏。
+const storedTpl = localStorage.getItem(STORAGE_KEY) || 'default'
+const applied = ref(entryMap[storedTpl] ? storedTpl : 'default') // 官网正在用的模板
 const active = ref(applied.value) // 左侧预览聚焦的模板（点右列切换）
 const activeEntry = computed(() => entryMap[active.value])
 

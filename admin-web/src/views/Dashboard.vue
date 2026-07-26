@@ -28,14 +28,14 @@ async function load() {
 onMounted(load)
 
 const overview = computed(() => data.value?.overview ?? [])
-const trendLabels = computed(() => data.value?.trend.labels ?? [])
+const trendLabels = computed(() => data.value?.trend?.labels ?? [])
 // 图表配色收口到设计令牌：订单量走品牌蓝、交易额走语义绿（收敛饱和度，
 // 去掉原先游离在系统外的 #4b7bec / #07c160 突兀硬编码）
 const orderTrend = computed(() => [
-  { name: '订单量', color: '#0062ef', data: data.value?.trend.orders ?? [] },
+  { name: '订单量', color: '#0062ef', data: data.value?.trend?.orders ?? [] },
 ])
 const amountTrend = computed(() => [
-  { name: '交易额', color: '#3a9e4f', data: (data.value?.trend.amounts ?? []).map((a) => Number(a)) },
+  { name: '交易额', color: '#3a9e4f', data: (data.value?.trend?.amounts ?? []).map((a) => Number(a)) },
 ])
 
 const todoCards = computed(() => {

@@ -105,6 +105,7 @@ async function reload() {
 
 function applySearch() {
   page.value = 1
+  selected.value = new Set() // 切筛选清空选中，避免批量操作(含删除)误伤不可见行
   reload()
 }
 function resetFilters() {
@@ -116,6 +117,7 @@ function resetFilters() {
 }
 function go(p: number) {
   page.value = p
+  selected.value = new Set() // 翻页清空选中，批量只作用于当前可见页
   load()
 }
 onMounted(reload)
