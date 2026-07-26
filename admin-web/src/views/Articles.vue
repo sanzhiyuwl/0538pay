@@ -8,9 +8,9 @@
  */
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import {
-  Plus, Pencil, Trash2, FileText, Tags, Star, Eye, X,
+  Plus, Pencil, Trash2, FileText, Tags, Star, Eye, X, Search,
 } from 'lucide-vue-next'
-import { Panel, Button, Select, Switch, Drawer, Modal, Badge, RichEditor, ImageUpload } from '@/components/ui'
+import { Panel, Button, Select, Switch, Drawer, Modal, Badge, RichEditor, ImageUpload, Pagination } from '@/components/ui'
 import { useArticlesStore } from '@/stores/articles'
 import { useToast } from '@/composables/useToast'
 import { ApiError } from '@/lib/api/client'
@@ -31,6 +31,7 @@ const stats = computed(() => ({
 // ===== 筛选 =====
 const filterCat = ref<number | 0>(0) // 0=全部
 const filterStatus = ref<number | -1>(-1) // -1=全部
+const keyword = ref('') // 标题关键词搜索
 const catFilterOptions = computed(() => [
   { value: 0, label: '全部分类' },
   ...store.categories.map((c) => ({ value: c.id, label: c.name })),
@@ -41,12 +42,24 @@ const statusFilterOptions = [
   { value: 0, label: '草稿' },
 ]
 
-const filteredList = computed(() =>
-  [...store.articles]
+// 筛选后的完整结果（分类 + 状态 + 标题关键词），按 sort 升序。
+const filteredList = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  return [...store.articles]
     .filter((a) => filterCat.value === 0 || a.categoryId === filterCat.value)
     .filter((a) => filterStatus.value === -1 || a.status === filterStatus.value)
-    .sort((a, b) => a.sort - b.sort),
-)
+    .filter((a) => !kw || a.title.toLowerCase().includes(kw))
+    .sort((a, b) => a.sort - b.sort)
+})
+
+// ===== 客户端分页（对齐 Merchants.vue 模式）=====
+const page = ref(1)
+const pageSize = 10
+const pageCount = computed(() => Math.max(1, Math.ceil(filteredList.value.length / pageSize)))
+const pagedList = computed(() => filteredList.value.slice((page.value - 1) * pageSize, page.value * pageSize))
+// 筛选/搜索变化后回第 1 页；总页数缩小后 clamp 当前页，避免停在空页。
+watch([filterCat, filterStatus, keyword], () => { page.value = 1 })
+watch(pageCount, (n) => { if (page.value > n) page.value = n })
 
 // ===== 文章增删改（抽屉）=====
 const drawerOpen = ref(false)
@@ -319,6 +332,10 @@ const catName = (id: number) => store.categoryName[id] ?? '—'
     <Panel title="文章列表" :subtitle="`${filteredList.length} 篇`">
       <template #actions>
         <div class="flex items-center gap-2">
+          <div class="relative">
+            <Search class="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input v-model="keyword" placeholder="搜索标题" class="field-input !pl-9 w-48" />
+          </div>
           <Select v-model="filterCat" :options="catFilterOptions" class="w-32" />
           <Select v-model="filterStatus" :options="statusFilterOptions" class="w-28" />
         </div>
@@ -337,7 +354,7 @@ const catName = (id: number) => store.categoryName[id] ?? '—'
             </tr>
           </thead>
           <tbody>
-            <tr v-for="a in filteredList" :key="a.id">
+            <tr v-for="a in pagedList" :key="a.id">
               <td class="tabular-nums dim">{{ a.sort }}</td>
               <td>
                 <div class="flex items-center gap-2">
@@ -367,10 +384,13 @@ const catName = (id: number) => store.categoryName[id] ?? '—'
               </td>
             </tr>
             <tr v-if="!filteredList.length">
-              <td colspan="7" class="py-10 text-center dim">暂无文章</td>
+              <td colspan="7" class="py-10 text-center dim">{{ keyword.trim() ? '未找到匹配的文章' : '暂无文章' }}</td>
             </tr>
           </tbody>
         </table>
+      </div>
+      <div v-if="filteredList.length" class="mt-4">
+        <Pagination :page="page" :page-count="pageCount" :total="filteredList.length" :page-size="pageSize" @change="page = $event" />
       </div>
     </Panel>
 
