@@ -111,7 +111,7 @@ const pageCount = () => Math.max(1, Math.ceil(total.value / pageSize))
               <td class="tabular-nums dim">{{ r.id }}</td>
               <td class="font-medium tabular-nums text-primary">{{ r.uid }}</td>
               <td>
-                <Badge :variant="riskType[r.type].variant">{{ riskType[r.type].text }}</Badge>
+                <Badge :variant="riskType[r.type]?.variant ?? 'muted'">{{ riskType[r.type]?.text ?? '未知' }}</Badge>
               </td>
               <td class="truncate" :title="r.content">{{ r.content }}</td>
               <td class="truncate dim">{{ r.url || '—' }}</td>

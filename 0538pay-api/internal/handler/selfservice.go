@@ -82,7 +82,10 @@ func (h *MessageHandler) Send(c *gin.Context) {
 
 // Delete DELETE /api/admin/messages/:id 删除站内信
 func (h *MessageHandler) Delete(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := intIDParam(c, "id")
+	if !ok {
+		return
+	}
 	if id <= 0 {
 		resp.Fail(c, 400, "参数错误")
 		return

@@ -455,7 +455,7 @@ async function submitExport() {
               <Layers class="size-3.5 shrink-0 text-muted-foreground" />
               <span class="truncate text-[13px] font-semibold tracking-tight tabular-nums">{{ b.batch }}</span>
             </div>
-            <Badge :variant="batchStatus[b.status].variant">{{ batchStatus[b.status].text }}</Badge>
+            <Badge :variant="batchStatus[b.status]?.variant ?? 'muted'">{{ batchStatus[b.status]?.text ?? '未知' }}</Badge>
           </div>
 
           <!-- 焦点：批次金额（唯一视觉重心）；笔数/时间降为下方辅助 meta -->
@@ -622,7 +622,7 @@ async function submitExport() {
                   <span class="grid size-5 place-items-center rounded bg-primary/10 text-[11px] font-medium text-primary">
                     {{ typeInitial(r.type) }}
                   </span>
-                  <span>{{ settleTypes[r.type].showname }}</span>
+                  <span>{{ settleTypes[r.type]?.showname ?? '未知' }}</span>
                   <span v-if="!r.auto" class="text-xs dim">[手动]</span>
                 </div>
               </td>
@@ -639,7 +639,7 @@ async function submitExport() {
                 <div class="text-xs dim">{{ r.endtime ?? '—' }}</div>
               </td>
               <td class="col-center">
-                <Badge :variant="settleStatus[r.status].variant">{{ settleStatus[r.status].text }}</Badge>
+                <Badge :variant="settleStatus[r.status]?.variant ?? 'muted'">{{ settleStatus[r.status]?.text ?? '未知' }}</Badge>
                 <div v-if="r.status === 3" class="mt-1 truncate text-xs text-destructive" :title="r.result">
                   {{ r.result }}
                 </div>

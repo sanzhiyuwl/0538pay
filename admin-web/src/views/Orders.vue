@@ -690,7 +690,7 @@ async function serverExport() {
                 <div class="text-xs dim">{{ o.endtime ?? '—' }}</div>
               </td>
               <td class="col-center">
-                <Badge :variant="orderStatus[o.status].variant">{{ orderStatus[o.status].text }}</Badge>
+                <Badge :variant="orderStatus[o.status]?.variant ?? 'muted'">{{ orderStatus[o.status]?.text ?? '未知' }}</Badge>
                 <div v-if="o.status === 2 && +o.refundmoney > 0 && +o.refundmoney < +(o.realmoney ?? 0)" class="mt-1 text-xs text-destructive">
                   部分退款 ¥{{ o.refundmoney }}
                 </div>
@@ -782,7 +782,7 @@ async function serverExport() {
         <div class="rounded bg-muted/40 px-3.5 py-3">
           <div class="flex items-center justify-between">
             <span class="text-muted-foreground">订单状态</span>
-            <Badge :variant="orderStatus[detailOrder.status].variant">{{ orderStatus[detailOrder.status].text }}</Badge>
+            <Badge :variant="orderStatus[detailOrder.status]?.variant ?? 'muted'">{{ orderStatus[detailOrder.status]?.text ?? '未知' }}</Badge>
           </div>
         </div>
 

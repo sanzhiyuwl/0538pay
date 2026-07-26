@@ -101,6 +101,8 @@ async function doDelete() {
     await deleteInviteCode(delRow.value.id)
     toast.success('已删除')
     delOpen.value = false
+    // 若当前页删空则回退一页
+    if (rows.value.length === 1 && page.value > 1) page.value -= 1
     await load()
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '删除失败')
@@ -183,7 +185,7 @@ async function doClearAll() {
             <tr v-for="c in rows" :key="c.id">
               <td class="font-mono text-[13px] font-medium">{{ c.code }}</td>
               <td>
-                <Badge :variant="inviteStatus[c.status].variant">{{ inviteStatus[c.status].text }}</Badge>
+                <Badge :variant="inviteStatus[c.status]?.variant ?? 'muted'">{{ inviteStatus[c.status]?.text ?? '未知' }}</Badge>
               </td>
               <td class="text-xs">{{ c.addtime }}</td>
               <td class="text-xs">

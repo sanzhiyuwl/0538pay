@@ -349,7 +349,7 @@ async function submitRefund() {
                 <div class="text-xs dim">{{ o.endtime ?? '—' }}</div>
               </td>
               <td class="col-center">
-                <Badge :variant="orderStatus[o.status].variant">{{ orderStatus[o.status].text }}</Badge>
+                <Badge :variant="orderStatus[o.status]?.variant ?? 'muted'">{{ orderStatus[o.status]?.text ?? '未知' }}</Badge>
                 <div v-if="o.status === 2 && +o.refundmoney > 0 && +o.refundmoney < +(o.realmoney ?? 0)" class="mt-1 text-xs text-destructive">
                   部分退款 ¥{{ o.refundmoney }}
                 </div>

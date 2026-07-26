@@ -134,6 +134,7 @@ async function doDelete() {
   if (busy.value) return
   busy.value = true
   try {
+    const removed = batchMode.value ? selected.value.size : 1
     if (batchMode.value) {
       const res = await batchDeleteBlacklist([...selected.value])
       toast.success(`已删除 ${res.deleted} 条`)
@@ -142,6 +143,8 @@ async function doDelete() {
       toast.success('已删除')
     }
     delOpen.value = false
+    // 若当前页被删空则回退一页
+    if (rows.value.length - removed <= 0 && page.value > 1) page.value -= 1
     await reload()
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '删除失败')
@@ -224,7 +227,7 @@ async function doDelete() {
               </td>
               <td class="tabular-nums dim">{{ b.id }}</td>
               <td>
-                <Badge :variant="blackType[b.type].variant">{{ blackType[b.type].text }}</Badge>
+                <Badge :variant="blackType[b.type]?.variant ?? 'muted'">{{ blackType[b.type]?.text ?? '未知' }}</Badge>
               </td>
               <td class="truncate font-mono text-[13px]">{{ b.content }}</td>
               <td class="text-xs">{{ b.addtime }}</td>

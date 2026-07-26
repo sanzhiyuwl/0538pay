@@ -78,6 +78,8 @@ async function doDelete() {
   busy.value = true
   try {
     await deleteMessage(delRow.value.id)
+    // 若当前页删空则回退一页
+    if (rows.value.length === 1 && page.value > 1) page.value -= 1
     toast.success('已删除')
     delOpen.value = false
     await load()

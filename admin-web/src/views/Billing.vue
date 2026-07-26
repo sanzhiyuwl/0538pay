@@ -155,7 +155,7 @@ onMounted(load)
               <td class="num tabular-nums text-destructive">{{ formatMoney(Number(b.expense)) }}</td>
               <td class="num tabular-nums font-medium">{{ formatMoney(Number(b.net)) }}</td>
               <td class="col-center">
-                <Badge :variant="billStatus[b.status].variant">{{ billStatus[b.status].text }}</Badge>
+                <Badge :variant="billStatus[b.status]?.variant ?? 'muted'">{{ billStatus[b.status]?.text ?? '未知' }}</Badge>
               </td>
             </tr>
             <tr v-if="!bills.length">

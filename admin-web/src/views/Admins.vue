@@ -127,7 +127,7 @@ async function saveAdmin() {
               <td><Badge variant="outline">{{ roleLabel(a.role) }}</Badge></td>
               <td class="text-xs">{{ a.last_login || '从未登录' }}</td>
               <td class="col-center">
-                <Badge :variant="adminStatus[a.status].variant">{{ adminStatus[a.status].text }}</Badge>
+                <Badge :variant="adminStatus[a.status]?.variant ?? 'muted'">{{ adminStatus[a.status]?.text ?? '未知' }}</Badge>
               </td>
               <td class="col-center">
                 <div class="relative inline-block">

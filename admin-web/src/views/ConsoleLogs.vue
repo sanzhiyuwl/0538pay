@@ -88,7 +88,7 @@ function go(p: number) {
             <tr v-for="l in pageRows" :key="l.id">
               <td class="num tabular-nums text-muted-foreground">{{ l.id }}</td>
               <td class="font-mono text-[13px]">{{ l.operator }}</td>
-              <td class="col-center"><Badge :variant="auditActionText[l.action].variant">{{ auditActionText[l.action].text }}</Badge></td>
+              <td class="col-center"><Badge :variant="auditActionText[l.action]?.variant ?? 'muted'">{{ auditActionText[l.action]?.text ?? '未知' }}</Badge></td>
               <td class="font-medium">{{ l.target }}</td>
               <td class="text-sm text-muted-foreground">{{ l.detail }}</td>
               <td class="font-mono text-[13px] tabular-nums text-muted-foreground">{{ l.ip }}</td>

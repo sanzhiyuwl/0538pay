@@ -212,6 +212,8 @@ async function runBulk() {
     toast.success(`${batchLabels[bulkAction.value]}完成：${ok}/${targets.length} 条成功`)
     bulkConfirm.value = false
     selected.value = new Set()
+    // 批量删除后若当前页被删空则回退一页
+    if (bulkAction.value === 'delete' && rows.value.length - ok <= 0 && page.value > 1) page.value -= 1
     await reload()
   } finally {
     busy.value = false
@@ -526,7 +528,7 @@ onMounted(() => {
                 <div class="text-xs">{{ o.addtime }}</div>
               </td>
               <td class="col-center">
-                <Badge :variant="psStatus[o.status].variant">{{ psStatus[o.status].text }}</Badge>
+                <Badge :variant="psStatus[o.status]?.variant ?? 'muted'">{{ psStatus[o.status]?.text ?? '未知' }}</Badge>
                 <div v-if="o.status === 3 && o.result" class="mt-1 truncate text-xs text-destructive" :title="o.result">
                   {{ o.result }}
                 </div>

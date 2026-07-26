@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"strconv"
-
 	"github.com/epvia/api/internal/dto"
 	"github.com/epvia/api/internal/service"
 	"github.com/epvia/api/pkg/resp"
@@ -54,7 +52,10 @@ func (h *AnnounceHandler) Create(c *gin.Context) {
 
 // Update PUT /api/admin/announces/:id 编辑公告
 func (h *AnnounceHandler) Update(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := intIDParam(c, "id")
+	if !ok {
+		return
+	}
 	var req dto.AnnounceSaveReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
@@ -69,7 +70,10 @@ func (h *AnnounceHandler) Update(c *gin.Context) {
 
 // SetStatus PUT /api/admin/announces/:id/status 显隐切换
 func (h *AnnounceHandler) SetStatus(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := intIDParam(c, "id")
+	if !ok {
+		return
+	}
 	var req struct {
 		Status int8 `json:"status"`
 	}
@@ -86,7 +90,10 @@ func (h *AnnounceHandler) SetStatus(c *gin.Context) {
 
 // Delete DELETE /api/admin/announces/:id 删除公告
 func (h *AnnounceHandler) Delete(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := intIDParam(c, "id")
+	if !ok {
+		return
+	}
 	if err := h.svc.Delete(uint(id)); err != nil {
 		resp.Fail(c, 1102, "删除失败: "+err.Error())
 		return

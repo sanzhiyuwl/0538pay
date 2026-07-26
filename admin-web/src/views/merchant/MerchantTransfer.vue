@@ -227,7 +227,7 @@ async function submitAdd() {
                 <div class="text-xs">{{ t.addtime }}</div>
                 <div class="text-xs dim">{{ t.paytime ?? '—' }}</div>
               </td>
-              <td class="col-center"><Badge :variant="transferStatus[t.status].variant">{{ transferStatus[t.status].text }}</Badge></td>
+              <td class="col-center"><Badge :variant="transferStatus[t.status]?.variant ?? 'muted'">{{ transferStatus[t.status]?.text ?? '未知' }}</Badge></td>
               <td class="col-center">
                 <Button v-if="t.status === 2 && t.result" variant="ghost" size="sm" class="text-destructive hover:text-destructive" @click="showFail(t)">
                   <AlertCircle class="size-4" />

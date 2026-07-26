@@ -36,7 +36,10 @@ func (h *ArticleHandler) Public(c *gin.Context) {
 
 // PublicDetail GET /api/site/articles/:id 文章详情（浏览量 +1，对齐 epay ?mod=article count+1）。
 func (h *ArticleHandler) PublicDetail(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := intIDParam(c, "id")
+	if !ok {
+		return
+	}
 	v, err := h.svc.Detail(uint(id), true)
 	if err != nil {
 		resp.Fail(c, 1102, errMsg(err))
@@ -77,7 +80,10 @@ func (h *ArticleHandler) Create(c *gin.Context) {
 
 // Update PUT /api/admin/articles/:id 编辑文章
 func (h *ArticleHandler) Update(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := intIDParam(c, "id")
+	if !ok {
+		return
+	}
 	var req service.ArticleReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
@@ -92,7 +98,10 @@ func (h *ArticleHandler) Update(c *gin.Context) {
 
 // SetActive PUT /api/admin/articles/:id/status 显隐切换（对齐 epay ajax setActive）。
 func (h *ArticleHandler) SetActive(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := intIDParam(c, "id")
+	if !ok {
+		return
+	}
 	var req struct {
 		Status int8 `json:"status"`
 	}
@@ -109,7 +118,10 @@ func (h *ArticleHandler) SetActive(c *gin.Context) {
 
 // Delete DELETE /api/admin/articles/:id 删除文章
 func (h *ArticleHandler) Delete(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := intIDParam(c, "id")
+	if !ok {
+		return
+	}
 	if err := h.svc.Delete(uint(id)); err != nil {
 		resp.Fail(c, 1102, errMsg(err))
 		return
@@ -146,7 +158,10 @@ func (h *ArticleHandler) CreateCategory(c *gin.Context) {
 
 // UpdateCategory PUT /api/admin/article-categories/:id 编辑分类
 func (h *ArticleHandler) UpdateCategory(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := intIDParam(c, "id")
+	if !ok {
+		return
+	}
 	var req service.CategoryReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
@@ -161,7 +176,10 @@ func (h *ArticleHandler) UpdateCategory(c *gin.Context) {
 
 // DeleteCategory DELETE /api/admin/article-categories/:id 删除分类（级联删该分类下文章）
 func (h *ArticleHandler) DeleteCategory(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := intIDParam(c, "id")
+	if !ok {
+		return
+	}
 	if err := h.svc.DeleteCategory(uint(id)); err != nil {
 		resp.Fail(c, 1102, errMsg(err))
 		return

@@ -113,7 +113,7 @@ function confirmReceipt(s: SettleRecord) {
               <td class="num tabular-nums font-medium"><span class="dim text-xs">¥</span>{{ formatMoney(s.realmoney) }}</td>
               <td class="text-xs">{{ s.addtime }}</td>
               <td class="col-center">
-                <Badge :variant="settleStatus[s.status].variant">{{ settleStatus[s.status].text }}</Badge>
+                <Badge :variant="settleStatus[s.status]?.variant ?? 'muted'">{{ settleStatus[s.status]?.text ?? '未知' }}</Badge>
               </td>
               <td class="col-center">
                 <Button v-if="s.status === 3" variant="ghost" size="sm" class="text-destructive hover:text-destructive" @click="showFail(s)">

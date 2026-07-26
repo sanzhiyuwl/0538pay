@@ -186,6 +186,8 @@ async function runBulk() {
     toast.success(`${bulkLabels[bulkAction.value]}完成：${ok}/${bizNos.length} 条成功`)
     bulkConfirm.value = false
     selected.value = new Set()
+    // 批量删除后若当前页被删空则回退一页
+    if (bulkAction.value === 'delete' && rows.value.length - ok <= 0 && page.value > 1) page.value -= 1
     await reload()
   } finally {
     busy.value = false
@@ -266,6 +268,8 @@ async function doConfirm() {
     } else if (confirmAction.value === '删除') {
       await deleteTransfer(r.biz_no)
       toast.success('已删除记录')
+      // 删除后若当前页删空则回退一页
+      if (rows.value.length === 1 && page.value > 1) page.value -= 1
     }
     confirmOpen.value = false
     await reload()
@@ -391,7 +395,7 @@ async function doConfirm() {
                 <div class="text-xs dim">{{ r.paytime ?? '—' }}</div>
               </td>
               <td class="col-center">
-                <Badge :variant="transferStatus[r.status].variant">{{ transferStatus[r.status].text }}</Badge>
+                <Badge :variant="transferStatus[r.status]?.variant ?? 'muted'">{{ transferStatus[r.status]?.text ?? '未知' }}</Badge>
                 <div v-if="r.status === 2 && r.result" class="mt-1 truncate text-xs text-destructive" :title="r.result">
                   {{ r.result }}
                 </div>

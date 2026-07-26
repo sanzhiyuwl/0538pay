@@ -1658,6 +1658,18 @@ func failFromOrderErr(c *gin.Context, err error) {
 // tradeNoParam 取路径 :trade_no。
 func tradeNoParam(c *gin.Context) string { return c.Param("trade_no") }
 
+// intIDParam 解析整数型路径参数（如 :id/:uid/:gid），并校验为正整数。
+// 解析失败或 <=0 时写统一失败响应（code=400）并返回 ok=false，调用方据此直接 return，
+// 避免把无效/空 id 静默当成 0 去执行写操作（收口 #17：:id 入参校验宽松）。
+func intIDParam(c *gin.Context, name string) (int, bool) {
+	id, err := strconv.Atoi(strings.TrimSpace(c.Param(name)))
+	if err != nil || id <= 0 {
+		resp.Fail(c, 400, "无效的路径参数: "+name)
+		return 0, false
+	}
+	return id, true
+}
+
 // SetStatus PUT /api/admin/orders/:trade_no/status 裸改状态（改未完成/已完成）。
 func (h *OrderHandler) SetStatus(c *gin.Context) {
 	var req dto.OrderStatusReq

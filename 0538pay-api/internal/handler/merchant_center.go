@@ -777,7 +777,10 @@ func (h *MerchantCenterHandler) DomainDelete(c *gin.Context) {
 		resp.Fail(c, 401, "登录态异常")
 		return
 	}
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := intIDParam(c, "id")
+	if !ok {
+		return
+	}
 	if id <= 0 {
 		resp.Fail(c, 400, "参数错误")
 		return
@@ -830,7 +833,10 @@ func (h *MerchantCenterHandler) MessageRead(c *gin.Context) {
 		resp.Fail(c, 401, "登录态异常")
 		return
 	}
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := intIDParam(c, "id")
+	if !ok {
+		return
+	}
 	if id <= 0 {
 		resp.Fail(c, 400, "参数错误")
 		return

@@ -270,7 +270,7 @@ function toggleSiteStatus(s: Site) {
               </td>
               <td class="text-xs">{{ s.expireTime.slice(0, 10) }}</td>
               <td class="col-center">
-                <Badge :variant="siteStatus[s.status].variant">{{ siteStatus[s.status].text }}</Badge>
+                <Badge :variant="siteStatus[s.status]?.variant ?? 'muted'">{{ siteStatus[s.status]?.text ?? '未知' }}</Badge>
               </td>
               <td class="col-center">
                 <div class="relative inline-block">

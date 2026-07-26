@@ -128,6 +128,8 @@ async function doRowAction(d: DomainItem, key: string) {
     else if (key === 'reject') await setDomainStatus(d.id, 2)
     else if (key === 'delete') await deleteDomain(d.id)
     toast.success('操作成功')
+    // 删除后若当前页删空则回退一页
+    if (key === 'delete' && rows.value.length === 1 && page.value > 1) page.value -= 1
     await reload()
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '操作失败')
@@ -265,7 +267,7 @@ async function submitAdd() {
               <td class="text-xs">{{ d.addtime }}</td>
               <td class="text-xs">{{ d.endtime ?? '—' }}</td>
               <td class="col-center">
-                <Badge :variant="domainStatus[d.status].variant">{{ domainStatus[d.status].text }}</Badge>
+                <Badge :variant="domainStatus[d.status]?.variant ?? 'muted'">{{ domainStatus[d.status]?.text ?? '未知' }}</Badge>
               </td>
               <td class="col-center">
                 <div class="relative inline-block">

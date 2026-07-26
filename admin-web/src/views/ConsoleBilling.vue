@@ -141,7 +141,7 @@ function go(p: number) {
                 <span class="mr-0.5 text-xs font-normal text-muted-foreground">¥</span>{{ formatMoney(b.amount) }}
               </td>
               <td class="text-sm text-muted-foreground">{{ b.payMethod }}</td>
-              <td class="col-center"><Badge :variant="billStatusText[b.status as BillStatus].variant">{{ billStatusText[b.status as BillStatus].text }}</Badge></td>
+              <td class="col-center"><Badge :variant="billStatusText[b.status as BillStatus]?.variant ?? 'muted'">{{ billStatusText[b.status as BillStatus]?.text ?? '未知' }}</Badge></td>
               <td class="text-xs text-muted-foreground tabular-nums">{{ b.createTime }}</td>
             </tr>
             <tr v-if="!pageRows.length">
