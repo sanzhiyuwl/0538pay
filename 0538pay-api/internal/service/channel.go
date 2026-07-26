@@ -101,9 +101,9 @@ func (s *ChannelService) List(q dto.ChannelQuery) ([]dto.ChannelView, int64, err
 		now := time.Now()
 		today := dayStart(now)
 		yday := today.AddDate(0, 0, -1)
-		todayMap, _ = s.orders.SumPaidMoneyByChannel(today, today.AddDate(0, 0, 1))
-		ydayMap, _ = s.orders.SumPaidMoneyByChannel(yday, today)
-		rateMap, _ = s.orders.ChannelPaidRate(today, today.AddDate(0, 0, 1))
+		todayMap = aggOrWarn(s.orders.SumPaidMoneyByChannel(today, today.AddDate(0, 0, 1)))
+		ydayMap = aggOrWarn(s.orders.SumPaidMoneyByChannel(yday, today))
+		rateMap = aggOrWarn(s.orders.ChannelPaidRate(today, today.AddDate(0, 0, 1)))
 	}
 	views := make([]dto.ChannelView, 0, len(list))
 	for i := range list {

@@ -178,10 +178,10 @@ func (r *WeworkRepo) ListKfEnabled() ([]model.WxKfAccount, error) {
 	return list, err
 }
 
-// UpsertKf 按 openkfid 唯一键 upsert 客服账号（K-4 从企微 API 同步；已存在则更新名称/URL）。
+// UpsertKf 按 open_kf_id 唯一键 upsert 客服账号（K-4 从企微 API 同步；已存在则更新名称/URL）。
 func (r *WeworkRepo) UpsertKf(m *model.WxKfAccount) error {
 	var exist model.WxKfAccount
-	err := r.db.Where("openkfid = ?", m.OpenKfID).First(&exist).Error
+	err := r.db.Where("open_kf_id = ?", m.OpenKfID).First(&exist).Error
 	if err == gorm.ErrRecordNotFound {
 		return r.db.Create(m).Error
 	}
@@ -193,10 +193,10 @@ func (r *WeworkRepo) UpsertKf(m *model.WxKfAccount) error {
 	}).Error
 }
 
-// FindKfByOpenID 按 openkfid 查客服账号（K-4 lockGetMsg 取 cursor）。
+// FindKfByOpenID 按 open_kf_id 查客服账号（K-4 lockGetMsg 取 cursor）。
 func (r *WeworkRepo) FindKfByOpenID(openKfID string) (*model.WxKfAccount, error) {
 	var m model.WxKfAccount
-	err := r.db.Where("openkfid = ?", openKfID).First(&m).Error
+	err := r.db.Where("open_kf_id = ?", openKfID).First(&m).Error
 	if err == gorm.ErrRecordNotFound {
 		return nil, nil
 	}

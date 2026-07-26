@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"log"
 	"strconv"
 	"strings"
 
@@ -164,7 +165,10 @@ func (s *InviteRewardService) SettleOnPaid(uid uint, money, getMoney, profitMone
 		return
 	}
 	// 发放到上级余额 + 写"邀请返现"流水（幂等由调用方保证——每笔订单只结算一次）。
-	_ = s.accounts.ChangeUserMoney(up.UID, reward, true, inviteRewardType, tradeNo)
+	// 不阻断入账（返现是附属激励），但必须留痕：否则上级该拿的返现没到账且无从追溯。
+	if err := s.accounts.ChangeUserMoney(up.UID, reward, true, inviteRewardType, tradeNo); err != nil {
+		log.Printf("[invite] 订单 %s 邀请返现发放失败(上级 uid=%d, reward=%s): %v", tradeNo, up.UID, reward.String(), err)
+	}
 }
 
 // calcReward 三种返现口径（对齐 epay invite_order_type，配置取自上级所在组的生效值 ic）：

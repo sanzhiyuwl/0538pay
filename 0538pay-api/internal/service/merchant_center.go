@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"regexp"
 	"sort"
 	"strconv"
@@ -232,7 +233,10 @@ func (s *MerchantCenterService) CertSubmit(uid uint, req dto.CertSubmitReq) erro
 		return err
 	}
 	if certMoney.GreaterThan(decimal.Zero) {
-		_ = s.accounts.ChangeUserMoney(uid, certMoney, false, "实名认证", "")
+		// 不阻断认证成功（已核验通过），但必须留痕：否则工本费漏扣、平台少收且无从追溯。
+		if err := s.accounts.ChangeUserMoney(uid, certMoney, false, "实名认证", ""); err != nil {
+			log.Printf("[cert] 商户 uid=%d 实名工本费扣款失败(certMoney=%s): %v", uid, certMoney.String(), err)
+		}
 	}
 	return nil
 }

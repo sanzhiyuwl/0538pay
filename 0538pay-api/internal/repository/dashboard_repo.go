@@ -84,7 +84,7 @@ func (r *DashboardRepo) SumByPayType(start, end time.Time) ([]PayTypeAgg, error)
 	var rows []PayTypeAgg
 	err := r.db.Model(&model.Order{}).
 		Select("type, MAX(type_show) AS type_show, "+
-			"COALESCE(SUM(COALESCE(NULLIF(realmoney,0), money)),0) AS income, "+
+			"COALESCE(SUM(COALESCE(NULLIF(real_money,0), money)),0) AS income, "+
 			"COALESCE(SUM(profit_money),0) AS profit").
 		Where("status = 1 AND add_time >= ? AND add_time < ?", start, end).
 		Group("type").Scan(&rows).Error

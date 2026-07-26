@@ -40,17 +40,17 @@ func (s *DashboardService) Overview() (*dto.AdminDashboard, error) {
 	d := &dto.AdminDashboard{}
 
 	// —— 概况卡 ——
-	ordToday, _ := s.repo.CountOrders(-1, todayStart, todayEnd)
-	ordYday, _ := s.repo.CountOrders(-1, ydayStart, todayStart)
-	ordTotal, _ := s.repo.TotalOrders()
-	paidToday, _ := s.repo.CountOrders(1, todayStart, todayEnd)
-	paidYday, _ := s.repo.CountOrders(1, ydayStart, todayStart)
-	amtToday, _ := s.repo.SumOrderMoney("money", todayStart, todayEnd)
-	amtYday, _ := s.repo.SumOrderMoney("money", ydayStart, todayStart)
-	amtTotal, _ := s.repo.SumOrderMoney("money", farPast, farFuture)
-	profitToday, _ := s.repo.SumOrderMoney("profit_money", todayStart, todayEnd)
-	profitYday, _ := s.repo.SumOrderMoney("profit_money", ydayStart, todayStart)
-	profitTotal, _ := s.repo.SumOrderMoney("profit_money", farPast, farFuture)
+	ordToday := aggOrWarn(s.repo.CountOrders(-1, todayStart, todayEnd))
+	ordYday := aggOrWarn(s.repo.CountOrders(-1, ydayStart, todayStart))
+	ordTotal := aggOrWarn(s.repo.TotalOrders())
+	paidToday := aggOrWarn(s.repo.CountOrders(1, todayStart, todayEnd))
+	paidYday := aggOrWarn(s.repo.CountOrders(1, ydayStart, todayStart))
+	amtToday := aggOrWarn(s.repo.SumOrderMoney("money", todayStart, todayEnd))
+	amtYday := aggOrWarn(s.repo.SumOrderMoney("money", ydayStart, todayStart))
+	amtTotal := aggOrWarn(s.repo.SumOrderMoney("money", farPast, farFuture))
+	profitToday := aggOrWarn(s.repo.SumOrderMoney("profit_money", todayStart, todayEnd))
+	profitYday := aggOrWarn(s.repo.SumOrderMoney("profit_money", ydayStart, todayStart))
+	profitTotal := aggOrWarn(s.repo.SumOrderMoney("profit_money", farPast, farFuture))
 
 	d.Overview = []dto.DashOverviewCard{
 		{Label: "订单数", Today: itoa64(ordToday), Yesterday: itoa64(ordYday), TotalLabel: "累计订单", Total: itoa64(ordTotal)},
@@ -67,24 +67,24 @@ func (s *DashboardService) Overview() (*dto.AdminDashboard, error) {
 	d.SuccessRate = rate.String()
 
 	// —— 汇总数字 ——
-	d.Merchants, _ = s.repo.TotalMerchants()
+	d.Merchants = aggOrWarn(s.repo.TotalMerchants())
 	d.OrdersTotal = ordTotal
-	bal, _ := s.repo.SumMerchantBalance()
+	bal := aggOrWarn(s.repo.SumMerchantBalance())
 	d.TotalMoney = bal.StringFixed(2)
-	settled, _ := s.repo.SumSettled()
+	settled := aggOrWarn(s.repo.SumSettled())
 	d.SettledSum = settled.StringFixed(2)
 
 	// —— 待办 ——
-	d.Todo.PendingSettle, _ = s.repo.CountSettlePending()
-	d.Todo.PendingDomain, _ = s.domains.CountByStatus(0)
+	d.Todo.PendingSettle = aggOrWarn(s.repo.CountSettlePending())
+	d.Todo.PendingDomain = aggOrWarn(s.domains.CountByStatus(0))
 	d.Todo.PendingProfit = s.countPendingProfit()
-	d.Todo.UnpaidOrders, _ = s.repo.CountOrders(0, todayStart, todayEnd)
+	d.Todo.UnpaidOrders = aggOrWarn(s.repo.CountOrders(0, todayStart, todayEnd))
 
 	// —— 近 7 日趋势 ——
 	d.Trend = s.trend(todayStart)
 
 	// —— 最近订单 ——
-	orders, _ := s.repo.RecentOrders(8)
+	orders := aggOrWarn(s.repo.RecentOrders(8))
 	for i := range orders {
 		o := &orders[i]
 		d.Recent = append(d.Recent, dto.DashRecentOrder{
@@ -125,7 +125,7 @@ func (s *DashboardService) feeProfitTable(todayStart time.Time) dto.DashFeeProfi
 		dayEnd := dayStart.AddDate(0, 0, 1)
 		ft.Days = append(ft.Days, dayStart.Format("01-02"))
 		daily[idx] = map[string]cell{}
-		rows, _ := s.repo.SumByPayType(dayStart, dayEnd)
+		rows := aggOrWarn(s.repo.SumByPayType(dayStart, dayEnd))
 		for _, r := range rows {
 			name := r.TypeShow
 			if name == "" {
@@ -199,8 +199,8 @@ func (s *DashboardService) trend(todayStart time.Time) dto.DashTrend {
 	for i := 6; i >= 0; i-- {
 		dayStart := todayStart.AddDate(0, 0, -i)
 		dayEnd := dayStart.AddDate(0, 0, 1)
-		cnt, _ := s.repo.CountOrders(1, dayStart, dayEnd)
-		amt, _ := s.repo.SumOrderMoney("money", dayStart, dayEnd)
+		cnt := aggOrWarn(s.repo.CountOrders(1, dayStart, dayEnd))
+		amt := aggOrWarn(s.repo.SumOrderMoney("money", dayStart, dayEnd))
 		t.Labels = append(t.Labels, dayStart.Format("01-02"))
 		t.Orders = append(t.Orders, cnt)
 		t.Amounts = append(t.Amounts, amt.StringFixed(2))

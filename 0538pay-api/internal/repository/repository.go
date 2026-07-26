@@ -824,7 +824,7 @@ func (r *OrderRepo) SumPaidMoneyByChannel(start, end time.Time) (map[int]decimal
 func (r *OrderRepo) SumTodayPaidRealMoneyByChannel(channelID int, dayStart, dayEnd time.Time) (decimal.Decimal, error) {
 	var result struct{ Total decimal.Decimal }
 	err := r.db.Model(&model.Order{}).
-		Select("COALESCE(SUM(COALESCE(NULLIF(realmoney,0), money)),0) AS total").
+		Select("COALESCE(SUM(COALESCE(NULLIF(real_money,0), money)),0) AS total").
 		Where("channel = ? AND status = 1 AND add_time >= ? AND add_time < ?", channelID, dayStart, dayEnd).
 		Scan(&result).Error
 	return result.Total, err

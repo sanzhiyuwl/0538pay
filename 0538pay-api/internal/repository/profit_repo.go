@@ -172,7 +172,7 @@ func (r *ProfitRepo) List(q dto.PsOrderQuery) ([]model.ProfitOrder, int64, error
 func (r *ProfitRepo) profitFilters(q dto.PsOrderQuery) *gorm.DB {
 	tx := r.db.Model(&model.ProfitOrder{})
 	if q.RID != nil {
-		tx = tx.Where("rid = ?", *q.RID)
+		tx = tx.Where("r_id = ?", *q.RID)
 	}
 	if q.Status != nil && *q.Status >= 0 {
 		tx = tx.Where("status = ?", *q.Status)

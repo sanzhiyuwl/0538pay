@@ -59,12 +59,12 @@ func (s *ApiV1Service) Query(q map[string]string) map[string]interface{} {
 		return fail
 	}
 	// orders 是全部订单数(不限状态)，对齐 epay api.php query count(*)（B1-57：原用已付计数偏小）。
-	orders, _ := s.orders.CountAllByMerchant(m.UID)
+	orders := aggOrWarn(s.orders.CountAllByMerchant(m.UID))
 	// 今/昨按 status=1 精确按日统计
 	today := dayStart(time.Now())
 	yesterday := today.AddDate(0, 0, -1)
-	todayCnt, _ := s.orders.CountPaidByMerchantRange(m.UID, today, today.AddDate(0, 0, 1))
-	lastdayCnt, _ := s.orders.CountPaidByMerchantRange(m.UID, yesterday, today)
+	todayCnt := aggOrWarn(s.orders.CountPaidByMerchantRange(m.UID, today, today.AddDate(0, 0, 1)))
+	lastdayCnt := aggOrWarn(s.orders.CountPaidByMerchantRange(m.UID, yesterday, today))
 	return map[string]interface{}{
 		"code": 1, "pid": m.UID, "key": m.AppKey, "active": m.Status,
 		"money": money.String(m.Money), "type": m.SettleID,

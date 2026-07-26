@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/epvia/api/internal/channel"
@@ -71,7 +72,10 @@ func (s *PayService) Notify(ctx context.Context, tradeNo string, raw map[string]
 	if !flipped {
 		// 重复回调 / 并发：订单已终态，不重复入账。但补写缺失的 api_trade_no/buyer/bill_trade_no
 		// （A-10，对齐 epay processOrder 的 elseif 补填分支）。
-		_ = s.orders.BackfillCallbackFields(tradeNo, nr.ChannelNo, raw["buyer"], raw["bill_trade_no"])
+		if err := s.orders.BackfillCallbackFields(tradeNo, nr.ChannelNo, raw["buyer"], raw["bill_trade_no"]); err != nil {
+			// 不阻断（订单已终态），但留痕：补填失败会导致订单缺 api_trade_no，影响后续退款前置校验。
+			log.Printf("[pay_notify] 订单 %s 重复回调补填字段失败: %v", tradeNo, err)
+		}
 		return &NotifyResult{AckContent: nr.AckContent, Handled: false}, nil
 	}
 
@@ -190,7 +194,10 @@ func (s *PayService) settleAfterCredit(ctx context.Context, order *model.Order) 
 	// profitmoney=reducemoney - realmoney*通道成本费率costrate/100）。供日报利润 + 邀请返现 type=2 口径用。
 	// 无条件写库（含负值），对齐 epay processOrder:568 $DB->update('order',['profitmoney'=>...])。
 	profitMoney := s.calcProfitMoney(order)
-	_ = s.orders.SetProfitMoney(order.TradeNo, profitMoney)
+	if err := s.orders.SetProfitMoney(order.TradeNo, profitMoney); err != nil {
+		// 不阻断入账（利润为统计口径），但必须留痕：否则日报利润/type=2 返现会静默算错。
+		log.Printf("[pay_notify] 订单 %s 平台利润落库失败(profitmoney=%s): %v", order.TradeNo, profitMoney.String(), err)
+	}
 
 	// 邀请返现：下单商户若有上级(upid)，按比例实时返现到上级余额（对齐 epay functions.php 结算钩子）。
 	// 传入真实平台利润 profitMoney，供 type=2 口径按平台利润返现（对齐 epay functions.php:638-639）。
@@ -229,7 +236,10 @@ func (s *PayService) settleAfterCredit(ctx context.Context, order *model.Order) 
 		if order.RealMoney != nil && order.RealMoney.GreaterThan(decimal.Zero) {
 			realMoney = *order.RealMoney
 		}
-		_ = s.profit.CreateOrderOnPaid(order.Profits, order.TradeNo, order.APITradeNo, order.Plugin, realMoney)
+		if err := s.profit.CreateOrderOnPaid(order.Profits, order.TradeNo, order.APITradeNo, order.Plugin, realMoney); err != nil {
+			// 不回滚入账（分账可后台补建/重试），但必须留痕：否则漏建分账无从追溯。
+			log.Printf("[pay_notify] 订单 %s 分账建单失败(profits=%d): %v", order.TradeNo, order.Profits, err)
+		}
 	}
 
 	// 触发商户异步通知（A5）。失败不回滚入账，仅置重试标志，交由 cron 重试(阶段E)。
