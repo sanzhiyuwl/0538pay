@@ -33,7 +33,11 @@ type MerchantCenterService struct {
 	pay       *PayService        // 复用商户通知重发
 	certVerify *CertVerifyService // 实名第三方核验（可空；SetCertVerify 注入）
 	notice    *NoticeService     // 提现待处理管理员通知（可空；SetNoticeService 注入）
+	cfg       *ConfigService     // 全局配置（F-20 user_settings_edit 开关；可空，SetConfigService 注入）
 }
+
+// SetConfigService 注入全局配置服务（F-20 自定义接口信息编辑开关 user_settings_edit）。
+func (s *MerchantCenterService) SetConfigService(c *ConfigService) { s.cfg = c }
 
 // SetPayTypeRepo 注入支付方式名录（会员套餐可用通道费率展示，对齐 epay groupbuy.php display_info）。
 func (s *MerchantCenterService) SetPayTypeRepo(r *repository.PayTypeRepo) { s.payTypes = r }
@@ -290,15 +294,25 @@ func (s *MerchantCenterService) Recharge(uid uint, req dto.RechargeReq) (*dto.Su
 // ===== 购买会员 =====
 
 // GroupPlans 返回可购买会员套餐列表。
-func (s *MerchantCenterService) GroupPlans() ([]dto.GroupPlanView, error) {
+// 按当前商户所在组 gid 做可见性过滤（对齐 epay groupbuy.php:94-97）：
+// 组 visible 非空时，仅当商户 gid 在其逗号分隔列表内才展示，否则跳过。
+func (s *MerchantCenterService) GroupPlans(uid uint) ([]dto.GroupPlanView, error) {
 	list, err := s.groups.ListBuyable()
 	if err != nil {
 		return nil, err
+	}
+	// 取当前商户所在组 gid 作为可见性判定依据（商户不存在时按默认组 0 处理）。
+	myGID := 0
+	if m, merr := s.merchants.FindByUIDSafe(uid); merr == nil && m != nil {
+		myGID = m.GID
 	}
 	names := s.payTypeNames()
 	views := make([]dto.GroupPlanView, 0, len(list))
 	for i := range list {
 		g := &list[i]
+		if !groupVisibleTo(g.Visible, myGID) {
+			continue
+		}
 		views = append(views, dto.GroupPlanView{
 			ID: g.GID, Name: g.Name,
 			Price: g.Price.InexactFloat64(), Expire: g.Expire,
@@ -306,6 +320,22 @@ func (s *MerchantCenterService) GroupPlans() ([]dto.GroupPlanView, error) {
 		})
 	}
 	return views, nil
+}
+
+// groupVisibleTo 判断某组是否对所在组为 myGID 的商户可见（对齐 epay groupbuy.php:95-97）。
+// visible 为空 → 全部可见；非空 → 仅当 myGID 在逗号分隔列表内才可见。
+func groupVisibleTo(visible string, myGID int) bool {
+	visible = strings.TrimSpace(visible)
+	if visible == "" {
+		return true
+	}
+	me := strconv.Itoa(myGID)
+	for _, part := range strings.Split(visible, ",") {
+		if strings.TrimSpace(part) == me {
+			return true
+		}
+	}
+	return false
 }
 
 // payTypeNames 返回 支付方式ID → 显示名（showname）映射；repo 未注入或查询失败返回空表。
@@ -367,9 +397,13 @@ func (s *MerchantCenterService) BuyGroup(uid uint, req dto.GroupBuyReq) error {
 		return maErr("您已是该会员且为永久有效")
 	}
 
+	// 购买月数 1-300（对齐 epay ajax2.php:640 `if($num<=0 || $num>300)`）。
 	num := req.Num
 	if num < 1 {
 		num = 1
+	}
+	if num > 300 {
+		return maErr("购买数量超出范围（1-300）")
 	}
 	price := g.Price
 	var endTime *time.Time
@@ -403,7 +437,10 @@ func (s *MerchantCenterService) BuyGroup(uid uint, req dto.GroupBuyReq) error {
 // info 主格式为 epay 的通道分配 map：{"支付方式ID":{"channel","rate","type"}}。
 //   - channel=="0"：该支付方式在本组未开通，跳过（对齐 epay `if($v['channel']==0)continue`）。
 //   - 其余（-1随机 / -2子通道 / 正整数固定通道或轮询组）：显示「支付方式名(费率%)」。
-//     费率取组级覆盖 rate（0538pay 存直白费率百分数，非 epay 的 100-rate 让利值）；rate 为空则只显示方式名。
+//     费率数值原样取组级覆盖 rate，与后台 Groups.vue 编辑页口径一致；rate 为空则只显示方式名。
+//   - ⚠️ 费率口径存在历史矛盾：calcFee 按 epay「到账比例」用 rate（getmoney=money*rate/100），
+//     但 seed 与后台编辑页按「费率%」填写小数值，两者语义相反。展示层不擅自换算，
+//     统一待优化待办 #14 专项核对后再定，避免与后台展示不一致。
 //   - label 用 pay_type.showname；名录缺失时回退「支付方式#ID」保证不空白。
 //
 // 兼容旧的数组格式 [{label,rate}]（早期 mock 残留）：解析成功即原样返回。
@@ -435,6 +472,7 @@ func groupRateLabels(info string, names map[int]string) []dto.GroupRateItem {
 			if _, ok := parseRateOverride(rate); !ok {
 				rate = "" // 无有效组级覆盖 → 费率随通道默认，此处不展示具体数值
 			}
+			// 费率数值口径与后台 Groups.vue 编辑页保持一致，原样展示（详见优化待办 #14 口径核对）。
 			items = append(items, dto.GroupRateItem{Label: label, Rate: rate})
 		}
 		return items
@@ -1123,6 +1161,96 @@ func (s *MerchantCenterService) SaveMsgConfig(uid uint, cfg string) error {
 		return maErr("消息配置不是合法 JSON")
 	}
 	return s.merchants.UpdateFields(uid, map[string]interface{}{"msgconfig": cfg})
+}
+
+// groupSettingsTemplate 取商户所在组的 settings 模板（对齐 epay：组无则回落 gid=0 默认组）。
+// 模板格式：逗号分隔的 "key:label" 段，如 "wxappid:微信AppID,mchid:商户号"。
+func (s *MerchantCenterService) groupSettingsTemplate(gid int) []dto.ChannelInfoField {
+	raw := ""
+	if g, err := s.groups.FindByID(gid); err == nil && g != nil {
+		raw = strings.TrimSpace(g.Settings)
+	}
+	if raw == "" && gid != 0 {
+		if g, err := s.groups.FindByID(0); err == nil && g != nil {
+			raw = strings.TrimSpace(g.Settings)
+		}
+	}
+	fields := []dto.ChannelInfoField{}
+	if raw == "" {
+		return fields
+	}
+	for _, seg := range strings.Split(raw, ",") {
+		seg = strings.TrimSpace(seg)
+		if seg == "" {
+			continue
+		}
+		kv := strings.SplitN(seg, ":", 2)
+		key := strings.TrimSpace(kv[0])
+		if key == "" {
+			continue
+		}
+		label := key
+		if len(kv) == 2 && strings.TrimSpace(kv[1]) != "" {
+			label = strings.TrimSpace(kv[1])
+		}
+		fields = append(fields, dto.ChannelInfoField{Key: key, Label: label})
+	}
+	return fields
+}
+
+// GetChannelInfo 返回自定义接口信息设置（F-20，对齐 epay editinfo edit_channel_info）：
+// 按商户所在用户组的 settings 模板展开字段，并回填商户 channelinfo 里的当前值。
+// 全局 user_settings_edit=0 时 Editable=false（前端置只读/隐藏保存）。
+func (s *MerchantCenterService) GetChannelInfo(uid uint) (*dto.ChannelInfoView, error) {
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, maErr("商户不存在")
+	}
+	fields := s.groupSettingsTemplate(m.GID)
+	// 回填当前值。
+	cur := map[string]string{}
+	if strings.TrimSpace(m.ChannelInfo) != "" {
+		_ = json.Unmarshal([]byte(m.ChannelInfo), &cur)
+	}
+	for i := range fields {
+		fields[i].Value = cur[fields[i].Key]
+	}
+	return &dto.ChannelInfoView{
+		Editable: s.cfg != nil && s.cfg.Int("user_settings_edit", 0) == 1,
+		Fields:   fields,
+	}, nil
+}
+
+// SaveChannelInfo 保存自定义接口信息（F-20，对齐 epay ajax2 edit_channel_info：json_encode 存 user.channelinfo）。
+// 仅接受组模板内定义的键（防止越权写入任意字段）；全局开关关闭时拒绝。
+func (s *MerchantCenterService) SaveChannelInfo(uid uint, req dto.ChannelInfoReq) error {
+	if s.cfg == nil || s.cfg.Int("user_settings_edit", 0) != 1 {
+		return maErr("管理员未开放自定义接口信息编辑")
+	}
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return maErr("商户不存在")
+	}
+	// 用组模板定义的键做白名单，逐段取值（对齐 epay 只回填模板内字段）。
+	allowed := s.groupSettingsTemplate(m.GID)
+	if len(allowed) == 0 {
+		return maErr("当前用户组未定义自定义接口字段")
+	}
+	out := map[string]string{}
+	for _, f := range allowed {
+		out[f.Key] = strings.TrimSpace(req.Settings[f.Key])
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return maErr("参数序列化失败")
+	}
+	return s.merchants.UpdateFields(uid, map[string]interface{}{"channelinfo": string(b)})
 }
 
 // ChangePassword 修改登录密码（bcrypt）。已设密码则校验旧密码。

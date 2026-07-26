@@ -5,6 +5,7 @@ import "testing"
 // TestGroupRateLabels 校验会员套餐「可用支付通道及费率」标签解析（对齐 epay groupbuy.php display_info）：
 //   - epay map 格式 {"支付方式ID":{channel,rate}}；channel=="0"/"" 跳过（未开通）；
 //   - 其余（-1随机 / -2子通道 / 正整数固定/轮询）显示「支付方式名(费率%)」；
+//   - 费率数值原样展示（与后台 Groups.vue 口径一致，口径核对见优化待办 #14）；
 //   - rate 为空或非法 → 展示为空串（随通道默认费率）；
 //   - 支付方式名录缺失 → 回退「支付方式#ID」；输出按ID升序稳定。
 func TestGroupRateLabels(t *testing.T) {

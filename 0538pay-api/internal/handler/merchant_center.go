@@ -109,6 +109,27 @@ func (h *MerchantCenterHandler) Orders(c *gin.Context) {
 	resp.Page(c, list, total, q.Page, q.PageSize)
 }
 
+// OrderStats GET /api/merchant/orders/stats 商户订单统计概况（服务端聚合，含 platformProfit）。
+// 对齐 epay user/ajax2.php statistics（F-13）。
+func (h *MerchantCenterHandler) OrderStats(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var q dto.OrderQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	stats, err := h.orderSvc.StatsByMerchant(uid, q)
+	if err != nil {
+		resp.Fail(c, 1102, "统计失败: "+err.Error())
+		return
+	}
+	resp.OK(c, stats)
+}
+
 // Records GET /api/merchant/records 资金流水（分页）
 func (h *MerchantCenterHandler) Records(c *gin.Context) {
 	uid, ok := currentUID(c)
@@ -353,6 +374,40 @@ func (h *MerchantCenterHandler) SaveMsgConfig(c *gin.Context) {
 	resp.OK(c, gin.H{"ok": true})
 }
 
+// ChannelInfo GET /api/merchant/channelinfo 读自定义接口信息设置（F-20，对齐 epay editinfo edit_channel_info）。
+func (h *MerchantCenterHandler) ChannelInfo(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	view, err := h.svc.GetChannelInfo(uid)
+	if err != nil {
+		failMC(c, err)
+		return
+	}
+	resp.OK(c, view)
+}
+
+// SaveChannelInfo PUT /api/merchant/channelinfo 存自定义接口信息设置（F-20）。
+func (h *MerchantCenterHandler) SaveChannelInfo(c *gin.Context) {
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "登录态异常")
+		return
+	}
+	var req dto.ChannelInfoReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.svc.SaveChannelInfo(uid, req); err != nil {
+		failMC(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}
+
 // ChangePassword PUT /api/merchant/password 修改登录密码
 func (h *MerchantCenterHandler) ChangePassword(c *gin.Context) {
 	uid, ok := currentUID(c)
@@ -533,7 +588,7 @@ func (h *MerchantCenterHandler) GroupPlans(c *gin.Context) {
 		resp.Fail(c, 401, "登录态异常")
 		return
 	}
-	plans, err := h.svc.GroupPlans()
+	plans, err := h.svc.GroupPlans(uid)
 	if err != nil {
 		failMC(c, err)
 		return

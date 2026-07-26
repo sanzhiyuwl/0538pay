@@ -74,11 +74,36 @@ export interface MerchantOrderParams {
   column?: string
   keyword?: string
   status?: number
+  type?: number
+  channel?: number
+  starttime?: string
+  endtime?: string
+}
+
+/** 商户订单统计概况（对齐后端 dto.OrderStats，F-13） */
+export interface MerchantOrderStats {
+  totalMoney: number
+  successMoney: number
+  unpaidMoney: number
+  refundMoney: number
+  platformProfit: number
+  totalCount: number
+  successCount: number
+  unpaidCount: number
+  refundCount: number
+  successRate: number
 }
 export function fetchMerchantOrders(
   params: MerchantOrderParams = {},
 ): Promise<PageResult<Order>> {
   return request<PageResult<Order>>('/merchant/orders', { query: { ...params } })
+}
+
+/** 商户订单统计概况（服务端聚合，含 platformProfit；F-13，对齐 epay statistics）。 */
+export function fetchMerchantOrderStats(
+  params: MerchantOrderParams = {},
+): Promise<MerchantOrderStats> {
+  return request<MerchantOrderStats>('/merchant/orders/stats', { query: { ...params } })
 }
 
 /** 订单退款（全额） */
@@ -194,6 +219,28 @@ export function saveMsgConfig(msgconfig: string): Promise<{ ok: boolean }> {
 // D-3 换绑手机/邮箱（登录密码二次确认）
 export function rebindContact(field: 'phone' | 'email', value: string, password: string): Promise<{ ok: boolean }> {
   return request('/merchant/rebind', { method: 'POST', body: { field, value, password } })
+}
+
+// F-20 自定义接口信息设置（对齐 epay editinfo edit_channel_info，按用户组 settings 模板动态渲染）
+export interface ChannelInfoField {
+  key: string
+  label: string
+  value: string
+}
+export interface ChannelInfoView {
+  editable: boolean
+  fields: ChannelInfoField[]
+}
+export function fetchChannelInfo(): Promise<ChannelInfoView> {
+  return request('/merchant/channelinfo')
+}
+export function saveChannelInfo(settings: Record<string, string>): Promise<{ ok: boolean }> {
+  return request('/merchant/channelinfo', { method: 'PUT', body: { settings } })
+}
+
+/** 解绑第三方账号（F-10，对齐 epay editinfo ?unbind=1 清 openid 列）。 */
+export function unbindOAuth(provider: 'qq' | 'wx' | 'alipay'): Promise<{ provider: string }> {
+  return request('/merchant/oauth/unbind', { method: 'POST', body: { provider } })
 }
 
 export function changePassword(oldpwd: string, newpwd: string): Promise<{ ok: boolean }> {

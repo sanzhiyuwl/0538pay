@@ -44,17 +44,21 @@ function openBuy(p: GroupPlan) {
   buyOpen.value = true
 }
 const isRenew = computed(() => !!plan.value && plan.value.id === current.value.gid)
+// 当前组对应的可购买套餐：存在则说明当前组 isbuy=1 且有到期概念，可续期（对齐 epay groupbuy.php:49）。
+const currentPlan = computed(() => plans.value.find((p) => p.id === current.value.gid) ?? null)
 // 默认用户组（gid=0）：epay 自带的免费基础组，随机通道+默认费率开箱即用，无到期概念。
 const isDefaultGroup = computed(() => current.value.gid === 0)
 const totalPrice = computed(() => {
   if (!plan.value) return 0
   return plan.value.expire === 0 ? plan.value.price : plan.value.price * num.value
 })
+// 购买月数 1-300（对齐 epay ajax2.php:640）
+const MAX_NUM = 300
 function decNum() {
   if (num.value > 1) num.value--
 }
 function incNum() {
-  num.value++
+  if (num.value < MAX_NUM) num.value++
 }
 async function submitBuy() {
   if (!plan.value || busy.value) return
@@ -98,6 +102,8 @@ async function submitBuy() {
             <CalendarClock class="size-4" />
             <span>到期时间</span>
             <span class="font-medium text-foreground tabular-nums">{{ current.expire }}</span>
+            <!-- 续期入口（对齐 epay groupbuy.php:49：有到期时间且当前组可购买时展示）-->
+            <Button v-if="currentPlan" variant="outline" size="sm" class="ml-1" @click="openBuy(currentPlan)">续期</Button>
           </template>
         </div>
       </div>
@@ -209,7 +215,7 @@ async function submitBuy() {
             <div class="flex items-center border border-border">
               <button class="flex size-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent disabled:opacity-40" :disabled="num <= 1" @click="decNum"><Minus class="size-4" /></button>
               <span class="w-12 text-center tabular-nums">{{ num }}</span>
-              <button class="flex size-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent" @click="incNum"><Plus class="size-4" /></button>
+              <button class="flex size-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent disabled:opacity-40" :disabled="num >= MAX_NUM" @click="incNum"><Plus class="size-4" /></button>
             </div>
             <span class="text-sm text-muted-foreground">个月</span>
           </div>
