@@ -5,3 +5,8 @@ import { request } from './client'
 export function cleanData(target: string, days: number): Promise<{ deleted: number }> {
   return request('/admin/clean', { method: 'POST', body: { target, days } })
 }
+
+/** 清理系统设置缓存（对齐 epay clean.php mod=cleancache）。 */
+export function cleanCache(): Promise<{ ok: boolean }> {
+  return request('/admin/clean/cache', { method: 'POST' })
+}

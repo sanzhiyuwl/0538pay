@@ -13,7 +13,16 @@ import {
   bindConfig,
 } from '@/lib/mock/merchant/profile'
 import { fetchMerchantInfo } from '@/lib/api/merchantAuth'
-import { updateProfile, fetchMsgConfig, saveMsgConfig, rebindContact } from '@/lib/api/merchantCenter'
+import {
+  updateProfile,
+  fetchMsgConfig,
+  saveMsgConfig,
+  rebindContact,
+  unbindOAuth,
+  fetchChannelInfo,
+  saveChannelInfo,
+  type ChannelInfoField,
+} from '@/lib/api/merchantCenter'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 import { useMerchantAuthStore } from '@/stores/merchantAuth'
@@ -23,9 +32,13 @@ const merchantAuth = useMerchantAuthStore()
 
 const settle = reactive({ ...settleConfig })
 const contact = reactive({ ...contactConfig })
-const msg = reactive({ ...msgConfig })
+// F-11：补齐 epay edit_msgconfig 的 complain/mchrisk/order_money 三项
+const msg = reactive({ ...msgConfig, notice_complain: '0', notice_mchrisk: '0' })
 const mode = reactive({ ...modeConfig })
 const binds = reactive({ ...bindConfig }) // 第三方绑定：绑定跳转需真实 OAuth 凭证
+
+// F-20 自定义接口信息设置（对齐 epay editinfo edit_channel_info）：字段由用户组模板决定，管理员未开放时只读/隐藏
+const channelInfo = reactive<{ editable: boolean; fields: ChannelInfoField[] }>({ editable: false, fields: [] })
 
 // 收款账号原值快照（判断是否改动结算落点，改了才需登录密码二次确认，对齐后端 F-1）。
 const settleOrigin = reactive({ stype: '', account: '', username: '' })
@@ -56,6 +69,10 @@ onMounted(async () => {
     contact.transfer = info.transfer === 1
     contact.remain_money = info.remain_money || '0.00'
     mode.mode = String(info.mode || 0)
+    // 第三方绑定状态（F-10，后端 bind_* 布尔）
+    binds.qq.bound = info.bind_qq
+    binds.wx.bound = info.bind_wx
+    binds.alipay.bound = info.bind_alipay
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '资料加载失败')
   }
@@ -68,8 +85,35 @@ onMounted(async () => {
     msg.notice_login = !!c.login
     msg.notice_balance = !!c.balance
     if (c.balance_threshold) msg.notice_balance_money = String(c.balance_threshold)
+    // F-11：交易投诉/渠道违规/通知订单金额大于
+    msg.notice_complain = String(c.complain ?? 0)
+    msg.notice_mchrisk = String(c.mchrisk ?? 0)
+    if (c.order_money != null) msg.notice_order_money = String(c.order_money)
   } catch { /* 用默认 */ }
+  // F-20 加载自定义接口信息（用户组模板 + 当前值）
+  try {
+    const ci = await fetchChannelInfo()
+    channelInfo.editable = ci.editable
+    channelInfo.fields = ci.fields || []
+  } catch { /* 无模板/未开放则不展示 */ }
 })
+
+// F-20 保存自定义接口信息
+const savingChannelInfo = ref(false)
+async function saveChannelInfoForm() {
+  if (savingChannelInfo.value) return
+  savingChannelInfo.value = true
+  try {
+    const settings: Record<string, string> = {}
+    channelInfo.fields.forEach((f) => { settings[f.key] = f.value })
+    await saveChannelInfo(settings)
+    toast.success('自定义接口信息已保存')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    savingChannelInfo.value = false
+  }
+}
 
 // D-3 保存消息提醒
 const savingMsg = ref(false)
@@ -81,6 +125,9 @@ async function saveMsg() {
       order: msg.notice_order ? 1 : 0,
       settle: msg.notice_settle ? 1 : 0,
       login: msg.notice_login ? 1 : 0,
+      complain: Number(msg.notice_complain) || 0,
+      mchrisk: Number(msg.notice_mchrisk) || 0,
+      order_money: msg.notice_order ? msg.notice_order_money : '',
       balance: msg.notice_balance ? 1 : 0,
       balance_threshold: msg.notice_balance ? msg.notice_balance_money : '',
     })
@@ -185,13 +232,45 @@ async function save() {
     saving.value = false
   }
 }
+// F-11 交易投诉/渠道违规通知渠道选项（对齐 epay editinfo notice_complain/notice_mchrisk）
+const complainOptions = [
+  { value: '0', label: '关闭' },
+  { value: '1', label: '开启 - 微信公众号' },
+  { value: '2', label: '开启 - 邮件' },
+  { value: '3', label: '开启 - 短信' },
+  { value: '4', label: '开启 - 企业微信' },
+]
+const mchriskOptions = [
+  { value: '0', label: '关闭' },
+  { value: '2', label: '开启 - 邮件' },
+]
 const socials = [
   { key: 'qq', label: 'QQ', color: 'text-[#12b7f5]' },
   { key: 'wx', label: '微信', color: 'text-[#07c160]' },
   { key: 'alipay', label: '支付宝', color: 'text-[#1677ff]' },
 ] as const
-function toggleBind(key: 'qq' | 'wx' | 'alipay') {
-  binds[key].bound = !binds[key].bound
+const bindBusy = ref(false)
+async function toggleBind(key: 'qq' | 'wx' | 'alipay') {
+  if (bindBusy.value) return
+  const label = socials.find((s) => s.key === key)?.label ?? ''
+  if (binds[key].bound) {
+    // 解绑：调真接口清 openid 列（对齐 epay editinfo ?unbind=1）
+    if (!window.confirm(`解绑后将无法通过${label}一键登录，是否确定解绑？`)) return
+    bindBusy.value = true
+    try {
+      await unbindOAuth(key)
+      binds[key].bound = false
+      binds[key].nick = ''
+      toast.success(`已解绑${label}`)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : '解绑失败')
+    } finally {
+      bindBusy.value = false
+    }
+  } else {
+    // 绑定：需跳转真实第三方授权，依赖 OAuth 凭证（乙类）
+    toast.info(`${label}绑定需跳转授权，待配置对应快捷登录凭证后开放`)
+  }
 }
 </script>
 
@@ -301,6 +380,14 @@ function toggleBind(key: 'qq' | 'wx' | 'alipay') {
         </div>
         <div class="row-switch"><span>结算通知</span><Switch v-model="msg.notice_settle" /></div>
         <div class="row-switch"><span>登录通知</span><Switch v-model="msg.notice_login" /></div>
+        <div class="row-field">
+          <label class="lbl">交易投诉通知</label>
+          <Select v-model="msg.notice_complain" :options="complainOptions" class="flex-1" />
+        </div>
+        <div class="row-field">
+          <label class="lbl">渠道违规通知</label>
+          <Select v-model="msg.notice_mchrisk" :options="mchriskOptions" class="flex-1" />
+        </div>
         <div class="row-switch"><span>余额不足提醒</span><Switch v-model="msg.notice_balance" /></div>
         <div v-if="msg.notice_balance" class="row-field">
           <label class="lbl">余额小于</label>
@@ -311,6 +398,26 @@ function toggleBind(key: 'qq' | 'wx' | 'alipay') {
         </div>
       </div>
       <div class="mt-5 border-t border-border/60 pt-4"><Button :disabled="savingMsg" @click="saveMsg"><Save />保存消息提醒</Button></div>
+    </Panel>
+
+    <!-- F-20 自定义接口信息设置（字段由用户组模板决定，无模板则整块不渲染） -->
+    <Panel
+      v-if="channelInfo.fields.length"
+      title="自定义接口信息设置"
+      subtitle="由所属用户组配置的接口参数，用于对接指定支付通道"
+    >
+      <div class="max-w-2xl space-y-3.5">
+        <div v-if="!channelInfo.editable" class="bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          管理员未开放自定义接口信息编辑，以下内容仅供查看。
+        </div>
+        <div v-for="f in channelInfo.fields" :key="f.key" class="row-field">
+          <label class="lbl">{{ f.label }}</label>
+          <input v-model="f.value" :disabled="!channelInfo.editable" class="field-input flex-1" />
+        </div>
+      </div>
+      <div v-if="channelInfo.editable" class="mt-5 border-t border-border/60 pt-4">
+        <Button :disabled="savingChannelInfo" @click="saveChannelInfoForm"><Save />保存接口信息</Button>
+      </div>
     </Panel>
 
     <!-- 手续费扣除模式 -->
@@ -342,6 +449,7 @@ function toggleBind(key: 'qq' | 'wx' | 'alipay') {
           <Button
             :variant="binds[s.key].bound ? 'outline' : 'default'"
             size="sm"
+            :disabled="bindBusy"
             :class="binds[s.key].bound ? 'text-destructive hover:text-destructive' : undefined"
             @click="toggleBind(s.key)"
           >

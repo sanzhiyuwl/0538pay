@@ -160,6 +160,16 @@ func (s *OAuthService) Bind(provider, openid string, loginReq dto.MerchantLoginR
 	return &dto.OAuthResult{Token: loginResp.Token, Info: &info}, nil
 }
 
+// Unbind 解绑当前商户的第三方账号（对齐 epay editinfo 解绑：connect/wxlogin/oauth ?unbind=1 置 NULL）。
+// 商户登录态下操作，仅清自己的 openid 列。
+func (s *OAuthService) Unbind(uid uint, provider string) error {
+	col, ok := providerColumn(provider)
+	if !ok {
+		return maErr("不支持的快捷登录方式")
+	}
+	return s.repo.UnbindOAuth(uid, col)
+}
+
 // exchangeOpenID 用授权 code 换取第三方唯一标识 openid/user_id（对齐 epay 各 SDK）。
 // 真实调用需真实凭证；无凭证时第三方会返回错误，如实上抛。
 func (s *OAuthService) exchangeOpenID(ctx context.Context, provider, code, redirectURI string) (string, error) {

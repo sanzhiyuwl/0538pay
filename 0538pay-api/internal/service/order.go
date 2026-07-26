@@ -83,6 +83,13 @@ func (s *OrderService) ListByMerchant(uid uint, q dto.OrderQuery) ([]dto.OrderVi
 	return s.List(q)
 }
 
+// StatsByMerchant 商户端订单统计概况：强制限定当前商户 uid（含 platformProfit，对齐 epay statistics）。
+func (s *OrderService) StatsByMerchant(uid uint, q dto.OrderQuery) (dto.OrderStats, error) {
+	q.UID = &uid
+	q.Normalize()
+	return s.Stats(q)
+}
+
 func toOrderView(o *model.Order) dto.OrderView {
 	v := dto.OrderView{
 		TradeNo:     o.TradeNo,

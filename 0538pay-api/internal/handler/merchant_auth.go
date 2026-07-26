@@ -119,6 +119,31 @@ func (h *MerchantAuthHandler) OAuthBind(c *gin.Context) {
 	resp.OK(c, out)
 }
 
+// OAuthUnbind POST /api/merchant/oauth/unbind 解绑当前商户的第三方账号（登录态，对齐 epay editinfo 解绑）。
+func (h *MerchantAuthHandler) OAuthUnbind(c *gin.Context) {
+	if h.oauth == nil {
+		resp.Fail(c, 1101, "快捷登录未启用")
+		return
+	}
+	uid, ok := currentUID(c)
+	if !ok {
+		resp.Fail(c, 401, "未登录")
+		return
+	}
+	var req struct {
+		Provider string `json:"provider" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.oauth.Unbind(uid, req.Provider); err != nil {
+		failFromMerchantAuthErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"provider": req.Provider})
+}
+
 func NewMerchantAuthHandler(svc *service.MerchantAuthService) *MerchantAuthHandler {
 	return &MerchantAuthHandler{svc: svc}
 }

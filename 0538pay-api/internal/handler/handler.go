@@ -780,6 +780,20 @@ func (h *RecordHandler) Stats(c *gin.Context) {
 	resp.OK(c, stats)
 }
 
+// Delete DELETE /api/admin/records/:id 删除单条资金流水（对齐 epay admin delRecord）。
+func (h *RecordHandler) Delete(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		resp.Fail(c, 400, "参数错误")
+		return
+	}
+	if err := h.svc.Delete(uint(id)); err != nil {
+		resp.Fail(c, 1005, "删除失败: "+err.Error())
+		return
+	}
+	resp.OK(c, gin.H{"id": id})
+}
+
 // TransferHandler 代付/转账接口（后台 + 商户端，对齐 epay transfer）。
 type TransferHandler struct {
 	svc *service.TransferService

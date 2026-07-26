@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { Search, RotateCcw, Download, BarChart3, ArrowUpRight, ArrowDownRight } from 'lucide-vue-next'
-import { Panel, Button, Select, DateRange, Pagination } from '@/components/ui'
-import { fetchRecords, fetchRecordStats, type FundRecord, type RecordStats } from '@/lib/api/records'
+import { Search, RotateCcw, Download, BarChart3, ArrowUpRight, ArrowDownRight, Trash2 } from 'lucide-vue-next'
+import { Panel, Button, Select, DateRange, Pagination, Modal } from '@/components/ui'
+import { fetchRecords, fetchRecordStats, deleteRecord, type FundRecord, type RecordStats } from '@/lib/api/records'
 import { ApiError } from '@/lib/api/client'
 import { formatMoney, exportCsv } from '@/lib/utils'
 import { useToast } from '@/composables/useToast'
@@ -147,6 +147,34 @@ async function toggleStats() {
     }
   }
 }
+
+// ===== 删除单条流水（对齐 epay admin/ajax_user.php delRecord）=====
+const delOpen = ref(false)
+const delRow = ref<FundRecord | null>(null)
+const deleting = ref(false)
+
+function askDelete(r: FundRecord) {
+  delRow.value = r
+  delOpen.value = true
+}
+
+async function doDelete() {
+  const r = delRow.value
+  if (!r || deleting.value) return
+  deleting.value = true
+  try {
+    await deleteRecord(r.id)
+    toast.success('已删除该条流水')
+    delOpen.value = false
+    // 若当前页删空则回退一页
+    if (rows.value.length === 1 && page.value > 1) page.value -= 1
+    load()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '删除失败')
+  } finally {
+    deleting.value = false
+  }
+}
 </script>
 
 <template>
@@ -220,13 +248,14 @@ async function toggleStats() {
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
-              <th class="w-[10%]">商户号</th>
-              <th class="w-[16%]">操作类型</th>
-              <th class="w-[15%]">变更金额</th>
-              <th class="w-[14%]">变更前余额</th>
-              <th class="w-[14%]">变更后余额</th>
-              <th class="w-[16%]">时间</th>
-              <th class="w-[15%]">关联订单号</th>
+              <th class="w-[9%]">商户号</th>
+              <th class="w-[15%]">操作类型</th>
+              <th class="w-[14%]">变更金额</th>
+              <th class="w-[13%]">变更前余额</th>
+              <th class="w-[13%]">变更后余额</th>
+              <th class="w-[15%]">时间</th>
+              <th class="w-[13%]">关联订单号</th>
+              <th class="w-[8%] text-center">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -252,12 +281,21 @@ async function toggleStats() {
                 <span v-if="r.trade_no" class="truncate text-primary">{{ r.trade_no }}</span>
                 <span v-else class="dim">无</span>
               </td>
+              <td class="text-center">
+                <button
+                  class="inline-flex items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:text-destructive"
+                  title="删除该条流水"
+                  @click="askDelete(r)"
+                >
+                  <Trash2 class="size-3.5" />
+                </button>
+              </td>
             </tr>
             <tr v-if="loading">
-              <td colspan="7" class="py-10 text-center dim">加载中…</td>
+              <td colspan="8" class="py-10 text-center dim">加载中…</td>
             </tr>
             <tr v-else-if="!rows.length">
-              <td colspan="7" class="py-10 text-center dim">没有符合条件的资金明细</td>
+              <td colspan="8" class="py-10 text-center dim">没有符合条件的资金明细</td>
             </tr>
           </tbody>
         </table>
@@ -267,5 +305,16 @@ async function toggleStats() {
         <Pagination :page="page" :page-count="Math.max(1, Math.ceil(total / pageSize))" :total="total" :page-size="pageSize" @change="go" />
       </div>
     </Panel>
+
+    <!-- 删除确认 -->
+    <Modal v-model="delOpen" title="删除流水确认" width="max-w-md">
+      <p class="text-sm text-muted-foreground">
+        确认删除该条资金流水？删除后仅移除该条记录，不产生资金回滚，请谨慎操作。此操作不可撤销。
+      </p>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="delOpen = false">取消</Button>
+        <Button variant="destructive" size="sm" :disabled="deleting" @click="doDelete">确认删除</Button>
+      </template>
+    </Modal>
   </div>
 </template>

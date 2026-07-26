@@ -44,3 +44,8 @@ export function fetchRecords(params: RecordListParams = {}): Promise<PageResult<
 export function fetchRecordStats(params: RecordListParams = {}): Promise<RecordStats> {
   return request<RecordStats>('/admin/records/stats', { query: { ...params } })
 }
+
+/** 删除单条资金流水（对齐 epay admin/ajax_user.php delRecord） */
+export function deleteRecord(id: number): Promise<{ id: number }> {
+  return request<{ id: number }>(`/admin/records/${id}`, { method: 'DELETE' })
+}

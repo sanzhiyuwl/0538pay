@@ -41,6 +41,11 @@ func (s *RecordService) list(q dto.RecordQuery) ([]dto.RecordView, int64, error)
 	return views, total, nil
 }
 
+// Delete 按 id 删除单条资金流水（对齐 epay admin delRecord，仅后台）。
+func (s *RecordService) Delete(id uint) error {
+	return s.repo.Delete(id)
+}
+
 // Stats 后台资金明细统计（当前筛选条件下的增/减金额与笔数）。
 func (s *RecordService) Stats(q dto.RecordQuery) (dto.RecordStats, error) {
 	q.Normalize()

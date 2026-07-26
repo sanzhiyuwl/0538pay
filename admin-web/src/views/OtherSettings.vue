@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { Save, Plug } from 'lucide-vue-next'
+import { Save, Plug, Radar } from 'lucide-vue-next'
 import { Panel, Button, Select, Switch } from '@/components/ui'
 import { otherSettingTabs, proxyTypeOptions, ipTypeOptions } from '@/lib/mock/sysconfig'
-import { fetchConfig, saveConfig } from '@/lib/api/config'
+import { fetchConfig, saveConfig, detectIPType, type IPTypeProbe } from '@/lib/api/config'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 
@@ -44,6 +44,33 @@ async function save() {
     toast.error(e instanceof ApiError ? e.message : '保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+// ===== 真实 IP 探测（F-9，对齐 epay set.php mod=iptype）=====
+const probing = ref(false)
+const probes = ref<IPTypeProbe[]>([])
+// 探测行的 name 前缀数字 → ip_type 取值，方便一键采用
+const probeTypeMap: Record<string, string> = { '0': '0', '1': '1', '2': '2' }
+
+async function detectIp() {
+  if (probing.value) return
+  probing.value = true
+  try {
+    probes.value = await detectIPType()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '探测失败')
+    probes.value = []
+  } finally {
+    probing.value = false
+  }
+}
+
+function adoptProbe(p: IPTypeProbe) {
+  const key = p.name.charAt(0)
+  if (probeTypeMap[key]) {
+    ip.ip_type = probeTypeMap[key]
+    toast.success(`已选用 ${p.name}，记得点保存生效`)
   }
 }
 </script>
@@ -107,6 +134,39 @@ async function save() {
         <p class="text-xs text-muted-foreground">
           用于防止伪造 IP 请求。使用 CDN 时选 X_REAL_IP；无 CDN 建议选 REMOTE_ADDR。请选择能显示真实地址的选项。
         </p>
+
+        <!-- 探测：三种取值方式各自解析到的真实 IP 与归属地（对齐 epay ajax.php iptype）-->
+        <div class="rounded-md bg-muted/40 p-3.5">
+          <div class="mb-2 flex items-center justify-between">
+            <span class="text-sm font-medium">真实 IP 探测</span>
+            <Button variant="outline" size="sm" :disabled="probing" @click="detectIp">
+              <Radar />{{ probing ? '探测中…' : '开始探测' }}
+            </Button>
+          </div>
+          <p v-if="!probes.length && !probing" class="text-xs text-muted-foreground">
+            点击「开始探测」，用你当前的访问请求测出三种取值方式各自解析到的 IP 与归属地，选出能显示你真实地址的那种。
+          </p>
+          <table v-else-if="probes.length" class="tbl w-full">
+            <thead>
+              <tr>
+                <th class="w-[34%]">取值方式</th>
+                <th class="w-[26%]">解析 IP</th>
+                <th class="w-[24%]">归属地</th>
+                <th class="w-[16%] text-center">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in probes" :key="p.name">
+                <td class="font-mono text-xs">{{ p.name }}</td>
+                <td class="tabular-nums">{{ p.ip || '—' }}</td>
+                <td>{{ p.city || '—' }}</td>
+                <td class="text-center">
+                  <button class="text-xs text-primary hover:underline" @click="adoptProbe(p)">选用</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <!-- 保存 -->

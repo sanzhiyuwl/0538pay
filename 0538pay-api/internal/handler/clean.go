@@ -32,3 +32,12 @@ func (h *CleanHandler) Clean(c *gin.Context) {
 	}
 	resp.OK(c, gin.H{"deleted": n})
 }
+
+// CleanCache POST /api/admin/clean/cache 清理系统设置缓存（对齐 epay clean.php mod=cleancache）。
+func (h *CleanHandler) CleanCache(c *gin.Context) {
+	if err := h.svc.CleanCache(); err != nil {
+		resp.Fail(c, 1102, errMsg(err))
+		return
+	}
+	resp.OK(c, gin.H{"ok": true})
+}

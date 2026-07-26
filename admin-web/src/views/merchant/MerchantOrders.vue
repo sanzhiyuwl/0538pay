@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search, RotateCcw, BarChart3, MoreHorizontal, Undo2, Bell, ListTree } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, DateRange, Pagination, Modal } from '@/components/ui'
@@ -7,10 +7,16 @@ import {
   orderStatus,
   payTypes,
   searchColumns,
-  calcStats,
   type Order,
 } from '@/lib/mock/merchant/orders'
-import { fetchMerchantOrders, refundOrder, renotifyOrder } from '@/lib/api/merchantCenter'
+import {
+  fetchMerchantOrders,
+  fetchMerchantOrderStats,
+  refundOrder,
+  renotifyOrder,
+  type MerchantOrderParams,
+  type MerchantOrderStats,
+} from '@/lib/api/merchantCenter'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 import { shouldDropUp } from '@/composables/useRowMenu'
@@ -20,18 +26,6 @@ import { Download } from 'lucide-vue-next'
 const router = useRouter()
 const toast = useToast()
 
-// ===== 真接口数据（一次拉当前商户订单，客户端筛选/分页）=====
-const allOrders = ref<Order[]>([])
-async function loadOrders() {
-  try {
-    const res = await fetchMerchantOrders({ page: 1, pageSize: 100 })
-    allOrders.value = res.list
-  } catch (e) {
-    toast.error(e instanceof ApiError ? e.message : '订单加载失败')
-    allOrders.value = []
-  }
-}
-
 const columnOptions = searchColumns.map((c) => ({ value: c.value, label: c.label }))
 const typeOptions = [{ value: 0, label: '全部方式' }, ...payTypes.map((t) => ({ value: t.id, label: t.showname }))]
 const statusOptions = [
@@ -39,53 +33,111 @@ const statusOptions = [
   ...Object.entries(orderStatus).map(([k, s]) => ({ value: Number(k), label: s.text })),
 ]
 
-// ===== 筛选 =====
+// ===== 筛选（提交后才生效，服务端筛选）=====
 const filters = ref({ column: 'trade_no', value: '', type: 0, starttime: '', endtime: '', dstatus: -1 })
-const filtered = computed(() =>
-  allOrders.value.filter((o) => {
-    if (filters.value.type && o.type !== filters.value.type) return false
-    if (filters.value.dstatus > -1 && o.status !== filters.value.dstatus) return false
-    if (filters.value.value.trim()) {
-      const v = filters.value.value.trim()
-      const field = (o as any)[filters.value.column]
-      if (field == null || !String(field).includes(v)) return false
-    }
-    return true
-  }),
-)
+
+// ===== 分页（服务端）=====
+const page = ref(1)
+const pageSize = 15
+const total = ref(0)
+const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
+const rows = ref<Order[]>([])
+const loading = ref(false)
+
+// 把当前筛选转成后端 OrderQuery 参数（对齐 epay orderList）。
+function buildParams(extra: Partial<MerchantOrderParams> = {}): MerchantOrderParams {
+  const f = filters.value
+  const p: MerchantOrderParams = {
+    page: page.value,
+    pageSize,
+    type: f.type || undefined,
+    starttime: f.starttime || undefined,
+    endtime: f.endtime || undefined,
+    ...extra,
+  }
+  if (f.dstatus > -1) p.status = f.dstatus
+  if (f.value.trim()) { p.column = f.column; p.keyword = f.value.trim() }
+  return p
+}
+
+async function loadOrders() {
+  loading.value = true
+  try {
+    const res = await fetchMerchantOrders(buildParams())
+    rows.value = res.list
+    total.value = res.total
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '订单加载失败')
+    rows.value = []
+    total.value = 0
+  } finally {
+    loading.value = false
+  }
+}
+
+function search() {
+  page.value = 1
+  loadOrders()
+  if (showStats.value) loadStats()
+}
+
 function resetFilters() {
   filters.value = { column: 'trade_no', value: '', type: 0, starttime: '', endtime: '', dstatus: -1 }
   page.value = 1
+  loadOrders()
+  if (showStats.value) loadStats()
 }
 
-// ===== 分页 =====
-const page = ref(1)
-const pageSize = 15
-const total = computed(() => filtered.value.length)
-const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
-const safePage = computed(() => Math.min(page.value, pageCount.value))
-const pageRows = computed(() => filtered.value.slice((safePage.value - 1) * pageSize, safePage.value * pageSize))
 function go(p: number) {
   page.value = Math.min(Math.max(1, p), pageCount.value)
+  loadOrders()
 }
-watch(filters, () => { page.value = 1 }, { deep: true })
 
-// ===== 统计 =====
+// ===== 统计（服务端聚合，含 platformProfit）=====
 const showStats = ref(false)
-const stats = computed(() => calcStats(filtered.value))
+const stats = ref<MerchantOrderStats | null>(null)
+const statsLoading = ref(false)
+async function loadStats() {
+  statsLoading.value = true
+  try {
+    // 统计不受分页影响，只带筛选条件
+    const { page: _p, pageSize: _ps, ...rest } = buildParams()
+    void _p; void _ps
+    stats.value = await fetchMerchantOrderStats(rest)
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '统计失败')
+    stats.value = null
+  } finally {
+    statsLoading.value = false
+  }
+}
+function toggleStats() {
+  showStats.value = !showStats.value
+  if (showStats.value && !stats.value) loadStats()
+}
 
-// ===== 导出（按当前筛选结果导出全部，非仅当前页；对齐 epay order.php 导出）=====
-function exportOrders() {
-  const rows = filtered.value
-  if (!rows.length) { toast.error('没有可导出的订单'); return }
-  const headers = ['系统订单号', '商户订单号', '接口订单号', '商品名称', '商品金额', '实付金额', '已退款', '支付方式', '支付账号', '支付IP', '创建时间', '完成时间', '状态']
-  const data = rows.map((o) => [
-    o.trade_no, o.out_trade_no, o.api_trade_no, o.name, o.money, o.realmoney ?? '', o.refundmoney,
-    o.typeshowname, o.account, o.ip, o.addtime, o.endtime ?? '',
-    (orderStatus as Record<number, { text: string }>)[o.status]?.text ?? o.status,
-  ])
-  exportCsv(`订单记录_${new Date().toISOString().slice(0, 10)}`, headers, data)
-  toast.success(`已导出 ${rows.length} 条订单`)
+// ===== 导出（按当前筛选条件从后端拉全量再生成 CSV，对齐 epay order.php 导出）=====
+const exporting = ref(false)
+async function exportOrders() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const res = await fetchMerchantOrders(buildParams({ page: 1, pageSize: 10000 }))
+    const list = res.list
+    if (!list.length) { toast.error('没有可导出的订单'); return }
+    const headers = ['系统订单号', '商户订单号', '接口订单号', '商品名称', '商品金额', '实付金额', '已退款', '支付方式', '支付账号', '支付IP', '创建时间', '完成时间', '状态']
+    const data = list.map((o) => [
+      o.trade_no, o.out_trade_no, o.api_trade_no, o.name, o.money, o.realmoney ?? '', o.refundmoney,
+      o.typeshowname, o.account, o.ip, o.addtime, o.endtime ?? '',
+      (orderStatus as Record<number, { text: string }>)[o.status]?.text ?? o.status,
+    ])
+    exportCsv(`订单记录_${new Date().toISOString().slice(0, 10)}`, headers, data)
+    toast.success(`已导出 ${list.length} 条订单`)
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '导出失败')
+  } finally {
+    exporting.value = false
+  }
 }
 
 // ===== 行操作菜单 =====
@@ -186,7 +238,7 @@ async function submitRefund() {
     <!-- 筛选 -->
     <Panel title="订单记录" :subtitle="`共 ${total} 笔订单`">
       <template #actions>
-        <Button variant="outline" size="sm" @click="showStats = !showStats"><BarChart3 />统计</Button>
+        <Button variant="outline" size="sm" @click="toggleStats"><BarChart3 />统计</Button>
       </template>
       <div class="space-y-3">
         <div class="filter-bar">
@@ -210,50 +262,53 @@ async function submitRefund() {
             <DateRange v-model:start="filters.starttime" v-model:end="filters.endtime" class="w-[328px]" />
           </div>
           <div class="ml-auto flex items-center gap-2">
-            <Button size="sm" @click="page = 1"><Search />搜索</Button>
+            <Button size="sm" @click="search"><Search />搜索</Button>
             <Button variant="outline" size="sm" @click="resetFilters"><RotateCcw />重置</Button>
           </div>
         </div>
       </div>
     </Panel>
 
-    <!-- 统计概况 -->
-    <Panel v-if="showStats" title="订单统计概况" subtitle="按当前筛选条件">
-      <div class="grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
-        <div>
-          <div class="text-[13px] text-muted-foreground">订单总金额</div>
-          <div class="mt-1.5 text-xl font-normal tabular-nums"><span class="mr-0.5 text-xs text-muted-foreground">¥</span>{{ formatMoney(stats.totalMoney) }}</div>
+    <!-- 统计概况（服务端聚合，按当前筛选条件全量）-->
+    <Panel v-if="showStats" title="订单统计概况" subtitle="按当前筛选条件（全量）">
+      <div v-if="statsLoading" class="py-6 text-center dim">统计中…</div>
+      <template v-else-if="stats">
+        <div class="grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
+          <div>
+            <div class="text-[13px] text-muted-foreground">订单总金额</div>
+            <div class="mt-1.5 text-xl font-normal tabular-nums"><span class="mr-0.5 text-xs text-muted-foreground">¥</span>{{ formatMoney(stats.totalMoney) }}</div>
+          </div>
+          <div>
+            <div class="text-[13px] text-muted-foreground">已支付金额</div>
+            <div class="mt-1.5 text-xl font-normal tabular-nums text-success"><span class="mr-0.5 text-xs text-muted-foreground">¥</span>{{ formatMoney(stats.successMoney) }}</div>
+          </div>
+          <div>
+            <div class="text-[13px] text-muted-foreground">未支付金额</div>
+            <div class="mt-1.5 text-xl font-normal tabular-nums"><span class="mr-0.5 text-xs text-muted-foreground">¥</span>{{ formatMoney(stats.unpaidMoney) }}</div>
+          </div>
+          <div>
+            <div class="text-[13px] text-muted-foreground">已退款金额</div>
+            <div class="mt-1.5 text-xl font-normal tabular-nums text-destructive"><span class="mr-0.5 text-xs text-muted-foreground">¥</span>{{ formatMoney(stats.refundMoney) }}</div>
+          </div>
+          <div>
+            <div class="text-[13px] text-muted-foreground">总收入利润</div>
+            <div class="mt-1.5 text-xl font-normal tabular-nums text-primary"><span class="mr-0.5 text-xs text-muted-foreground">¥</span>{{ formatMoney(stats.platformProfit) }}</div>
+          </div>
         </div>
-        <div>
-          <div class="text-[13px] text-muted-foreground">已支付金额</div>
-          <div class="mt-1.5 text-xl font-normal tabular-nums text-success"><span class="mr-0.5 text-xs text-muted-foreground">¥</span>{{ formatMoney(stats.successMoney) }}</div>
+        <div class="mt-5 flex flex-wrap gap-x-8 gap-y-2 border-t border-border/70 pt-4 text-sm">
+          <span class="text-muted-foreground">订单总数 <b class="text-foreground">{{ stats.totalCount }}</b></span>
+          <span class="text-muted-foreground">已支付 <b class="text-foreground">{{ stats.successCount }}</b></span>
+          <span class="text-muted-foreground">未支付 <b class="text-foreground">{{ stats.unpaidCount }}</b></span>
+          <span class="text-muted-foreground">已退款 <b class="text-foreground">{{ stats.refundCount }}</b></span>
+          <span class="text-muted-foreground">成功率 <b class="text-primary">{{ stats.successRate }}%</b></span>
         </div>
-        <div>
-          <div class="text-[13px] text-muted-foreground">未支付金额</div>
-          <div class="mt-1.5 text-xl font-normal tabular-nums"><span class="mr-0.5 text-xs text-muted-foreground">¥</span>{{ formatMoney(stats.unpaidMoney) }}</div>
-        </div>
-        <div>
-          <div class="text-[13px] text-muted-foreground">已退款金额</div>
-          <div class="mt-1.5 text-xl font-normal tabular-nums text-destructive"><span class="mr-0.5 text-xs text-muted-foreground">¥</span>{{ formatMoney(stats.refundMoney) }}</div>
-        </div>
-        <div>
-          <div class="text-[13px] text-muted-foreground">净收入</div>
-          <div class="mt-1.5 text-xl font-normal tabular-nums text-primary"><span class="mr-0.5 text-xs text-muted-foreground">¥</span>{{ formatMoney(stats.income) }}</div>
-        </div>
-      </div>
-      <div class="mt-5 flex flex-wrap gap-x-8 gap-y-2 border-t border-border/70 pt-4 text-sm">
-        <span class="text-muted-foreground">订单总数 <b class="text-foreground">{{ stats.totalCount }}</b></span>
-        <span class="text-muted-foreground">已支付 <b class="text-foreground">{{ stats.successCount }}</b></span>
-        <span class="text-muted-foreground">未支付 <b class="text-foreground">{{ stats.unpaidCount }}</b></span>
-        <span class="text-muted-foreground">已退款 <b class="text-foreground">{{ stats.refundCount }}</b></span>
-        <span class="text-muted-foreground">成功率 <b class="text-primary">{{ stats.successRate }}%</b></span>
-      </div>
+      </template>
     </Panel>
 
     <!-- 列表 -->
     <Panel title="订单列表" :subtitle="`${total} 条`">
       <template #actions>
-        <Button variant="outline" size="sm" @click="exportOrders"><Download class="size-4" />导出</Button>
+        <Button variant="outline" size="sm" :disabled="exporting" @click="exportOrders"><Download class="size-4" />导出</Button>
       </template>
       <div>
         <table class="tbl w-full table-fixed">
@@ -269,7 +324,7 @@ async function submitRefund() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="o in pageRows" :key="o.trade_no">
+            <tr v-for="o in rows" :key="o.trade_no">
               <td>
                 <div class="truncate font-medium text-primary">{{ o.trade_no }}</div>
                 <div class="truncate text-xs dim">{{ o.out_trade_no }}</div>
@@ -324,7 +379,10 @@ async function submitRefund() {
                 </div>
               </td>
             </tr>
-            <tr v-if="!pageRows.length">
+            <tr v-if="loading">
+              <td colspan="7" class="py-10 text-center dim">加载中…</td>
+            </tr>
+            <tr v-else-if="!rows.length">
               <td colspan="7" class="py-10 text-center dim">没有符合条件的订单</td>
             </tr>
           </tbody>
@@ -332,7 +390,7 @@ async function submitRefund() {
       </div>
 
       <div class="mt-4 border-t border-border/60 pt-4">
-        <Pagination :page="safePage" :page-count="pageCount" :total="total" :page-size="pageSize" @change="go" />
+        <Pagination :page="page" :page-count="pageCount" :total="total" :page-size="pageSize" @change="go" />
       </div>
     </Panel>
 

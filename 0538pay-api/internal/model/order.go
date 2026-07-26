@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 // Order 订单。对齐前端 mock/orders.ts 的 Order interface 字段（json tag 保持一致，
@@ -36,6 +37,7 @@ type Order struct {
 	IP          string          `gorm:"size:45" json:"ip"`                                // 支付IP
 	Buyer       string          `gorm:"size:128" json:"buyer"`                            // 支付账号
 	AddTime     time.Time       `gorm:"index" json:"addtime"`                             // 创建时间
+	Date        *time.Time      `gorm:"column:date;type:date;index" json:"-"`             // 下单日期(对齐 epay pre_order.date，DATE 冗余列 + 索引，供按日统计/对账分片高效聚合)
 	EndTime     *time.Time      `json:"endtime"`                                          // 完成时间（可空）
 	PayType     string          `gorm:"size:16" json:"-"`                                 // 收银台渲染方式 qrcode/redirect/html（下单后回填）
 	QRCode      string          `gorm:"size:1024" json:"-"`                               // 渠道二维码内容/支付链接（下单后回填，收银台据此渲染）
@@ -58,3 +60,17 @@ type Order struct {
 }
 
 func (Order) TableName() string { return "pay_order" }
+
+// BeforeCreate 自动回填 date 冗余日期列（对齐 epay pre_order.date）：
+// 取 AddTime 的日期部分（无 AddTime 则用当前日期），供按日统计/对账走索引。
+func (o *Order) BeforeCreate(tx *gorm.DB) error {
+	if o.Date == nil {
+		base := o.AddTime
+		if base.IsZero() {
+			base = time.Now()
+		}
+		d := time.Date(base.Year(), base.Month(), base.Day(), 0, 0, 0, 0, base.Location())
+		o.Date = &d
+	}
+	return nil
+}

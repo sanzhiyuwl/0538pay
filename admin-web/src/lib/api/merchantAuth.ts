@@ -23,6 +23,9 @@ export interface MerchantInfo {
   refund: number
   transfer: number
   remain_money: string
+  bind_qq: boolean
+  bind_wx: boolean
+  bind_alipay: boolean
 }
 
 export interface MerchantLoginResp {

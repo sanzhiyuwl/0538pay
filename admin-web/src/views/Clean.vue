@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { Trash2, DatabaseZap, TriangleAlert } from 'lucide-vue-next'
+import { Trash2, DatabaseZap, TriangleAlert, Eraser } from 'lucide-vue-next'
 import { Panel, Button, Modal } from '@/components/ui'
-import { cleanData as apiClean } from '@/lib/api/clean'
+import { cleanData as apiClean, cleanCache as apiCleanCache } from '@/lib/api/clean'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 
@@ -27,14 +27,29 @@ const confirmOpen = ref(false)
 const busy = ref(false)
 const target = ref<{ key: string; label: string; days: number } | null>(null)
 
-function askClean(t: { key: string; label: string }) {
-  const d = Number(days[t.key])
+function askClean(t: { key: string; label: string }, fixedDays?: number) {
+  const d = fixedDays ?? Number(days[t.key])
   if (!(d >= 7)) {
     toast.error('清理天数不得小于 7 天')
     return
   }
   target.value = { key: t.key, label: t.label, days: d }
   confirmOpen.value = true
+}
+
+// 清理系统设置缓存（对齐 epay clean.php mod=cleancache）
+const cacheBusy = ref(false)
+async function doCleanCache() {
+  if (cacheBusy.value) return
+  cacheBusy.value = true
+  try {
+    await apiCleanCache()
+    toast.success('已清理系统设置缓存')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '清理缓存失败')
+  } finally {
+    cacheBusy.value = false
+  }
 }
 
 async function doClean() {
@@ -87,13 +102,28 @@ async function doClean() {
                 </div>
               </td>
               <td class="col-center">
-                <Button variant="outline" size="sm" class="text-destructive hover:text-destructive" @click="askClean(t)">
-                  <Trash2 />立即清理
-                </Button>
+                <div class="flex items-center justify-center gap-1.5">
+                  <Button variant="ghost" size="sm" @click="askClean(t, 30)">清30天前</Button>
+                  <Button variant="outline" size="sm" class="text-destructive hover:text-destructive" @click="askClean(t)">
+                    <Trash2 />按天数清理
+                  </Button>
+                </div>
               </td>
             </tr>
           </tbody>
         </table>
+      </div>
+    </Panel>
+
+    <!-- 系统缓存清理 -->
+    <Panel title="系统缓存清理" subtitle="清理系统设置缓存，强制重新加载最新配置">
+      <div class="flex items-center justify-between gap-4">
+        <p class="text-sm text-muted-foreground">
+          修改配置后如未即时生效，可点此清理设置缓存。定期清理数据有助于提升访问速度。
+        </p>
+        <Button variant="outline" size="sm" :disabled="cacheBusy" @click="doCleanCache">
+          <Eraser />清理设置缓存
+        </Button>
       </div>
     </Panel>
 

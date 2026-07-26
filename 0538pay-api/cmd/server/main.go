@@ -148,6 +148,7 @@ func main() {
 	)
 	merchantCenterSvc.SetCertVerify(service.NewCertVerifyService(configSvc)) // 实名第三方核验
 	merchantCenterSvc.SetPayTypeRepo(payTypeRepo)                            // 会员套餐「可用支付通道及费率」展示（对齐 epay groupbuy display_info）
+	merchantCenterSvc.SetConfigService(configSvc)                           // F-20 自定义接口信息编辑开关 user_settings_edit
 	// 邀请返现：支付成功钩子返现到上级余额 + 统计（对齐 epay invite.php + functions.php）。
 	inviteRewardSvc := service.NewInviteRewardService(merchantRepo, accountRepo, recordRepo, configSvc)
 	inviteRewardSvc.SetGroupRepo(groupRepo) // 邀请返现读上级所在组的组级 invite_* 覆盖
@@ -167,7 +168,7 @@ func main() {
 	// 文章管理（对齐 epay article.php pre_article 行表 CRUD）。
 	articleSvc := service.NewArticleService(repository.NewArticleRepo(db))
 	// 数据清理（对齐 epay clean.php）。
-	cleanSvc := service.NewCleanService(db)
+	cleanSvc := service.NewCleanService(db, configSvc)
 	// 风控自动关停（对齐 epay cron do=check）。
 	riskAutoSvc := service.NewRiskAutoService(repository.NewRiskAutoRepo(db), configSvc)
 	// 商户 handler 单列（SSO 需注入 JWT）。

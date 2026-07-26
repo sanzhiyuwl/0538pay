@@ -142,6 +142,9 @@ func toMerchantInfo(m *model.Merchant) dto.MerchantInfo {
 		Refund:      m.Refund,
 		Transfer:    m.Transfer,
 		RemainMoney: m.RemainMoney,
+		BindQQ:      m.QQUID != "",
+		BindWx:      m.WxUID != "",
+		BindAlipay:  m.AlipayUID != "",
 	}
 }
 
