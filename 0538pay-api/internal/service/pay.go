@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -320,6 +321,96 @@ func checkTimestamp(ts string) error {
 	return nil
 }
 
+// getDefendKey 计算支付安全验证防御 key（对齐 epay functions.php:1002 getDefendKey：
+// md5(SYS_KEY + pid + '_' + out_trade_no + SYS_KEY)）。syskey 未配置时用空串（仍可闭环，仅强度降低）。
+func (s *PayService) getDefendKey(pid uint, outTradeNo string) string {
+	syskey := ""
+	if s.cfg != nil {
+		syskey = s.cfg.Str("syskey")
+	}
+	return md5Hex(syskey + strconv.FormatUint(uint64(pid), 10) + "_" + outTradeNo + syskey)
+}
+
+// payVerifyURL 构造支付安全验证页地址（对齐 epay showPayVerifyPage 的 verify_jump/verify_slide）。
+// 把原始下单参数（去内部 _ 前缀键与已有 __defend）base64 编码进 URL，验证页自包含——通过后
+// 生成合法 __defend（{10位time}+defendKey+{随机}）连同原参数复发起 POST /api/pay/submit 放行
+// （等价 epay verify_jump.php 把 $query_arr 塞隐藏表单）。前端据 vt 渲染（0跳转确认可闭环 / 1,2极验待凭证）。
+// siteURL（params["_siteurl"]）为空返回相对路径（同源前端路由可消费）。
+func (s *PayService) payVerifyURL(params map[string]string, defendKey string) string {
+	vtype := "0"
+	if s.cfg != nil {
+		if t := strings.TrimSpace(s.cfg.Str("pay_verify_type")); t != "" {
+			vtype = t
+		}
+	}
+	// 收集原始业务参数（排除内部注入键与旧 __defend），供验证页复发起下单。
+	biz := make(map[string]string, len(params))
+	for k, v := range params {
+		if strings.HasPrefix(k, "_") || k == "__defend" {
+			continue
+		}
+		biz[k] = v
+	}
+	payload := ""
+	if b, err := json.Marshal(biz); err == nil {
+		payload = base64.URLEncoding.EncodeToString(b)
+	}
+	path := "/pay/verify?dk=" + defendKey + "&vt=" + vtype + "&q=" + payload
+	siteURL := strings.TrimSpace(params["_siteurl"])
+	if siteURL == "" {
+		return path
+	}
+	return strings.TrimRight(siteURL, "/") + path
+}
+
+// checkPayVerifyOpen 判定本次下单是否需要支付安全验证（1:1 对齐 epay functions.php:953 checkPayVerifyOpen）。
+//   - pay_verify=3：全部开启；
+//   - pay_verify=2：指定商户（pay_verify_check_uid，| 分隔）命中则开启；
+//   - pay_verify=1：智能——统计窗口内成功率低于阈值，或同 IP 近1小时最近 N 单全部未支付，则开启；
+//   - 其余（含 0/未配 cfg）：不验证。
+func (s *PayService) checkPayVerifyOpen(pid uint, clientIP string) bool {
+	if s.cfg == nil {
+		return false
+	}
+	mode := s.cfg.Int("pay_verify", 0)
+	switch mode {
+	case 3:
+		return true
+	case 2:
+		uidStr := strconv.FormatUint(uint64(pid), 10)
+		for _, u := range strings.Split(s.cfg.Str("pay_verify_check_uid"), "|") {
+			if strings.TrimSpace(u) == uidStr {
+				return true
+			}
+		}
+		return false
+	case 1:
+		second := s.cfg.Int("pay_verify_check_second", 0)
+		count := s.cfg.Int("pay_verify_check_count", 0)
+		sucRate := s.cfg.Dec("pay_verify_check_rate", decimal.Zero)
+		if second > 0 || count > 0 || sucRate.GreaterThan(decimal.Zero) {
+			since := time.Now().Add(-time.Duration(second) * time.Second)
+			total, succ, err := s.orders.CountVerifyStatsByMerchant(pid, since)
+			if err == nil && total >= int64(count) && total > 0 {
+				rate := decimal.NewFromInt(succ).Mul(hundred).Div(decimal.NewFromInt(total)).Round(2)
+				if rate.LessThan(sucRate) {
+					return true
+				}
+			}
+		}
+		if ipCheck := s.cfg.Int("pay_verify_check_ip", 0); ipCheck > 0 && clientIP != "" {
+			since := time.Now().Add(-3600 * time.Second)
+			fail, err := s.orders.CountUnpaidRecentByIP(clientIP, since, ipCheck)
+			if err == nil && fail >= int64(ipCheck) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
 // Submit 处理下单请求。params 为原始请求参数（用于验签，含 sign/pid/type/... 全量）。
 func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto.SubmitResp, error) {
 	// 1. 商户存在性
@@ -438,6 +529,29 @@ func (s *PayService) Submit(ctx context.Context, params map[string]string) (*dto
 			if cnt >= int64(limit) {
 				return nil, payErr("你今天已无法再发起支付，请明天再试")
 			}
+		}
+	}
+
+	// 4c. 支付安全验证 __defend（对齐 epay Pay.php:99-104 + functions.php checkPayVerifyOpen）。
+	//     命中验证策略且请求未携带合法 __defend 时，返回 pay_type=verify 让前端跳自研验证页；
+	//     验证页通过后前端以合法 __defend（{任意}+defendKey+{任意}，中段32位=getDefendKey）复发起下单放行。
+	//     pay_verify_type=1/2（极验）依赖第三方凭证，验证页前端按类型渲染，无凭证时降级为跳转确认页。
+	if s.checkPayVerifyOpen(pid, clientIP) {
+		// V2 REST create 入口（_version=1）不支持内嵌验证页，直接拒绝并提示改用跳转支付接口
+		// （对齐 epay Pay.php:315-317 create() 分支 echojsonmsg）。
+		if params["_version"] == "1" {
+			return nil, payErr("本次支付需要安全验证，请使用跳转支付接口发起支付")
+		}
+		defendKey := s.getDefendKey(pid, outTradeNo)
+		defend := params["__defend"]
+		if len(defend) < 42 || defend[10:42] != defendKey {
+			return &dto.SubmitResp{
+				TradeNo:    "",
+				OutTradeNo: outTradeNo,
+				PayType:    "verify",
+				PayURL:     s.payVerifyURL(params, defendKey),
+				Money:      money.String(amount),
+			}, nil
 		}
 	}
 

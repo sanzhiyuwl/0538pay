@@ -281,6 +281,15 @@ func (r *MerchantRepo) BindOAuth(uid uint, col, openid string) error {
 	return r.db.Model(&model.Merchant{}).Where("uid = ?", uid).Update(col, openid).Error
 }
 
+// UnbindOAuth 清空指定商户的第三方 openid 列（对齐 epay connect/wxlogin/oauth ?unbind=1 置 NULL）。
+func (r *MerchantRepo) UnbindOAuth(uid uint, col string) error {
+	allowed := map[string]bool{"qq_uid": true, "wx_uid": true, "alipay_uid": true}
+	if !allowed[col] {
+		return nil
+	}
+	return r.db.Model(&model.Merchant{}).Where("uid = ?", uid).Update(col, "").Error
+}
+
 // CountByUpID 统计某商户名下已邀请的下级商户数（upid=uid）。对齐 epay 邀请人数统计。
 func (r *MerchantRepo) CountByUpID(uid uint) (int64, error) {
 	var n int64
@@ -677,6 +686,11 @@ func (r *RecordRepo) List(q dto.RecordQuery) ([]model.PayRecord, int64, error) {
 	return list, total, nil
 }
 
+// Delete 按 id 删除单条资金流水（对齐 epay admin/ajax_user.php delRecord）。
+func (r *RecordRepo) Delete(id uint) error {
+	return r.db.Delete(&model.PayRecord{}, id).Error
+}
+
 // Stats 在当前筛选条件下汇总增/减金额与笔数（对齐 epay record_stats）。
 func (r *RecordRepo) Stats(q dto.RecordQuery) (incMoney, decMoney decimal.Decimal, incCount, decCount int64, err error) {
 	type agg struct {
@@ -1023,6 +1037,42 @@ func (r *OrderRepo) CountPaidByBuyerRange(buyer string, start, end time.Time) (i
 		Where("buyer = ? AND status > 0 AND add_time >= ? AND add_time < ?", buyer, start, end).
 		Count(&n).Error
 	return n, err
+}
+
+// CountVerifyStatsByMerchant 统计商户从 since 起的总单数与成功单数（success 按 status>0，
+// 对齐 epay checkPayVerifyOpen pay_verify=1 的成功率判定：total=全部单、succ=status>0）。
+func (r *OrderRepo) CountVerifyStatsByMerchant(uid uint, since time.Time) (total, succ int64, err error) {
+	if err = r.db.Model(&model.Order{}).
+		Where("uid = ? AND add_time >= ?", uid, since).Count(&total).Error; err != nil {
+		return
+	}
+	err = r.db.Model(&model.Order{}).
+		Where("uid = ? AND add_time >= ? AND status > 0", uid, since).Count(&succ).Error
+	return
+}
+
+// CountUnpaidRecentByIP 取某 IP 从 since 起最近 limit 笔订单中未支付(status=0)的数量
+// （对齐 epay checkPayVerifyOpen pay_verify=1 的 IP 失败判定：ORDER BY addtime DESC LIMIT ipcheck 数 status==0）。
+func (r *OrderRepo) CountUnpaidRecentByIP(ip string, since time.Time, limit int) (int64, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	var statuses []int8
+	err := r.db.Model(&model.Order{}).
+		Select("status").
+		Where("ip = ? AND add_time >= ?", ip, since).
+		Order("add_time DESC").Limit(limit).
+		Pluck("status", &statuses).Error
+	if err != nil {
+		return 0, err
+	}
+	var fail int64
+	for _, st := range statuses {
+		if st == 0 {
+			fail++
+		}
+	}
+	return fail, nil
 }
 
 // CountPaidByMerchantRange 统计商户在 [start,end) 内已支付订单数（status=1）。

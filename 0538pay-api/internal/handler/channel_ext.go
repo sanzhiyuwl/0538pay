@@ -479,3 +479,13 @@ func (h *WeworkHandler) RefreshKf(c *gin.Context) {
 	}
 	resp.OK(c, gin.H{"id": id, "count": len(list), "list": list})
 }
+
+// ListKf GET /api/admin/weworks/kf 列出所有已启用企微下的客服账号（H5 微信客服支付设置页下拉）。
+func (h *WeworkHandler) ListKf(c *gin.Context) {
+	list, err := h.svc.ListEnabledKf()
+	if err != nil {
+		failFromWeworkErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"list": list})
+}

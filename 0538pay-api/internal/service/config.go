@@ -75,6 +75,14 @@ var configDefaults = map[string]string{
 	"pay_domain_forbid": "0", // 域名白名单全局开关(1开启白名单校验/0不校验；对齐 epay pay_domain_forbid)
 	"pageordername":     "0", // 收银台商品名强制为 onlinepay (1开/0关；对齐 epay pageordername)
 	"ordername":         "",  // 全局订单名模板([name]/[order]/[outorder]/[qq]/[phone]占位；对齐 epay ordername)
+	// 支付安全验证 pay_verify（对齐 epay set.php + functions.php checkPayVerifyOpen/__defend）
+	"pay_verify":              "0", // 0关 / 1智能(成功率+IP) / 2指定商户 / 3全部开启
+	"pay_verify_type":         "0", // 验证方式 0跳转确认页(自研可闭环) / 1极验隐形 / 2极验滑块(乙类待凭证)
+	"pay_verify_check_uid":    "",  // pay_verify=2 时指定校验的商户 uid（| 分隔）
+	"pay_verify_check_second": "0", // pay_verify=1 成功率统计窗口(秒)
+	"pay_verify_check_count":  "0", // pay_verify=1 窗口内最少订单数(达到才判定)
+	"pay_verify_check_rate":   "0", // pay_verify=1 成功率低于该值(%)则触发验证
+	"pay_verify_check_ip":     "0", // pay_verify=1 同IP近1小时失败单数达该值则触发验证(0关)
 	// 插件启停：被禁用的插件 key 列表（逗号分隔），默认空=全部启用（符合"编译期注册即可用"语义，只记禁用的少数）。
 	"plugin_disabled": "",
 	// 站点 site
@@ -152,6 +160,14 @@ var configDefaults = map[string]string{
 	"check_channel_second":  "600", // 通道统计窗口(秒；对齐 epay check_channel_second)
 	"check_channel_failcount": "0", // 窗口内连续未支付订单数达此值则关停(0=未开启；对齐 epay check_channel_failcount)
 	"check_channel_ids":     "",    // 限定检查的通道ID(逗号分隔,留空=全部；对齐 epay check_channel_ids)
+	// H5 跳转微信客服支付 wxkf（对齐 epay set_wxkf.php，回调实体 wework.php）
+	"wework_token":      "",  // 企业微信客服回调 Token
+	"wework_aeskey":     "",  // 企业微信客服回调 EncodingAESKey
+	"wework_payopen":    "0", // 是否开启 H5 跳转微信客服支付 0关/1开
+	"wework_paymsgmode": "0", // 消息模式 0发确认消息待回复后发链接 / 1直接发支付链接
+	"wework_paykfid":    "0", // 指定客服账号ID（0=多客服账号轮询）
+	"wework_contact":    "",  // 人工客服链接（选填，追加在支付消息后）
+	"wework_remark":     "",  // 支付消息尾部附加内容（选填，支持 [qq] 变量）
 }
 
 // configGroups 各系统设置分组包含的键（白名单，前端按 group 读写）。
@@ -170,6 +186,8 @@ var configGroups = map[string][]string{
 		"pay_payaddstart", "pay_payaddmin", "pay_payaddmax", "notifyordername",
 		"pay_domain_forbid", "pageordername", "ordername",
 		"cert_force", "forceqq", "pay_iplimit", "pay_userlimit",
+		"pay_verify", "pay_verify_type", "pay_verify_check_uid",
+		"pay_verify_check_second", "pay_verify_check_count", "pay_verify_check_rate", "pay_verify_check_ip",
 	},
 	"deposit": {"user_deposit_min", "cert_money", "user_deposit", "user_deposit_day"},
 	"site":    {"sitename", "kfqq", "reg_open"},
@@ -178,6 +196,10 @@ var configGroups = map[string][]string{
 		"captcha_open_login", "captcha_version", "captcha_id", "captcha_key",
 	},
 	"cron":  {"cronkey"},
+	"wxkf": {
+		"wework_token", "wework_aeskey", "wework_payopen", "wework_paymsgmode",
+		"wework_paykfid", "wework_contact", "wework_remark",
+	},
 	"other": {"ip_type", "proxy", "proxy_server", "proxy_port", "proxy_user", "proxy_pwd", "proxy_type"},
 	"oauth": {
 		"login_qq", "login_qq_appid", "login_qq_appkey",
@@ -222,6 +244,16 @@ func (s *ConfigService) Load() error {
 	s.mu.Lock()
 	s.cache = m
 	s.mu.Unlock()
+	return nil
+}
+
+// Reload 重新从 DB 加载配置缓存并通知所有订阅者重载（对齐 epay clean.php cleancache：
+// 清设置缓存后强制重读）。用于后台「清理设置缓存」入口。
+func (s *ConfigService) Reload() error {
+	if err := s.Load(); err != nil {
+		return err
+	}
+	s.notify()
 	return nil
 }
 

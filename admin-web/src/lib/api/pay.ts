@@ -27,6 +27,14 @@ export function fetchCashierOrder(tradeNo: string): Promise<CashierOrder> {
   return request<CashierOrder>(`/pay/order/${encodeURIComponent(tradeNo)}`)
 }
 
+/**
+ * 表单原始下单（对齐 epay POST /api/pay/submit）。支付安全验证页通过后，用原始下单参数
+ * + 合法 __defend 复发起下单放行。返回 SubmitResp（pay_type=jump/qrcode/... 或再次 verify）。
+ */
+export function submitPayRaw(params: Record<string, string>): Promise<CashierSubmitResp> {
+  return request<CashierSubmitResp>('/pay/submit', { method: 'POST', body: params })
+}
+
 /** 收银台下单返回（对齐后端 dto.SubmitResp） */
 export interface CashierSubmitResp {
   trade_no: string

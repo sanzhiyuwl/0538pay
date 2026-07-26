@@ -295,6 +295,12 @@ func (s *WeworkService) List() ([]dto.WeworkView, error) {
 	return views, nil
 }
 
+// ListEnabledKf 列出所有已启用企微下的客服账号（H5 微信客服支付设置页的账号下拉数据源，
+// 对齐 epay set_wxkf.php:18）。返回 {openkfid, name}，前端拼「openkfid - name」展示。
+func (s *WeworkService) ListEnabledKf() ([]model.WxKfAccount, error) {
+	return s.repo.ListKfEnabled()
+}
+
 func (s *WeworkService) validate(req dto.WeworkSaveReq, excludeID uint) error {
 	if strings.TrimSpace(req.Name) == "" {
 		return wwErr("名称不能为空")

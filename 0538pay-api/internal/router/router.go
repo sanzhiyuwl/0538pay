@@ -108,6 +108,7 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.DELETE("/merchants/:uid", d.Merchant.Delete)
 
 			// 系统设置（config 域）
+			authed.GET("/config/iptype", d.Config.DetectIPType) // F-9 真实IP探测（对齐 epay ajax.php iptype）
 			authed.GET("/config/:group", d.Config.GetGroup)
 			authed.PUT("/config/:group", d.Config.SaveGroup)
 			authed.POST("/config/mail/test", d.Config.TestMail) // K-3 发送测试邮件
@@ -169,6 +170,7 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.PUT("/weworks/:id/status", d.Wework.SetStatus)
 			authed.DELETE("/weworks/:id", d.Wework.Delete)
 			authed.POST("/weworks/:id/kf/refresh", d.Wework.RefreshKf) // K-4 同步客服账号列表
+			authed.GET("/wxkf/accounts", d.Wework.ListKf)              // H5 微信客服支付设置页：启用企微下客服账号下拉
 
 			// 结算管理（C2 结算域）
 			authed.GET("/settles", d.Settle.List)
@@ -183,6 +185,7 @@ func Setup(r *gin.Engine, d Deps) {
 			// 资金流水（C2 尾巴：后台资金明细页）
 			authed.GET("/records", d.Record.List)
 			authed.GET("/records/stats", d.Record.Stats)
+			authed.DELETE("/records/:id", d.Record.Delete)
 
 			// 代付 / 转账（C3）
 			authed.GET("/transfers", d.Transfer.List)
@@ -238,6 +241,7 @@ func Setup(r *gin.Engine, d Deps) {
 
 			// 数据清理（对齐 epay clean.php，高风险破坏性）
 			authed.POST("/clean", d.Clean.Clean)
+			authed.POST("/clean/cache", d.Clean.CleanCache) // F-14 清理设置缓存（cleancache）
 
 			// 网站公告（对齐 epay gonggao.php）
 			authed.GET("/announces", d.Announce.List)
@@ -349,6 +353,7 @@ func Setup(r *gin.Engine, d Deps) {
 			// D2 查询与操作
 			mAuthed.GET("/dashboard", d.MerchantCenter.Dashboard)
 			mAuthed.GET("/orders", d.MerchantCenter.Orders)
+			mAuthed.GET("/orders/stats", d.MerchantCenter.OrderStats) // F-13 商户订单统计（服务端聚合+platformProfit）
 			mAuthed.GET("/records", d.MerchantCenter.Records)
 			mAuthed.GET("/settles", d.MerchantCenter.Settles)
 			mAuthed.GET("/apply/info", d.MerchantCenter.ApplyInfo)
@@ -363,7 +368,10 @@ func Setup(r *gin.Engine, d Deps) {
 			mAuthed.PUT("/profile", d.MerchantCenter.UpdateProfile)
 			mAuthed.GET("/msgconfig", d.MerchantCenter.MsgConfig)      // D-3 消息提醒配置
 			mAuthed.PUT("/msgconfig", d.MerchantCenter.SaveMsgConfig)  // D-3
+			mAuthed.GET("/channelinfo", d.MerchantCenter.ChannelInfo)  // F-20 自定义接口信息设置
+			mAuthed.PUT("/channelinfo", d.MerchantCenter.SaveChannelInfo) // F-20
 			mAuthed.POST("/rebind", d.MerchantCenter.Rebind)           // D-3 换绑手机/邮箱
+			mAuthed.POST("/oauth/unbind", d.MerchantAuth.OAuthUnbind)  // F-10 解绑第三方账号
 			mAuthed.PUT("/password", d.MerchantCenter.ChangePassword)
 			// 代付（C3 商户端）
 			mAuthed.GET("/transfers", d.MerchantCenter.Transfers)

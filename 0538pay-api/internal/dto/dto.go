@@ -327,6 +327,24 @@ type MerchantProfileReq struct {
 	Password    string  `json:"password"`     // 登录密码（改动收款账号/姓名时二次确认，对齐 epay edit_settle need verify）
 }
 
+// ChannelInfoField 自定义接口信息设置的单个字段（对齐 epay group.settings 的 key:label 定义 + 当前值）。
+type ChannelInfoField struct {
+	Key   string `json:"key"`   // 字段键（存入 channelinfo JSON 的 key）
+	Label string `json:"label"` // 字段中文名（来自用户组 settings 模板）
+	Value string `json:"value"` // 当前值（来自商户 channelinfo）
+}
+
+// ChannelInfoView 自定义接口信息设置视图（F-20，对齐 epay editinfo edit_channel_info）。
+type ChannelInfoView struct {
+	Editable bool               `json:"editable"` // 全局开关 user_settings_edit 是否允许编辑
+	Fields   []ChannelInfoField `json:"fields"`   // 按用户组模板展开的字段（含当前值）
+}
+
+// ChannelInfoReq 保存自定义接口信息入参（F-20）。key→value 键值对，仅接受组模板内的键。
+type ChannelInfoReq struct {
+	Settings map[string]string `json:"settings"`
+}
+
 // MerchantPwdReq 修改登录密码入参。
 type MerchantPwdReq struct {
 	OldPwd string `json:"oldpwd"` // 旧密码（已设密码时必填）
@@ -427,6 +445,10 @@ type MerchantInfo struct {
 	Refund      int8   `json:"refund"`       // 订单退款 API 开关 0/1
 	Transfer    int8   `json:"transfer"`     // 代付 API 开关 0/1
 	RemainMoney string `json:"remain_money"` // 预留余额
+	// 第三方账号绑定状态（F-10，对齐 epay pre_user.qq_uid/wx_uid/alipay_uid 是否非空）。
+	BindQQ     bool `json:"bind_qq"`
+	BindWx     bool `json:"bind_wx"`
+	BindAlipay bool `json:"bind_alipay"`
 }
 
 // SettleView 结算明细对外响应，字段/json tag 对齐前端 mock/settle.ts 的 SettleRecord。

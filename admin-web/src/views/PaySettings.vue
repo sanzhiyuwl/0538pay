@@ -22,6 +22,20 @@ const switchOptions = [
   { value: '1', label: '开启' },
 ]
 
+// 支付安全验证模式（对齐 epay checkPayVerifyOpen pay_verify）
+const payVerifyOptions = [
+  { value: '0', label: '关闭' },
+  { value: '1', label: '智能验证（按成功率 / 同 IP 失败率触发）' },
+  { value: '2', label: '指定商户开启' },
+  { value: '3', label: '全部订单开启' },
+]
+// 验证方式（对齐 epay pay_verify_type）
+const payVerifyTypeOptions = [
+  { value: '0', label: '跳转确认页（无需第三方，可闭环）' },
+  { value: '1', label: '极验隐形验证（需极验凭证）' },
+  { value: '2', label: '极验滑块验证（需极验凭证）' },
+]
+
 // 键名对齐 epay set.php mod=pay
 const form = reactive({
   pay_maxmoney: '50000',
@@ -41,6 +55,14 @@ const form = reactive({
   forceqq: '0',
   pay_iplimit: '0',
   pay_userlimit: '0',
+  // 支付安全验证（对齐 epay pay_verify 系列）
+  pay_verify: '0',
+  pay_verify_type: '0',
+  pay_verify_check_uid: '',
+  pay_verify_check_second: '0',
+  pay_verify_check_count: '0',
+  pay_verify_check_rate: '0',
+  pay_verify_check_ip: '0',
 })
 
 // 聚合收款码全局开关（config group=onecode，对齐 epay set.php「开启聚合收款码」）。
@@ -189,6 +211,54 @@ async function save() {
         </div>
         <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           回调商品名设为 product 可对下游隐藏真实商品名。同买家限单在回调阶段按支付账号(openid/buyer)统计当日成功单数。
+        </p>
+      </div>
+    </Panel>
+
+    <!-- 支付安全验证 -->
+    <Panel title="支付安全验证" subtitle="下单时插入人机验证，拦截刷单/攻击（对齐 epay 支付安全验证）">
+      <div class="max-w-2xl space-y-3.5">
+        <div class="row-field">
+          <label class="lbl">验证模式</label>
+          <Select v-model="form.pay_verify" :options="payVerifyOptions" class="flex-1" />
+        </div>
+        <div v-if="form.pay_verify !== '0'" class="row-field">
+          <label class="lbl">验证方式</label>
+          <Select v-model="form.pay_verify_type" :options="payVerifyTypeOptions" class="flex-1" />
+        </div>
+        <div v-if="form.pay_verify === '2'" class="row-field">
+          <label class="lbl">指定商户 UID</label>
+          <input v-model="form.pay_verify_check_uid" placeholder="多个用竖线 | 分隔" class="field-input flex-1" />
+        </div>
+        <template v-if="form.pay_verify === '1'">
+          <div class="row-field">
+            <label class="lbl">成功率统计窗口</label>
+            <div class="flex flex-1 items-center gap-2">
+              <input v-model="form.pay_verify_check_second" class="field-input w-40" /><span class="text-sm text-muted-foreground">秒</span>
+            </div>
+          </div>
+          <div class="row-field">
+            <label class="lbl">窗口最少订单数</label>
+            <div class="flex flex-1 items-center gap-2">
+              <input v-model="form.pay_verify_check_count" class="field-input w-40" /><span class="text-sm text-muted-foreground">笔（达到才判定，避免小样本误伤）</span>
+            </div>
+          </div>
+          <div class="row-field">
+            <label class="lbl">成功率低于</label>
+            <div class="flex flex-1 items-center gap-2">
+              <input v-model="form.pay_verify_check_rate" class="field-input w-40" /><span class="text-sm text-muted-foreground">% 触发验证</span>
+            </div>
+          </div>
+          <div class="row-field">
+            <label class="lbl">同 IP 失败单数</label>
+            <div class="flex flex-1 items-center gap-2">
+              <input v-model="form.pay_verify_check_ip" class="field-input w-40" /><span class="text-sm text-muted-foreground">笔（近 1 小时最近 N 单全未支付则触发；0=不启用）</span>
+            </div>
+          </div>
+        </template>
+        <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          命中验证策略时，跳转支付会先要求通过安全验证再继续下单；API（create）下单会提示改用跳转支付接口。
+          验证方式选「跳转确认页」无需第三方即可闭环；极验方式需在「注册登录鉴权」页配置极验凭证。
         </p>
       </div>
     </Panel>

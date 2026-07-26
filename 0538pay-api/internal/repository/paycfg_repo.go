@@ -165,6 +165,19 @@ func (r *WeworkRepo) ListKfByWork(wid uint) ([]model.WxKfAccount, error) {
 	return list, err
 }
 
+// ListKfEnabled 列出所有「已启用企微(status=1)」下的客服账号（对齐 epay set_wxkf.php:18
+// SELECT A.* FROM pre_wxkfaccount A LEFT JOIN pre_wework B ON A.wid=B.id WHERE B.status=1）。
+// 用于 H5 微信客服支付设置页的「指定客服账号」下拉。
+func (r *WeworkRepo) ListKfEnabled() ([]model.WxKfAccount, error) {
+	var list []model.WxKfAccount
+	err := r.db.
+		Joins("LEFT JOIN pay_wework B ON pay_wxkfaccount.wid = B.id").
+		Where("B.status = 1").
+		Order("pay_wxkfaccount.id ASC").
+		Find(&list).Error
+	return list, err
+}
+
 // UpsertKf 按 openkfid 唯一键 upsert 客服账号（K-4 从企微 API 同步；已存在则更新名称/URL）。
 func (r *WeworkRepo) UpsertKf(m *model.WxKfAccount) error {
 	var exist model.WxKfAccount
