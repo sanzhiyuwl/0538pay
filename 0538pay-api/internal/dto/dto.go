@@ -1641,3 +1641,29 @@ type AnnounceSaveReq struct {
 	Sort    int    `json:"sort"`
 	Status  *int8  `json:"status"`
 }
+
+// ===== 平台月度对账账单（我方独有细化项，epay 无）=====
+
+// BillItem 账单收支分项（金额为两位小数字符串）。
+type BillItem struct {
+	Label  string `json:"label"`
+	Amount string `json:"amount"`
+	Kind   string `json:"kind"` // income=收入 / expense=支出
+}
+
+// MonthlyBill 单个账期(YYYY-MM)的平台资金收支归集。
+type MonthlyBill struct {
+	Period   string     `json:"period"`   // 账期 YYYY-MM
+	Orders   int64      `json:"orders"`   // 当期已支付订单数
+	Incomes  []BillItem `json:"incomes"`  // 收入分项
+	Expenses []BillItem `json:"expenses"` // 支出分项
+	Income   string     `json:"income"`   // 收入合计
+	Expense  string     `json:"expense"`  // 支出合计
+	Net      string     `json:"net"`      // 净收入 = 收入 - 支出
+	Status   int8       `json:"status"`   // 0=进行中(当月) 1=已归档(历史月份)
+}
+
+// BillingResult 账单中心响应：近 N 期账单，倒序（最新在前）。
+type BillingResult struct {
+	Bills []MonthlyBill `json:"bills"`
+}

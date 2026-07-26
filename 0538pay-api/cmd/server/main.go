@@ -163,6 +163,8 @@ func main() {
 	// 后台仪表盘全平台聚合（对齐 epay admin/index.php + ajax getcount）。
 	dashboardSvc := service.NewDashboardService(repository.NewDashboardRepo(db), repository.NewDomainRepo(db), profitRepo)
 	dashboardSvc.SetAdminRepo(adminRepo) // 弱密码/默认密码安全告警
+	// 平台月度对账账单（我方独有细化项，从订单/结算/代付/分账/退款归集平台资金收支）。
+	billingSvc := service.NewBillingService(repository.NewBillingRepo(db))
 	// 网站公告（对齐 epay gonggao.php）。
 	announceSvc := service.NewAnnounceService(repository.NewAnnounceRepo(db))
 	// 文章管理（对齐 epay article.php pre_article 行表 CRUD）。
@@ -253,6 +255,7 @@ func main() {
 		Paypage:   handler.NewPaypageHandler(merchantSelfSvc),
 		Message:   handler.NewMessageHandler(messageSvc),
 		Dashboard: handler.NewDashboardHandler(dashboardSvc),
+		Billing:   handler.NewBillingHandler(billingSvc),
 		Announce:  handler.NewAnnounceHandler(announceSvc),
 		Article:   handler.NewArticleHandler(articleSvc),
 		Clean:     handler.NewCleanHandler(cleanSvc),

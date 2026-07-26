@@ -47,6 +47,7 @@ type Deps struct {
 	Clean          *handler.CleanHandler
 	Cron           *handler.CronHandler
 	Upload         *handler.UploadHandler
+	Billing        *handler.BillingHandler
 }
 
 // Setup 注册所有路由。
@@ -80,6 +81,10 @@ func Setup(r *gin.Engine, d Deps) {
 
 			// 仪表盘（全平台聚合）
 			authed.GET("/dashboard", d.Dashboard.Overview)
+
+			// 平台月度对账账单（我方独有细化项）
+			authed.GET("/billing", d.Billing.List)
+			authed.GET("/billing/export", d.Billing.Export)
 
 			// 订单管理（列表 + 写操作）
 			authed.GET("/orders", d.Order.List)
