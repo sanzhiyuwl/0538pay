@@ -12,7 +12,7 @@ import draggable from 'vuedraggable'
 import {
   Save, Plus, Trash2, RotateCcw, ExternalLink, ChevronDown, GripVertical, Eye, EyeOff,
 } from 'lucide-vue-next'
-import { Panel, Button, Select, Switch } from '@/components/ui'
+import { Panel, Button, Select, Switch, ImageUpload } from '@/components/ui'
 import { useSiteContentStore } from '@/stores/siteContent'
 import { useToast } from '@/composables/useToast'
 import { iconOptions, defaultSiteContent, type SiteContent, type SectionKey } from '@/lib/mock/site-content'
@@ -370,7 +370,7 @@ const blankTestimonial = { name: '商户名称', desc: '商户简介', image: ''
                     </div>
                     <div v-show="isOpen('testimonials', i)" class="space-y-3 border-t border-border p-4">
                       <div><label class="fld-lbl">商户名称</label><input v-model="t.name" class="field-input mt-1 w-full" /></div>
-                      <div><label class="fld-lbl">门店图片地址</label><input v-model="t.image" placeholder="/assets/xxx.jpg（留空显示占位图块）" class="field-input mt-1 w-full" /></div>
+                      <div><label class="fld-lbl">门店图片</label><div class="mt-1"><ImageUpload v-model="t.image" dir="cover" label="上传门店图" /></div></div>
                       <div><label class="fld-lbl">商户简介</label><textarea v-model="t.desc" rows="2" class="field-input mt-1 w-full resize-none py-2" style="height:auto" /></div>
                     </div>
                   </div>

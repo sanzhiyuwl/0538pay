@@ -29,8 +29,17 @@ func OK(c *gin.Context, data interface{}) {
 	c.JSON(http.StatusOK, Body{Code: 0, Msg: "ok", Data: data})
 }
 
-// Page 返回分页成功响应。
+// Page 返回分页成功响应。page/pageSize 会做回显兜底：未带分页参数（<=0）时
+// 归一为第 1 页、默认每页 20，与各 Query.Normalize() 的默认口径一致。
+// 修历史技术债：service 内 Normalize 改的是入参副本，handler 回传原始 q.Page 导致
+// 不带 page 的裸查询响应 page=0；此处统一兜底，规范化后第一页恒为 1。
 func Page(c *gin.Context, list interface{}, total int64, page, pageSize int) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
 	OK(c, PageData{List: list, Total: total, Page: page, PageSize: pageSize})
 }
 

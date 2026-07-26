@@ -1,98 +1,108 @@
 import { createRouter, createWebHistory } from 'vue-router'
+// 布局外壳 + 各端首屏关键页保持静态：进任一端必加载，懒加载反而多一次 chunk 请求且拖首屏。
+// 其余业务页一律动态 import()，按路由拆 chunk 首屏只加载入口，其余按需加载（技术债 #1）。
 import AdminLayout from '@/layouts/AdminLayout.vue'
+import ConsoleLayout from '@/layouts/ConsoleLayout.vue'
+import MerchantLayout from '@/layouts/MerchantLayout.vue'
+import SiteLayout from '@/layouts/SiteLayout.vue'
 import Login from '@/views/Login.vue'
 import Dashboard from '@/views/Dashboard.vue'
 import Placeholder from '@/views/Placeholder.vue'
-import StyleGuide from '@/views/StyleGuide.vue'
-import Orders from '@/views/Orders.vue'
-import Merchants from '@/views/Merchants.vue'
-import Settle from '@/views/Settle.vue'
-import ProfitSharing from '@/views/ProfitSharing.vue'
-import Groups from '@/views/Groups.vue'
-import Records from '@/views/Records.vue'
-import MerchantStats from '@/views/MerchantStats.vue'
-import InviteCodes from '@/views/InviteCodes.vue'
-import BuyerStats from '@/views/BuyerStats.vue'
-import Domains from '@/views/Domains.vue'
-import Channels from '@/views/Channels.vue'
-import PayTypes from '@/views/PayTypes.vue'
-import Plugins from '@/views/Plugins.vue'
-import Rolls from '@/views/Rolls.vue'
-import Wechat from '@/views/Wechat.vue'
-import Transfer from '@/views/Transfer.vue'
-import TransferRecords from '@/views/TransferRecords.vue'
-import Billing from '@/views/Billing.vue'
-import Risk from '@/views/Risk.vue'
-import Blacklist from '@/views/Blacklist.vue'
-import Settings from '@/views/Settings.vue'
-import PaySettings from '@/views/PaySettings.vue'
-import RegSettings from '@/views/RegSettings.vue'
-import RiskSettings from '@/views/RiskSettings.vue'
-import SettleSettings from '@/views/SettleSettings.vue'
-import TransferSettings from '@/views/TransferSettings.vue'
-import OAuthSettings from '@/views/OAuthSettings.vue'
-import NoticeSettings from '@/views/NoticeSettings.vue'
-import CertSettings from '@/views/CertSettings.vue'
-import TemplateSettings from '@/views/TemplateSettings.vue'
-import MailSettings from '@/views/MailSettings.vue'
-import CronSettings from '@/views/CronSettings.vue'
-import OtherSettings from '@/views/OtherSettings.vue'
-import Wework from '@/views/Wework.vue'
-import WxkfSettings from '@/views/WxkfSettings.vue'
-import GetToken from '@/views/GetToken.vue'
-import SiteContent from '@/views/SiteContent.vue'
-// 内容管理含 tiptap 富文本编辑器，体积较大，懒加载拆出主包
+import MerchantPlaceholder from '@/views/merchant/MerchantPlaceholder.vue'
+import SiteHome from '@/views/site/SiteHome.vue'
+
+// —— 运营后台业务页（懒加载）——
+const StyleGuide = () => import('@/views/StyleGuide.vue')
+const Orders = () => import('@/views/Orders.vue')
+const Merchants = () => import('@/views/Merchants.vue')
+const Settle = () => import('@/views/Settle.vue')
+const ProfitSharing = () => import('@/views/ProfitSharing.vue')
+const Groups = () => import('@/views/Groups.vue')
+const Records = () => import('@/views/Records.vue')
+const MerchantStats = () => import('@/views/MerchantStats.vue')
+const InviteCodes = () => import('@/views/InviteCodes.vue')
+const BuyerStats = () => import('@/views/BuyerStats.vue')
+const Domains = () => import('@/views/Domains.vue')
+const Channels = () => import('@/views/Channels.vue')
+const PayTypes = () => import('@/views/PayTypes.vue')
+const Plugins = () => import('@/views/Plugins.vue')
+const Rolls = () => import('@/views/Rolls.vue')
+const Wechat = () => import('@/views/Wechat.vue')
+const Transfer = () => import('@/views/Transfer.vue')
+const TransferRecords = () => import('@/views/TransferRecords.vue')
+const Billing = () => import('@/views/Billing.vue')
+const Risk = () => import('@/views/Risk.vue')
+const Blacklist = () => import('@/views/Blacklist.vue')
+const Settings = () => import('@/views/Settings.vue')
+const PaySettings = () => import('@/views/PaySettings.vue')
+const RegSettings = () => import('@/views/RegSettings.vue')
+const RiskSettings = () => import('@/views/RiskSettings.vue')
+const SettleSettings = () => import('@/views/SettleSettings.vue')
+const TransferSettings = () => import('@/views/TransferSettings.vue')
+const OAuthSettings = () => import('@/views/OAuthSettings.vue')
+const NoticeSettings = () => import('@/views/NoticeSettings.vue')
+const CertSettings = () => import('@/views/CertSettings.vue')
+const TemplateSettings = () => import('@/views/TemplateSettings.vue')
+const MailSettings = () => import('@/views/MailSettings.vue')
+const CronSettings = () => import('@/views/CronSettings.vue')
+const OtherSettings = () => import('@/views/OtherSettings.vue')
+const Wework = () => import('@/views/Wework.vue')
+const WxkfSettings = () => import('@/views/WxkfSettings.vue')
+const GetToken = () => import('@/views/GetToken.vue')
+const SiteContent = () => import('@/views/SiteContent.vue')
 const Articles = () => import('@/views/Articles.vue')
 const DocsContent = () => import('@/views/DocsContent.vue')
-import Announcements from '@/views/Announcements.vue'
-import Messages from '@/views/Messages.vue'
-import HelpSettings from '@/views/HelpSettings.vue'
-import Logs from '@/views/Logs.vue'
-import Clean from '@/views/Clean.vue'
-import Admins from '@/views/Admins.vue'
-import Roles from '@/views/Roles.vue'
-import OpLogs from '@/views/OpLogs.vue'
-import ConsoleLayout from '@/layouts/ConsoleLayout.vue'
-import Console from '@/views/Console.vue'
-import ConsolePlans from '@/views/ConsolePlans.vue'
-import ConsoleBilling from '@/views/ConsoleBilling.vue'
-import ConsoleOverview from '@/views/ConsoleOverview.vue'
-import ConsoleLogs from '@/views/ConsoleLogs.vue'
-import MerchantLayout from '@/layouts/MerchantLayout.vue'
-import MerchantLogin from '@/views/merchant/MerchantLogin.vue'
-import MerchantPlaceholder from '@/views/merchant/MerchantPlaceholder.vue'
-import MerchantHome from '@/views/merchant/MerchantHome.vue'
-import MerchantOrders from '@/views/merchant/MerchantOrders.vue'
-import MerchantRecords from '@/views/merchant/MerchantRecords.vue'
-import MerchantSettle from '@/views/merchant/MerchantSettle.vue'
-import MerchantApply from '@/views/merchant/MerchantApply.vue'
-import MerchantApi from '@/views/merchant/MerchantApi.vue'
-import MerchantProfile from '@/views/merchant/MerchantProfile.vue'
-import MerchantCertificate from '@/views/merchant/MerchantCertificate.vue'
-import MerchantDomains from '@/views/merchant/MerchantDomains.vue'
-import MerchantOnecode from '@/views/merchant/MerchantOnecode.vue'
-import MerchantTransfer from '@/views/merchant/MerchantTransfer.vue'
-import MerchantRecharge from '@/views/merchant/MerchantRecharge.vue'
-import MerchantDeposit from '@/views/merchant/MerchantDeposit.vue'
-import MerchantGroupbuy from '@/views/merchant/MerchantGroupbuy.vue'
-import MerchantInvite from '@/views/merchant/MerchantInvite.vue'
-import MerchantHelp from '@/views/merchant/MerchantHelp.vue'
-import MerchantTest from '@/views/merchant/MerchantTest.vue'
-import Paypage from '@/views/site/Paypage.vue'
-import MerchantReg from '@/views/merchant/MerchantReg.vue'
-import MerchantFindpwd from '@/views/merchant/MerchantFindpwd.vue'
-import MerchantComplete from '@/views/merchant/MerchantComplete.vue'
-import MerchantOAuthCallback from '@/views/merchant/MerchantOAuthCallback.vue'
-import SiteLayout from '@/layouts/SiteLayout.vue'
-import SiteHome from '@/views/site/SiteHome.vue'
-import ClassicDocs from '@/views/site/templates/classic/ClassicDocs.vue'
-import ClassicAbout from '@/views/site/templates/classic/ClassicAbout.vue'
-import ClassicAgreement from '@/views/site/templates/classic/ClassicAgreement.vue'
-import ClassicPayok from '@/views/site/templates/classic/ClassicPayok.vue'
-import ClassicPayerr from '@/views/site/templates/classic/ClassicPayerr.vue'
-import CashierMock from '@/views/site/CashierMock.vue'
-import ClassicNews from '@/views/site/templates/classic/ClassicNews.vue'
-import ClassicNewsList from '@/views/site/templates/classic/ClassicNewsList.vue'
+const Announcements = () => import('@/views/Announcements.vue')
+const Messages = () => import('@/views/Messages.vue')
+const HelpSettings = () => import('@/views/HelpSettings.vue')
+const Logs = () => import('@/views/Logs.vue')
+const Clean = () => import('@/views/Clean.vue')
+const Admins = () => import('@/views/Admins.vue')
+const Roles = () => import('@/views/Roles.vue')
+const OpLogs = () => import('@/views/OpLogs.vue')
+
+// —— 控制台（懒加载）——
+const Console = () => import('@/views/Console.vue')
+const ConsolePlans = () => import('@/views/ConsolePlans.vue')
+const ConsoleBilling = () => import('@/views/ConsoleBilling.vue')
+const ConsoleOverview = () => import('@/views/ConsoleOverview.vue')
+const ConsoleLogs = () => import('@/views/ConsoleLogs.vue')
+
+// —— 商户中心（懒加载）——
+const MerchantLogin = () => import('@/views/merchant/MerchantLogin.vue')
+const MerchantHome = () => import('@/views/merchant/MerchantHome.vue')
+const MerchantOrders = () => import('@/views/merchant/MerchantOrders.vue')
+const MerchantRecords = () => import('@/views/merchant/MerchantRecords.vue')
+const MerchantSettle = () => import('@/views/merchant/MerchantSettle.vue')
+const MerchantApply = () => import('@/views/merchant/MerchantApply.vue')
+const MerchantApi = () => import('@/views/merchant/MerchantApi.vue')
+const MerchantProfile = () => import('@/views/merchant/MerchantProfile.vue')
+const MerchantCertificate = () => import('@/views/merchant/MerchantCertificate.vue')
+const MerchantDomains = () => import('@/views/merchant/MerchantDomains.vue')
+const MerchantOnecode = () => import('@/views/merchant/MerchantOnecode.vue')
+const MerchantTransfer = () => import('@/views/merchant/MerchantTransfer.vue')
+const MerchantRecharge = () => import('@/views/merchant/MerchantRecharge.vue')
+const MerchantDeposit = () => import('@/views/merchant/MerchantDeposit.vue')
+const MerchantGroupbuy = () => import('@/views/merchant/MerchantGroupbuy.vue')
+const MerchantInvite = () => import('@/views/merchant/MerchantInvite.vue')
+const MerchantHelp = () => import('@/views/merchant/MerchantHelp.vue')
+const MerchantTest = () => import('@/views/merchant/MerchantTest.vue')
+const MerchantReg = () => import('@/views/merchant/MerchantReg.vue')
+const MerchantFindpwd = () => import('@/views/merchant/MerchantFindpwd.vue')
+const MerchantComplete = () => import('@/views/merchant/MerchantComplete.vue')
+const MerchantOAuthCallback = () => import('@/views/merchant/MerchantOAuthCallback.vue')
+
+// —— 官网 / 支付前台页（懒加载，首页 SiteHome 除外）——
+const Paypage = () => import('@/views/site/Paypage.vue')
+const ClassicDocs = () => import('@/views/site/templates/classic/ClassicDocs.vue')
+const ClassicAbout = () => import('@/views/site/templates/classic/ClassicAbout.vue')
+const ClassicAgreement = () => import('@/views/site/templates/classic/ClassicAgreement.vue')
+const ClassicPayok = () => import('@/views/site/templates/classic/ClassicPayok.vue')
+const ClassicPayerr = () => import('@/views/site/templates/classic/ClassicPayerr.vue')
+const CashierMock = () => import('@/views/site/CashierMock.vue')
+const PayVerify = () => import('@/views/site/PayVerify.vue')
+const ClassicNews = () => import('@/views/site/templates/classic/ClassicNews.vue')
+const ClassicNewsList = () => import('@/views/site/templates/classic/ClassicNewsList.vue')
 import { allLeaves, consoleLeaves, merchantLeaves } from '@/config/nav'
 import { useAuthStore } from '@/stores/auth'
 import { useMerchantAuthStore } from '@/stores/merchantAuth'
@@ -112,6 +122,7 @@ const pathTitleMap: Record<string, string> = {
   '/agreement': '服务协议',
   '/payok': '支付成功',
   '/payerr': '支付失败',
+  '/pay/verify': '支付安全验证',
 }
 
 /** 各端标题后缀 */
@@ -254,6 +265,8 @@ const router = createRouter({
     { path: '/pay/mock/cashier/:trade_no', name: 'cashier-mock', component: CashierMock },
     // B1-04：空 type 下单跳收银台聚合选方式页（复用收银台组件，带 paytypes 时渲染选方式）
     { path: '/pay/cashier/:trade_no', name: 'cashier', component: CashierMock },
+    // 支付安全验证页（对齐 epay verify_jump；命中 pay_verify 时下单跳转至此，通过后复发起下单）
+    { path: '/pay/verify', name: 'pay-verify', component: PayVerify },
     // 公开聚合收款页（扫码进入，输金额→选方式→走收单链）
     { path: '/paypage', name: 'paypage', component: Paypage },
     // 后台登录页（独立，无侧栏）
