@@ -59,6 +59,7 @@ export const navMenu: NavNode[] = [
       { title: '用户组 / 套餐', to: '/admin/groups' },
       { title: '邀请码管理', to: '/admin/invite-codes' },
       { title: '授权域名', to: '/admin/domains' },
+      { title: '商户日志', to: '/admin/merchant-oplogs' },
     ],
   },
   {

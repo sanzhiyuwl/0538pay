@@ -1045,6 +1045,46 @@ func (q *LogQuery) Normalize() {
 	}
 }
 
+// OpLogView 操作日志对外响应（我方独有安全审计）。
+type OpLogView struct {
+	ID       uint   `json:"id"`
+	Scope    string `json:"scope"`
+	UID      uint   `json:"uid"`
+	Operator string `json:"operator"`
+	Action   string `json:"action"`   // 动作key
+	ActionCN string `json:"actionCN"` // 动作中文名（映射表派生）
+	Category string `json:"category"`
+	Level    string `json:"level"`
+	Target   string `json:"target"`
+	Detail   string `json:"detail"`
+	Result   string `json:"result"`
+	IP       string `json:"ip"`
+	Date     string `json:"date"`
+}
+
+// OpLogQuery 操作日志查询入参（多维筛选 + 分页）。
+type OpLogQuery struct {
+	Page      int    `form:"page"`
+	PageSize  int    `form:"pageSize"`
+	UID       uint   `form:"uid"`      // 操作者ID（0=不限）
+	Action    string `form:"action"`   // 动作key
+	Category  string `form:"category"` // 分类 account/fund/auth/config
+	Level     string `form:"level"`    // 级别 normal/warning/danger
+	Result    string `form:"result"`   // ok/fail
+	Keyword   string `form:"keyword"`  // 模糊：operator/target
+	StartTime string `form:"starttime"`
+	EndTime   string `form:"endtime"`
+}
+
+func (q *OpLogQuery) Normalize() {
+	if q.Page <= 0 {
+		q.Page = 1
+	}
+	if q.PageSize <= 0 || q.PageSize > 100 {
+		q.PageSize = 20
+	}
+}
+
 // InviteView 邀请码对外响应，对齐前端 mock/invitecodes.ts。
 type InviteView struct {
 	ID      uint    `json:"id"`
@@ -1534,6 +1574,24 @@ type MessageView struct {
 	Content string `json:"content"`
 	IsRead  bool   `json:"is_read"`
 	Date    string `json:"date"`
+}
+
+// RoleView 后台角色对外响应（RBAC 增强）。permissions 含 "*" 表示全部权限。
+type RoleView struct {
+	ID          uint     `json:"id"`
+	Code        string   `json:"code"`
+	Name        string   `json:"name"`
+	Description string   `json:"desc"`
+	Permissions []string `json:"permissions"`
+	Builtin     bool     `json:"builtin"`
+}
+
+// RoleSaveReq 新增/编辑角色入参。Code 仅新增用（编辑时锁定，忽略）。
+type RoleSaveReq struct {
+	Code        string   `json:"code"`
+	Name        string   `json:"name" binding:"required"`
+	Description string   `json:"desc"`
+	Permissions []string `json:"permissions"`
 }
 
 // MessageSendReq 管理员下发站内信入参。UID=0 表示全体广播。

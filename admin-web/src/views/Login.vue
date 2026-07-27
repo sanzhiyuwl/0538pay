@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { User, Lock, Eye, EyeOff, Smartphone, ShieldCheck } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
@@ -43,6 +43,13 @@ function sendCode() {
 }
 
 const submitLabel = computed(() => (loading.value ? '登录中…' : '登 录'))
+
+// 因闲置超时被自动退出时，跳登录页会带 reason=timeout，给一句友好提示。
+onMounted(() => {
+  if (route.query.reason === 'timeout') {
+    toast.info('因长时间未操作，已自动退出，请重新登录', 4000)
+  }
+})
 
 async function login() {
   if (mode.value === 'sms') {

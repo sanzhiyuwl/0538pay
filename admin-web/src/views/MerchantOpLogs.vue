@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { Search, RotateCcw, Download, ExternalLink, Eye } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, DateRange, Pagination, Modal } from '@/components/ui'
 import {
-  fetchAdminOpLogs,
-  fetchAdminOpActionOptions,
-  exportAdminOpLogs,
+  fetchMerchantOpLogs,
+  fetchOpActionOptions,
+  exportMerchantOpLogs,
   opLevelMeta,
   opCategoryText,
   opResultMeta,
+  opCategoryOptions,
   opLevelOptions,
   opResultOptions,
   type OpLog,
@@ -21,7 +23,9 @@ const toast = useToast()
 
 // ===== 筛选 =====
 const filters = reactive({
+  uid: '',
   action: '',
+  category: '',
   level: '',
   result: '',
   keyword: '',
@@ -29,11 +33,11 @@ const filters = reactive({
   endtime: '',
 })
 
-// 动作下拉（后端取已落库去重动作）
+// 动作下拉（后端映射表派生）
 const actionOptions = ref<{ value: string; label: string }[]>([{ value: '', label: '全部动作' }])
 async function loadActions() {
   try {
-    const res = await fetchAdminOpActionOptions()
+    const res = await fetchOpActionOptions()
     actionOptions.value = [
       { value: '', label: '全部动作' },
       ...res.actions.map((a: OpActionOption) => ({ value: a.value, label: a.label })),
@@ -51,10 +55,13 @@ const rows = ref<OpLog[]>([])
 const loading = ref(false)
 
 function buildParams() {
+  const uidNum = Number(filters.uid.trim())
   return {
     page: page.value,
     pageSize,
+    uid: filters.uid.trim() && !Number.isNaN(uidNum) ? uidNum : undefined,
     action: filters.action || undefined,
+    category: filters.category || undefined,
     level: filters.level || undefined,
     result: filters.result || undefined,
     keyword: filters.keyword.trim() || undefined,
@@ -66,7 +73,7 @@ function buildParams() {
 async function load() {
   loading.value = true
   try {
-    const res = await fetchAdminOpLogs(buildParams())
+    const res = await fetchMerchantOpLogs(buildParams())
     rows.value = res.list
     total.value = res.total
   } catch (e) {
@@ -84,7 +91,9 @@ function search() {
 }
 
 function resetFilters() {
+  filters.uid = ''
   filters.action = ''
+  filters.category = ''
   filters.level = ''
   filters.result = ''
   filters.keyword = ''
@@ -99,7 +108,11 @@ function go(p: number) {
   load()
 }
 
+const route = useRoute()
 onMounted(() => {
+  // 从商户页快捷跳转而来：预置商户号筛选
+  const qu = route.query.uid
+  if (qu != null && String(qu).trim()) filters.uid = String(qu).trim()
   loadActions()
   load()
 })
@@ -110,7 +123,7 @@ async function exportList() {
   if (exporting.value) return
   exporting.value = true
   try {
-    await exportAdminOpLogs({ ...buildParams(), page: undefined, pageSize: undefined })
+    await exportMerchantOpLogs({ ...buildParams(), page: undefined, pageSize: undefined })
     toast.success('已开始下载操作日志 CSV')
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '导出失败')
@@ -145,11 +158,19 @@ function parseDetail(detail: string): [string, string][] {
 <template>
   <div class="space-y-2.5">
     <!-- 筛选 -->
-    <Panel title="操作日志" subtitle="记录管理员在后台的写操作（订单退款 / 商户充扣 / 改配置 / 删除等），供审计追溯">
+    <Panel title="商户操作日志" subtitle="记录商户在商户中心的写操作（改资料 / 提现 / 退款 / 绑域名 / 改密钥等），供审计追溯">
       <div class="filter-bar">
         <div class="filter-item">
+          <label class="text-sm text-muted-foreground">商户号</label>
+          <input v-model="filters.uid" placeholder="商户号" class="field-input w-32" @keyup.enter="search" />
+        </div>
+        <div class="filter-item">
           <label class="text-sm text-muted-foreground">操作动作</label>
-          <Select v-model="filters.action" :options="actionOptions" class="w-40" />
+          <Select v-model="filters.action" :options="actionOptions" class="w-36" />
+        </div>
+        <div class="filter-item">
+          <label class="text-sm text-muted-foreground">分类</label>
+          <Select v-model="filters.category" :options="opCategoryOptions" class="w-28" />
         </div>
         <div class="filter-item">
           <label class="text-sm text-muted-foreground">级别</label>
@@ -161,7 +182,7 @@ function parseDetail(detail: string): [string, string][] {
         </div>
         <div class="filter-item">
           <label class="text-sm text-muted-foreground">关键字</label>
-          <input v-model="filters.keyword" placeholder="管理员 / 对象" class="field-input w-40" @keyup.enter="search" />
+          <input v-model="filters.keyword" placeholder="操作者 / 对象" class="field-input w-40" @keyup.enter="search" />
         </div>
         <div class="filter-item">
           <label class="text-sm text-muted-foreground">时间</label>
@@ -184,11 +205,12 @@ function parseDetail(detail: string): [string, string][] {
           <thead>
             <tr>
               <th class="w-[6%]">ID</th>
-              <th class="w-[14%]">管理员</th>
-              <th class="w-[14%]">操作</th>
-              <th class="w-[8%]">分类</th>
-              <th class="w-[8%]">级别</th>
-              <th class="w-[22%]">对象</th>
+              <th class="w-[10%]">商户号</th>
+              <th class="w-[12%]">操作者</th>
+              <th class="w-[12%]">操作</th>
+              <th class="w-[7%]">分类</th>
+              <th class="w-[7%]">级别</th>
+              <th class="w-[20%]">对象</th>
               <th class="w-[7%]">结果</th>
               <th class="w-[12%]">IP</th>
               <th class="w-[14%]">时间</th>
@@ -198,8 +220,9 @@ function parseDetail(detail: string): [string, string][] {
           <tbody>
             <tr v-for="l in rows" :key="l.id">
               <td class="tabular-nums dim">{{ l.id }}</td>
-              <td class="truncate font-medium" :title="l.operator">{{ l.operator || '—' }}</td>
-              <td>{{ l.actionCN }}</td>
+              <td class="tabular-nums">{{ l.uid }}</td>
+              <td class="truncate" :title="l.operator">{{ l.operator || '—' }}</td>
+              <td class="font-medium">{{ l.actionCN }}</td>
               <td class="dim">{{ opCategoryText[l.category] ?? l.category }}</td>
               <td>
                 <Badge :variant="opLevelMeta[l.level]?.variant ?? 'muted'">
@@ -234,7 +257,7 @@ function parseDetail(detail: string): [string, string][] {
               </td>
             </tr>
             <tr v-if="!loading && !rows.length">
-              <td colspan="10" class="py-10 text-center dim">没有符合条件的操作日志</td>
+              <td colspan="11" class="py-10 text-center dim">没有符合条件的操作日志</td>
             </tr>
           </tbody>
         </table>
@@ -255,7 +278,8 @@ function parseDetail(detail: string): [string, string][] {
     <Modal v-model="detailOpen" title="操作日志详情" width="max-w-lg">
       <div v-if="detailRow" class="space-y-3 text-sm">
         <div class="grid grid-cols-2 gap-x-4 gap-y-2.5">
-          <div><span class="dim">管理员：</span>{{ detailRow.operator || '—' }}</div>
+          <div><span class="dim">商户号：</span><span class="tabular-nums">{{ detailRow.uid }}</span></div>
+          <div><span class="dim">操作者：</span>{{ detailRow.operator || '—' }}</div>
           <div><span class="dim">操作：</span><span class="font-medium">{{ detailRow.actionCN }}</span></div>
           <div>
             <span class="dim">级别：</span>

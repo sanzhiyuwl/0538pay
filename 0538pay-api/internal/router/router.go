@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/epvia/api/internal/handler"
 	"github.com/epvia/api/internal/middleware"
+	"github.com/epvia/api/internal/service"
 	"github.com/epvia/api/pkg/jwtauth"
 	"github.com/epvia/api/pkg/resp"
 	"github.com/gin-gonic/gin"
@@ -48,6 +49,9 @@ type Deps struct {
 	Cron           *handler.CronHandler
 	Upload         *handler.UploadHandler
 	Billing        *handler.BillingHandler
+	OpLog          *handler.OpLogHandler
+	OpLogSvc       *service.OpLogService
+	Role           *handler.RoleHandler
 }
 
 // Setup 注册所有路由。
@@ -66,6 +70,8 @@ func Setup(r *gin.Engine, d Deps) {
 
 		authed := admin.Group("")
 		authed.Use(middleware.Auth(d.JWT, "admin"))
+		// 管理端写操作自动埋点（scope=admin，复用商户日志同表；仅 POST/PUT/DELETE 记，GET 放行）。
+		authed.Use(middleware.AdminOpLog(d.OpLogSvc))
 		{
 			// 当前管理员账号资料 / 改密
 			authed.GET("/profile", d.Auth.Profile)
@@ -79,12 +85,26 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.PUT("/admins/:id/status", d.Admin.SetStatus)
 			authed.DELETE("/admins/:id", d.Admin.Delete)
 
+			// 角色管理（RBAC 增强，我方独有）
+			authed.GET("/roles", d.Role.List)
+			authed.POST("/roles", d.Role.Create)
+			authed.PUT("/roles/:id", d.Role.Update)
+			authed.DELETE("/roles/:id", d.Role.Delete)
+
 			// 仪表盘（全平台聚合）
 			authed.GET("/dashboard", d.Dashboard.Overview)
 
 			// 平台月度对账账单（我方独有细化项）
 			authed.GET("/billing", d.Billing.List)
 			authed.GET("/billing/export", d.Billing.Export)
+
+			// 操作日志（我方独有安全审计增强，查询/导出）：商户端 + 管理端两 scope 复用同表
+			authed.GET("/oplogs/merchant", d.OpLog.List)
+			authed.GET("/oplogs/merchant/options", d.OpLog.Options)
+			authed.GET("/oplogs/merchant/export", d.OpLog.Export)
+			authed.GET("/oplogs/admin", d.OpLog.AdminList)
+			authed.GET("/oplogs/admin/options", d.OpLog.AdminOptions)
+			authed.GET("/oplogs/admin/export", d.OpLog.AdminExport)
 
 			// 订单管理（列表 + 写操作）
 			authed.GET("/orders", d.Order.List)
@@ -352,6 +372,8 @@ func Setup(r *gin.Engine, d Deps) {
 
 		mAuthed := merchant.Group("")
 		mAuthed.Use(middleware.Auth(d.JWT, "merchant"))
+		// 商户写操作自动埋点（按动作映射表过滤，只记登记的写操作，GET 一律放行）。
+		mAuthed.Use(middleware.OpLog(d.OpLogSvc))
 		{
 			mAuthed.GET("/info", d.MerchantAuth.Info)
 			mAuthed.POST("/complete", d.MerchantAuth.Complete) // 完善资料（需登录）

@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/epvia/api/internal/dto"
 	"github.com/epvia/api/internal/middleware"
@@ -10,6 +12,69 @@ import (
 	"github.com/epvia/api/pkg/resp"
 	"github.com/gin-gonic/gin"
 )
+
+// setOpSummary 为商户操作日志中间件写入精确对象摘要与明细（第二期资金操作用）。
+// target 覆盖动作映射表默认摘要（如「退款 ¥100.00 订单#xxx」）；detail 为键值对，
+// 序列化为 JSON 供日志详情展开。资金操作成功/失败都写，审计需留痕尝试。
+func setOpSummary(c *gin.Context, target string, detail map[string]string) {
+	if target != "" {
+		c.Set(middleware.CtxOpTarget, target)
+	}
+	// 丢掉空值项，避免详情里出现「收款姓名：」这类空行。
+	clean := make(map[string]string, len(detail))
+	for k, v := range detail {
+		if strings.TrimSpace(v) != "" {
+			clean[k] = v
+		}
+	}
+	if len(clean) > 0 {
+		if b, err := json.Marshal(clean); err == nil {
+			c.Set(middleware.CtxOpDetail, string(b))
+		}
+	}
+}
+
+// maskAccount 账号脱敏：保留后 4 位，前面统一 ****（操作日志摘要用，避免明文落库）。
+func maskAccount(s string) string {
+	r := []rune(strings.TrimSpace(s))
+	if len(r) <= 4 {
+		return string(r)
+	}
+	return "****" + string(r[len(r)-4:])
+}
+
+// transferTypeCN 代付收款方式中文名（摘要展示用）。
+func transferTypeCN(t string) string {
+	switch t {
+	case "alipay":
+		return "支付宝"
+	case "wxpay":
+		return "微信"
+	case "qqpay":
+		return "QQ"
+	case "bank":
+		return "银行卡"
+	default:
+		return t
+	}
+}
+
+// depositPayCN 保证金/会员支付方式中文名（摘要展示用）。
+func depositPayCN(t string) string {
+	if t == "" || t == "balance" {
+		return "余额支付"
+	}
+	return "渠道支付"
+}
+
+// yuan 金额摘要格式：非空补 ¥ 前缀，空返回占位。
+func yuan(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	return "¥" + s
+}
 
 // MerchantCenterHandler 商户中心业务接口（工作台/订单/流水/结算/提现/退款/代付/自助流程）。
 type MerchantCenterHandler struct {
@@ -225,6 +290,16 @@ func (h *MerchantCenterHandler) Refund(c *gin.Context) {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
 		return
 	}
+	moneyText := req.Money
+	if strings.TrimSpace(moneyText) == "" {
+		moneyText = "全额"
+	} else {
+		moneyText = yuan(moneyText)
+	}
+	setOpSummary(c, "退款 "+moneyText+" 订单#"+req.TradeNo, map[string]string{
+		"订单号":  req.TradeNo,
+		"退款金额": moneyText,
+	})
 	if err := h.svc.Refund(uid, req); err != nil {
 		failMC(c, err)
 		return
@@ -459,6 +534,12 @@ func (h *MerchantCenterHandler) TransferCreate(c *gin.Context) {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
 		return
 	}
+	setOpSummary(c, "代付 "+yuan(req.Money)+" 到 "+transferTypeCN(req.Type)+" "+maskAccount(req.Account), map[string]string{
+		"到账金额": yuan(req.Money),
+		"收款方式": transferTypeCN(req.Type),
+		"收款账号": maskAccount(req.Account),
+		"收款姓名": req.Username,
+	})
 	bizNo, err := h.transferSvc.CreateByMerchant(uid, req)
 	if err != nil {
 		var te *service.TransferError
@@ -501,6 +582,10 @@ func (h *MerchantCenterHandler) DepositRecharge(c *gin.Context) {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
 		return
 	}
+	setOpSummary(c, "保证金充值 "+yuan(req.Amount), map[string]string{
+		"充值金额": yuan(req.Amount),
+		"支付方式": depositPayCN(req.PayType),
+	})
 	if err := h.svc.DepositRecharge(uid, req); err != nil {
 		failMC(c, err)
 		return
@@ -520,6 +605,9 @@ func (h *MerchantCenterHandler) DepositWithdraw(c *gin.Context) {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
 		return
 	}
+	setOpSummary(c, "保证金提现 "+yuan(req.Amount), map[string]string{
+		"提现金额": yuan(req.Amount),
+	})
 	if err := h.svc.DepositWithdraw(uid, req); err != nil {
 		failMC(c, err)
 		return
@@ -573,6 +661,10 @@ func (h *MerchantCenterHandler) Recharge(c *gin.Context) {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
 		return
 	}
+	setOpSummary(c, "余额充值 "+yuan(req.Amount), map[string]string{
+		"充值金额": yuan(req.Amount),
+		"充值渠道": req.Plugin,
+	})
 	out, err := h.svc.Recharge(uid, req)
 	if err != nil {
 		failMC(c, err)
@@ -613,6 +705,16 @@ func (h *MerchantCenterHandler) BuyGroup(c *gin.Context) {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
 		return
 	}
+	detail := map[string]string{
+		"套餐组": "#" + strconv.Itoa(req.GID),
+		"支付方式": depositPayCN(req.PayType),
+	}
+	target := "购买会员套餐 #" + strconv.Itoa(req.GID)
+	if req.Num > 0 {
+		detail["购买月数"] = strconv.Itoa(req.Num) + " 个月"
+		target += "（" + strconv.Itoa(req.Num) + " 个月）"
+	}
+	setOpSummary(c, target, detail)
 	if err := h.svc.BuyGroup(uid, req); err != nil {
 		failMC(c, err)
 		return

@@ -11,12 +11,20 @@ import {
   ChevronDown,
   Zap,
 } from 'lucide-vue-next'
+import { ShieldAlert } from 'lucide-vue-next'
 import { navMenu, allLeaves, consoleEntry, type NavNode } from '@/config/nav'
 import { useThemeStore } from '@/stores/theme'
 import { useSiteStore } from '@/stores/site'
 import { cn, splitBrand } from '@/lib/utils'
+import { useIdleLogout } from '@/composables/useIdleLogout'
+import { useAuthStore } from '@/stores/auth'
 import NotificationDrawer from '@/components/NotificationDrawer.vue'
 import UserMenu from '@/components/UserMenu.vue'
+import { Button } from '@/components/ui'
+
+// 闲置超时自动退出（安全增强）：覆盖所有能进入管理后台的角色。
+const auth = useAuthStore()
+const idle = useIdleLogout({ logout: () => auth.logout(), loginRouteName: 'login' })
 
 const theme = useThemeStore()
 const route = useRoute()
@@ -251,5 +259,38 @@ const currentParent = computed(
 
     <!-- 站内信抽屉 -->
     <NotificationDrawer :open="noticeOpen" @close="noticeOpen = false" />
+
+    <!-- 闲置超时警告：到期前 60 秒弹出倒计时，不可点背景关闭，需显式选择 -->
+    <transition
+      enter-active-class="transition-opacity duration-200"
+      leave-active-class="transition-opacity duration-150"
+      enter-from-class="opacity-0"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="idle.warning.value"
+        class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+      >
+        <div class="flex w-full max-w-sm flex-col bg-background shadow-2xl">
+          <div class="flex flex-col items-center gap-3 px-6 pt-7 text-center">
+            <div
+              class="flex size-12 items-center justify-center rounded-full bg-warning/[0.12] text-warning"
+            >
+              <ShieldAlert class="size-6" />
+            </div>
+            <h3 class="text-base font-semibold">即将自动退出登录</h3>
+            <p class="text-sm leading-relaxed text-muted-foreground">
+              检测到您已 {{ idle.idleLimitMinutes }} 分钟未操作，为保障账号安全，
+              <span class="font-semibold text-warning tabular-nums">{{ idle.remaining.value }}</span>
+              秒后将自动退出。
+            </p>
+          </div>
+          <div class="flex items-center justify-center gap-2 px-6 pb-6 pt-5">
+            <Button variant="outline" @click="idle.logoutNow()">立即退出</Button>
+            <Button @click="idle.stay()">继续操作</Button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>

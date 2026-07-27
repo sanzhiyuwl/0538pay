@@ -19,7 +19,13 @@ const merchantAuth = useMerchantAuthStore()
 
 // 品牌名来自后台「网站设置 / 网站信息」，实时联动；末尾一个词高亮
 const siteStore = useSiteStore()
-onMounted(() => siteStore.hydrate())
+onMounted(() => {
+  siteStore.hydrate()
+  // 因闲置超时被自动退出时，跳登录页会带 reason=timeout，给一句友好提示。
+  if (route.query.reason === 'timeout') {
+    toast.info('因长时间未操作，已自动退出，请重新登录', 4000)
+  }
+})
 const brand = computed(() => splitBrand(siteStore.config.merchantName))
 
 // 登录页主标语：后台可配，用 \n 换行，最后一行黄色下划线高亮

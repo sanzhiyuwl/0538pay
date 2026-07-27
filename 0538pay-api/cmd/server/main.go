@@ -167,6 +167,10 @@ func main() {
 	billingSvc := service.NewBillingService(repository.NewBillingRepo(db))
 	// 网站公告（对齐 epay gonggao.php）。
 	announceSvc := service.NewAnnounceService(repository.NewAnnounceRepo(db))
+	// 商户/管理端操作日志（我方独有安全审计增强，中间件自动埋点 + 后台查询/导出，一表两 scope）。
+	opLogSvc := service.NewOpLogService(repository.NewOpLogRepo(db))
+	// 后台角色管理（RBAC 增强，我方独有）。
+	roleSvc := service.NewRoleService(repository.NewRoleRepo(db))
 	// 文章管理（对齐 epay article.php pre_article 行表 CRUD）。
 	articleSvc := service.NewArticleService(repository.NewArticleRepo(db))
 	// 数据清理（对齐 epay clean.php）。
@@ -261,6 +265,9 @@ func main() {
 		Clean:     handler.NewCleanHandler(cleanSvc),
 		Cron:      handler.NewCronHandler(sch, configSvc),
 		Upload:    handler.NewUploadHandler("./uploads"),
+		OpLog:     handler.NewOpLogHandler(opLogSvc),
+		OpLogSvc:  opLogSvc,
+		Role:      handler.NewRoleHandler(roleSvc),
 	}
 
 	// 4. 定时任务（阶段E）：通知重试 + 对账 + 超时关单 + 自动结算 + 分账 + 风控。

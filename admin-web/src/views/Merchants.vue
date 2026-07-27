@@ -20,8 +20,10 @@ import {
   ReceiptText,
   ScrollText,
   Landmark,
+  Activity,
+  ExternalLink,
 } from 'lucide-vue-next'
-import { Panel, Button, Select, Pagination, Drawer, Modal, Switch } from '@/components/ui'
+import { Panel, Button, Select, Pagination, Drawer, Modal, Switch, Badge } from '@/components/ui'
 import {
   settleTypes,
   searchColumns,
@@ -57,6 +59,13 @@ import {
   type SubChannelSaveReq,
 } from '@/lib/api/subchannels'
 import { fetchChannels } from '@/lib/api/channels'
+import {
+  fetchMerchantOpLogs,
+  opLevelMeta,
+  opCategoryText,
+  opResultMeta,
+  type OpLog,
+} from '@/lib/api/oplogs'
 import type { Channel } from '@/lib/mock/channels'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
@@ -519,6 +528,34 @@ async function ssoInto(m: Merchant) {
   }
 }
 
+// ===== 操作轨迹抽屉（调 fetchMerchantOpLogs 带 uid 过滤，看该商户在商户端的写操作）=====
+const trailDrawer = ref(false)
+const trailMerchant = ref<Merchant | null>(null)
+const trailRows = ref<OpLog[]>([])
+const trailLoading = ref(false)
+async function openTrail(m: Merchant) {
+  trailMerchant.value = m
+  trailDrawer.value = true
+  openMenu.value = null
+  trailLoading.value = true
+  trailRows.value = []
+  try {
+    // 抽屉里只看最近 20 条，看全部走「商户日志」页带 uid 预筛
+    const res = await fetchMerchantOpLogs({ uid: m.uid, page: 1, pageSize: 20 })
+    trailRows.value = res.list
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载操作轨迹失败')
+  } finally {
+    trailLoading.value = false
+  }
+}
+function viewAllTrail() {
+  if (!trailMerchant.value) return
+  const uid = trailMerchant.value.uid
+  trailDrawer.value = false
+  router.push({ path: '/admin/merchant-oplogs', query: { uid: String(uid) } })
+}
+
 // ===== 删除商户 =====
 const delTarget = ref<Merchant | null>(null)
 const deleting = ref(false)
@@ -663,6 +700,9 @@ async function confirmDelete() {
                     </button>
                     <button class="menu-item" @click="ssoInto(m)">
                       <LogIn class="size-4 shrink-0 opacity-70" /><span class="flex-1">进入商户端</span>
+                    </button>
+                    <button class="menu-item" @click="openTrail(m)">
+                      <Activity class="size-4 shrink-0 opacity-70" /><span class="flex-1">操作轨迹</span>
                     </button>
                     <div class="menu-sep" />
                     <button class="menu-item" @click="jumpTo('/admin/orders', m)">
@@ -1008,6 +1048,47 @@ async function confirmDelete() {
       </div>
       <template #footer>
         <Button variant="outline" size="sm" @click="subDrawer = false">关闭</Button>
+      </template>
+    </Drawer>
+
+    <!-- 操作轨迹抽屉（该商户在商户端的写操作，最近 20 条；看全部跳「商户日志」页）-->
+    <Drawer
+      v-model="trailDrawer"
+      :title="`操作轨迹 · 商户 ${trailMerchant?.uid ?? ''}`"
+      subtitle="该商户在商户中心的写操作（改资料 / 提现 / 退款 / 绑域名 / 改密钥等），最近 20 条"
+    >
+      <div v-if="trailLoading" class="py-10 text-center text-sm dim">加载中…</div>
+      <div v-else-if="!trailRows.length" class="py-10 text-center text-sm dim">该商户暂无操作记录</div>
+      <ol v-else class="relative space-y-4 border-l border-border/60 pl-4">
+        <li v-for="l in trailRows" :key="l.id" class="relative">
+          <span
+            class="absolute -left-[21px] top-1.5 size-2.5 rounded-full ring-2 ring-background"
+            :class="{
+              'bg-destructive': l.level === 'danger',
+              'bg-warning': l.level === 'warning',
+              'bg-muted-foreground': l.level === 'normal',
+            }"
+          />
+          <div class="flex items-center gap-2">
+            <span class="font-medium">{{ l.actionCN }}</span>
+            <Badge :variant="opLevelMeta[l.level]?.variant ?? 'muted'">
+              {{ opLevelMeta[l.level]?.text ?? l.level }}
+            </Badge>
+            <Badge v-if="l.result !== 'ok'" :variant="opResultMeta[l.result]?.variant ?? 'muted'">
+              {{ opResultMeta[l.result]?.text ?? l.result }}
+            </Badge>
+          </div>
+          <div class="mt-0.5 truncate text-sm text-muted-foreground" :title="l.target">{{ l.target || '—' }}</div>
+          <div class="mt-0.5 flex items-center gap-2 text-xs dim">
+            <span>{{ opCategoryText[l.category] ?? l.category }}</span>
+            <span class="tabular-nums">{{ l.ip }}</span>
+            <span>{{ l.date }}</span>
+          </div>
+        </li>
+      </ol>
+      <template #footer>
+        <Button variant="outline" size="sm" @click="trailDrawer = false">关闭</Button>
+        <Button size="sm" @click="viewAllTrail"><ExternalLink />查看全部</Button>
       </template>
     </Drawer>
   </div>

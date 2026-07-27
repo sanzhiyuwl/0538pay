@@ -1,24 +1,49 @@
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, Pencil, Trash2, ShieldCheck } from 'lucide-vue-next'
 import { Panel, Button, Badge, Drawer } from '@/components/ui'
-import { roles as allRoles, permModules, rolePermText, type Role } from '@/lib/mock/admins'
+import {
+  fetchRoles,
+  createRole,
+  updateRole,
+  deleteRole,
+  rolePermText,
+  permModules,
+  type Role,
+} from '@/lib/api/roles'
+import { ApiError } from '@/lib/api/client'
 
-const roles = ref<Role[]>([...allRoles])
+const roles = ref<Role[]>([])
+const loading = ref(false)
+
+async function load() {
+  loading.value = true
+  try {
+    const { list } = await fetchRoles()
+    roles.value = list
+  } catch (e) {
+    alert(e instanceof ApiError ? e.message : '加载角色失败')
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
 
 // ===== 角色权限抽屉 =====
 const roleDrawer = ref(false)
-const editingRoleId = ref<number | null>(null)
-const roleForm = reactive({ name: '', desc: '', permissions: [] as string[] })
+const editingRole = ref<Role | null>(null)
+const saving = ref(false)
+const roleForm = reactive({ code: '', name: '', desc: '', permissions: [] as string[] })
 
 function openRoleCreate() {
-  editingRoleId.value = null
-  Object.assign(roleForm, { name: '', desc: '', permissions: ['dashboard'] })
+  editingRole.value = null
+  Object.assign(roleForm, { code: '', name: '', desc: '', permissions: ['dashboard'] })
   roleDrawer.value = true
 }
 function openRoleEdit(r: Role) {
-  editingRoleId.value = r.id
+  editingRole.value = r
   Object.assign(roleForm, {
+    code: r.code,
     name: r.name,
     desc: r.desc,
     permissions: r.permissions.includes('*') ? permModules.map((m) => m.key) : [...r.permissions],
@@ -30,11 +55,53 @@ function togglePerm(key: string) {
   if (i > -1) roleForm.permissions.splice(i, 1)
   else roleForm.permissions.push(key)
 }
-function saveRole() {
-  roleDrawer.value = false
+
+const isSuperAdminRole = computed(() => editingRole.value?.code === 'super')
+
+async function saveRole() {
+  if (!roleForm.name.trim()) {
+    alert('请填写角色名称')
+    return
+  }
+  if (!editingRole.value && !roleForm.code.trim()) {
+    alert('请填写角色代码')
+    return
+  }
+  saving.value = true
+  try {
+    if (editingRole.value) {
+      await updateRole(editingRole.value.id, {
+        name: roleForm.name,
+        desc: roleForm.desc,
+        permissions: roleForm.permissions,
+      })
+    } else {
+      await createRole({
+        code: roleForm.code,
+        name: roleForm.name,
+        desc: roleForm.desc,
+        permissions: roleForm.permissions,
+      })
+    }
+    roleDrawer.value = false
+    await load()
+  } catch (e) {
+    alert(e instanceof ApiError ? e.message : '保存失败')
+  } finally {
+    saving.value = false
+  }
 }
 
-const isSuperAdminRole = computed(() => editingRoleId.value === 1)
+async function removeRole(r: Role) {
+  if (r.builtin) return
+  if (!confirm(`确定删除角色「${r.name}」？`)) return
+  try {
+    await deleteRole(r.id)
+    await load()
+  } catch (e) {
+    alert(e instanceof ApiError ? e.message : '删除失败')
+  }
+}
 </script>
 
 <template>
@@ -75,13 +142,17 @@ const isSuperAdminRole = computed(() => editingRoleId.value === 1)
                     :class="r.builtin ? 'cursor-not-allowed opacity-40' : 'text-destructive hover:text-destructive'"
                     :disabled="r.builtin"
                     :title="r.builtin ? '内置角色不可删除' : ''"
+                    @click="removeRole(r)"
                   >
                     <Trash2 class="size-4" />
                   </Button>
                 </div>
               </td>
             </tr>
-            <tr v-if="!roles.length">
+            <tr v-if="loading">
+              <td colspan="4" class="py-10 text-center dim">加载中…</td>
+            </tr>
+            <tr v-else-if="!roles.length">
               <td colspan="4" class="py-10 text-center dim">暂无角色</td>
             </tr>
           </tbody>
@@ -93,8 +164,12 @@ const isSuperAdminRole = computed(() => editingRoleId.value === 1)
     </Panel>
 
     <!-- 角色权限抽屉 -->
-    <Drawer v-model="roleDrawer" :title="editingRoleId ? '编辑角色权限' : '新增角色'" subtitle="勾选该角色可访问的功能模块">
+    <Drawer v-model="roleDrawer" :title="editingRole ? '编辑角色权限' : '新增角色'" subtitle="勾选该角色可访问的功能模块">
       <div class="space-y-4">
+        <div v-if="!editingRole" class="flex items-center gap-3">
+          <label class="w-16 shrink-0 text-right text-sm text-muted-foreground">角色代码</label>
+          <input v-model="roleForm.code" placeholder="英文标识，如 operator" class="field-input flex-1" />
+        </div>
         <div class="flex items-center gap-3">
           <label class="w-16 shrink-0 text-right text-sm text-muted-foreground">角色名</label>
           <input v-model="roleForm.name" :disabled="isSuperAdminRole" placeholder="角色名称" class="field-input flex-1 disabled:opacity-60" />
@@ -122,7 +197,7 @@ const isSuperAdminRole = computed(() => editingRoleId.value === 1)
       </div>
       <template #footer>
         <Button variant="outline" @click="roleDrawer = false">取消</Button>
-        <Button @click="saveRole">保存</Button>
+        <Button :disabled="saving" @click="saveRole">{{ saving ? '保存中…' : '保存' }}</Button>
       </template>
     </Drawer>
   </div>

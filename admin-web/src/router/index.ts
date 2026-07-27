@@ -60,6 +60,7 @@ const Clean = () => import('@/views/Clean.vue')
 const Admins = () => import('@/views/Admins.vue')
 const Roles = () => import('@/views/Roles.vue')
 const OpLogs = () => import('@/views/OpLogs.vue')
+const MerchantOpLogs = () => import('@/views/MerchantOpLogs.vue')
 
 // —— 控制台（懒加载）——
 const Console = () => import('@/views/Console.vue')
@@ -165,6 +166,7 @@ const realPages: Record<string, any> = {
   '/admin/admins': Admins,
   '/admin/roles': Roles,
   '/admin/oplogs': OpLogs,
+  '/admin/merchant-oplogs': MerchantOpLogs,
   '/admin/pay-settings': PaySettings,
   '/admin/risk-settings': RiskSettings,
   '/admin/settle-settings': SettleSettings,

@@ -70,6 +70,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&RegCode{},
 		&ArticleCategory{},
 		&Article{},
+		&OperationLog{},
+		&Role{},
 	); err != nil {
 		return err
 	}
