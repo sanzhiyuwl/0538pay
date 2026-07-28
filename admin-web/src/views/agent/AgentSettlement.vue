@@ -4,6 +4,9 @@ import { Panel, Badge, Pagination } from '@/components/ui'
 import { fetchMySettlements } from '@/lib/api/agent'
 import type { Settlement } from '@/lib/api/console'
 import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
 
 const rows = ref<Settlement[]>([])
 const total = ref(0)
@@ -21,7 +24,7 @@ async function load() {
     rows.value = list
     total.value = t
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '加载佣金结算失败')
+    toast.error(e instanceof ApiError ? e.message : '加载佣金结算失败')
   } finally {
     loading.value = false
   }

@@ -142,6 +142,44 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
   return json.data
 }
 
+/**
+ * 文件上传请求（multipart/form-data）。与 request 共用 token/401/解包逻辑，
+ * 但不设 Content-Type——交给浏览器按 FormData 自动带 boundary。
+ */
+export async function upload<T>(path: string, form: FormData): Promise<T> {
+  const headers: Record<string, string> = {}
+  const isMerchant = path.startsWith('/merchant')
+  const isAgent = path.startsWith('/agent')
+  const token = localStorage.getItem(tokenKeyForPath(path)) || ''
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch(`${BASE}${path}`, { method: 'POST', headers, body: form })
+
+  if (res.status === 401) {
+    if (isMerchant) {
+      clearMerchantToken()
+      if (merchantUnauthorizedHandler) merchantUnauthorizedHandler()
+    } else if (isAgent) {
+      clearAgentToken()
+      if (agentUnauthorizedHandler) agentUnauthorizedHandler()
+    } else {
+      clearToken()
+      if (unauthorizedHandler) unauthorizedHandler()
+    }
+    throw new ApiError(401, '登录已失效，请重新登录')
+  }
+  let json: ApiBody<T>
+  try {
+    json = await res.json()
+  } catch {
+    throw new ApiError(res.status, `服务异常(${res.status})`)
+  }
+  if (json.code !== 0) {
+    throw new ApiError(json.code, json.msg || '上传失败')
+  }
+  return json.data
+}
+
 /** 分页响应形状 */
 export interface PageResult<T> {
   list: T[]

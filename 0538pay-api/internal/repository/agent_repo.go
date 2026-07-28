@@ -77,6 +77,24 @@ func (r *AgentRepo) Delete(id uint) error {
 	return r.db.Delete(&model.Agent{}, id).Error
 }
 
+// DeleteWithWallet 同事务删除代理及其（空）名额钱包，避免删干净代理时钱包行成孤儿。
+// 仅供 service 层守卫通过（确认代理无任何资金/业务足迹）后调用；有足迹的代理不走这里。
+func (r *AgentRepo) DeleteWithWallet(id uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&model.AgentQuotaWallet{}, "agent_id = ?", id).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&model.Agent{}, id).Error
+	})
+}
+
+// QuotaLogCount 统计代理名额流水条数（删代理守卫用：有流水即有资金足迹，禁止物理删）。
+func (r *AgentRepo) QuotaLogCount(agentID uint) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.AgentQuotaLog{}).Where("agent_id = ?", agentID).Count(&n).Error
+	return n, err
+}
+
 // —— 名额钱包 ——
 
 // Wallet 取代理名额钱包，无则返回零值钱包（不报错，便于展示）。

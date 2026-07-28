@@ -20,12 +20,16 @@ import {
   Layers,
   Plug,
   MessageCircle,
+  Handshake,
+  KeyRound,
+  ScrollText,
 } from 'lucide-vue-next'
 
 export interface NavLeaf {
   title: string
   to: string
   badge?: string
+  icon?: Component // 子项图标（可选；仅部分布局如控制台侧栏渲染）
 }
 
 export interface NavNode {
@@ -169,24 +173,41 @@ export const allLeaves: NavLeaf[] = [
 ]
 
 /**
- * 代理控制台专属导航（平台运营视角，管所有代理进件）。一级平铺，独立于主后台 navMenu。
+ * 代理控制台专属导航（平台运营视角，管所有代理进件）。两级折叠，独立于主后台 navMenu。
+ * 顶端「概况」为单项落地页（/console）；现有六项收进「微信特约商户」分组。
+ * 后续往控制台加的新模块各自成组追加在此，不与特约商户混放。
  * 自研扩展（epay 无），见 docs-代理进件/。SaaS 出租方向已于 2026-07-28 停做，旧 5 页归档到 _archive。
  */
 export const consoleNav: NavNode[] = [
-  { title: '代理管理', icon: Users, to: '/console' },
+  { title: '概况', icon: LayoutDashboard, to: '/console' },
+  {
+    title: '微信特约商户',
+    icon: Handshake,
+    children: [
+      { title: '进件申请', to: '/console/enroll', icon: ListOrdered },
+      { title: '邀请链接', to: '/console/invites', icon: QrCode },
+      { title: '进件设置', to: '/console/settings', icon: Settings },
+      { title: '服务商配置', to: '/console/wx-partner', icon: KeyRound },
+    ],
+  },
+  // 代理管理 / 名额管理 / 佣金结算 / 权限分配 独立成顶级项——各自后续还会挂更多子功能，先各占一席。
+  { title: '代理管理', icon: Users, to: '/console/agents' },
+  { title: '权限分配', icon: ShieldCheck, to: '/console/permissions' },
   { title: '名额管理', icon: Wallet, to: '/console/quota' },
-  { title: '进件申请', icon: ListOrdered, to: '/console/enroll' },
-  { title: '邀请链接', icon: QrCode, to: '/console/invites' },
   { title: '佣金结算', icon: Receipt, to: '/console/settlement' },
-  { title: '进件设置', icon: Settings, to: '/console/settings' },
+  {
+    title: '审计日志',
+    icon: ScrollText,
+    children: [
+      { title: '代理操作日志', to: '/console/agent-logs', icon: ListOrdered },
+    ],
+  },
 ]
 
-/** 控制台可路由叶子 */
-export const consoleLeaves: NavLeaf[] = consoleNav.map((n) => ({
-  title: n.title,
-  to: n.to!,
-  badge: n.badge,
-}))
+/** 控制台可路由叶子（供路由/面包屑用；含单项与分组子项） */
+export const consoleLeaves: NavLeaf[] = consoleNav.flatMap((n) =>
+  n.children ? n.children : n.to ? [{ title: n.title, to: n.to, badge: n.badge }] : [],
+)
 
 /**
  * 商户中心（/m）专属导航。商户自助端，两级折叠分组，独立于主后台 navMenu。

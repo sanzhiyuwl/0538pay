@@ -91,6 +91,43 @@ func (h *OpLogHandler) AdminExport(c *gin.Context) {
 	writeOpLogCSV(c, "admin_oplogs.csv", "管理员ID", rows)
 }
 
+// ===== 代理端操作日志（scope=agent，复用同一 svc/表；平台在控制台查看）=====
+
+// AgentList GET /api/console/agent-oplogs 代理端操作日志列表（多维筛选 + 分页）。
+func (h *OpLogHandler) AgentList(c *gin.Context) {
+	var q dto.OpLogQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	list, total, err := h.svc.AgentList(q)
+	if err != nil {
+		resp.Fail(c, 1102, "查询失败: "+err.Error())
+		return
+	}
+	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// AgentOptions GET /api/console/agent-oplogs/options 代理端动作下拉选项。
+func (h *OpLogHandler) AgentOptions(c *gin.Context) {
+	resp.OK(c, gin.H{"actions": h.svc.AgentOpActionOptions()})
+}
+
+// AgentExport GET /api/console/agent-oplogs/export 代理端操作日志导出 CSV（UTF-8 BOM）。
+func (h *OpLogHandler) AgentExport(c *gin.Context) {
+	var q dto.OpLogQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	rows, err := h.svc.AgentExportRows(q)
+	if err != nil {
+		resp.Fail(c, 1102, "导出失败: "+err.Error())
+		return
+	}
+	writeOpLogCSV(c, "agent_oplogs.csv", "代理ID", rows)
+}
+
 // writeOpLogCSV 流式写操作日志 CSV（UTF-8 BOM）。idCol 为第二列表头（商户号/管理员ID）。
 func writeOpLogCSV(c *gin.Context, filename, idCol string, rows []dto.OpLogView) {
 	c.Header("Content-Type", "text/csv; charset=utf-8")

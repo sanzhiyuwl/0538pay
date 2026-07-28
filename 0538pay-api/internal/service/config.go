@@ -178,7 +178,6 @@ var configDefaults = map[string]string{
 	"wx_partner_public_key":  "", // 平台证书/微信支付公钥 PEM（验签+敏感字段加密）
 	"wx_partner_public_key_id": "", // 平台公钥/证书序列号（发请求 Wechatpay-Serial 头用）
 	"wx_partner_apiv3_key":   "", // APIv3 密钥（回调 AES-GCM 解密用）
-	"wx_partner_sandbox":     "1", // 一期真跑先走沙箱：1沙箱/0生产
 	// 进件计价规则 enroll：名额批发价/开户零售价/路径二分成，全部后台可配，程序不硬编码金额。
 	"enroll_wholesale_price": "100", // 名额批发价（代理预购，路径一）
 	"enroll_retail_price":    "200", // 开户零售价（商户付的开户费）
@@ -258,7 +257,7 @@ var configGroups = map[string][]string{
 	"wx_partner": {
 		"wx_partner_sp_mchid", "wx_partner_sp_appid", "wx_partner_serial_no",
 		"wx_partner_private_key", "wx_partner_public_key", "wx_partner_public_key_id",
-		"wx_partner_apiv3_key", "wx_partner_sandbox",
+		"wx_partner_apiv3_key",
 	},
 	// 进件计价规则（代理控制台·进件设置）
 	"enroll": {

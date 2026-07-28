@@ -64,12 +64,16 @@ const OpLogs = () => import('@/views/OpLogs.vue')
 const MerchantOpLogs = () => import('@/views/MerchantOpLogs.vue')
 
 // —— 代理控制台（懒加载）——
+const ConsoleOverview = () => import('@/views/console/ConsoleOverview.vue')
 const ConsoleAgents = () => import('@/views/console/ConsoleAgents.vue')
 const ConsoleQuota = () => import('@/views/console/ConsoleQuota.vue')
 const ConsoleEnroll = () => import('@/views/console/ConsoleEnroll.vue')
 const ConsoleInvites = () => import('@/views/console/ConsoleInvites.vue')
 const ConsoleSettlement = () => import('@/views/console/ConsoleSettlement.vue')
 const ConsoleSettings = () => import('@/views/console/ConsoleSettings.vue')
+const ConsoleWxPartner = () => import('@/views/console/ConsoleWxPartner.vue')
+const ConsolePermissions = () => import('@/views/console/ConsolePermissions.vue')
+const ConsoleAgentLogs = () => import('@/views/console/ConsoleAgentLogs.vue')
 
 // —— 独立代理端（懒加载）——
 const AgentLogin = () => import('@/views/agent/AgentLogin.vue')
@@ -204,12 +208,16 @@ const realPages: Record<string, any> = {
 
 // 代理控制台正式页面（path → 组件，改 consoleNav + 此表路由自动跟着变）
 const consolePages: Record<string, any> = {
-  '/console': ConsoleAgents,
+  '/console': ConsoleOverview,
+  '/console/agents': ConsoleAgents,
   '/console/quota': ConsoleQuota,
   '/console/enroll': ConsoleEnroll,
   '/console/invites': ConsoleInvites,
   '/console/settlement': ConsoleSettlement,
   '/console/settings': ConsoleSettings,
+  '/console/wx-partner': ConsoleWxPartner,
+  '/console/permissions': ConsolePermissions,
+  '/console/agent-logs': ConsoleAgentLogs,
 }
 
 // 主后台子路由（父 path=/admin，children 用相对路径）。排除首页 /admin 与控制台。

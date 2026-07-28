@@ -30,16 +30,12 @@ func currentAgentID(c *gin.Context) (uint, bool) {
 	return id, ok && id != 0
 }
 
-// currentAgentPerms 从 token 的 role 字段取当前代理权限串（登录时把 permissions 塞进 role）。
-func currentAgentPerms(c *gin.Context) string {
-	v, _ := c.Get(middleware.CtxRole)
-	s, _ := v.(string)
-	return s
-}
-
 // requirePerm 校验当前代理是否拥有某权限点；无则回 403 并阻断。
+// ★ 实时查库判断（不读 JWT 快照）：平台改权限后旧 token 里的权限是过期的，
+//   实时读库保证平台一开通、代理下次操作即刻生效，无需重登。
 func (h *AgentHandler) requirePerm(c *gin.Context, key string) bool {
-	if service.HasPermission(currentAgentPerms(c), key) {
+	id, ok := currentAgentID(c)
+	if ok && h.agent.HasPermissionLive(id, key) {
 		return true
 	}
 	resp.Fail(c, 1303, "无该功能权限，请联系平台开通")
@@ -275,6 +271,24 @@ func (h *AgentHandler) FillMaterial(c *gin.Context) {
 		return
 	}
 	resp.OK(c, e)
+}
+
+// UploadMedia POST /api/agent/enrolls/:id/media 上传进件资料图片（enroll 权限 + 归属自己），返回 media_id。
+func (h *AgentHandler) UploadMedia(c *gin.Context) {
+	if !h.requirePerm(c, service.PermEnroll) {
+		return
+	}
+	filename, data, ok := readEnrollMedia(c)
+	if !ok {
+		return
+	}
+	id, _ := currentAgentID(c)
+	mediaID, err := h.enroll.UploadMaterialMedia(c.Request.Context(), agentIDParam(c), &id, filename, data)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"media_id": mediaID})
 }
 
 // —— 邀请链接（invite 权限）——

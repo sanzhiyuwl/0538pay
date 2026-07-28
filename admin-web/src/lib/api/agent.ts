@@ -3,7 +3,7 @@
  * 走 agent_token（独立于 admin/merchant token）。接口前缀 /agent/*。
  * agent_id 由后端从 token 取，前端不传，天然数据隔离。
  */
-import { request, setAgentToken, type PageResult } from './client'
+import { request, upload, setAgentToken, type PageResult } from './client'
 import type {
   Agent,
   AgentPermission,
@@ -81,6 +81,12 @@ export function getMyEnrollMaterial(id: number): Promise<EnrollMaterialView> {
 }
 export function fillMyEnrollMaterial(id: number, body: EnrollMaterialReq): Promise<Enroll> {
   return request<Enroll>(`/agent/enrolls/${id}/material`, { method: 'POST', body })
+}
+/** 上传一张进件资料图片（营业执照/身份证），返回微信 media_id。 */
+export function uploadMyEnrollMedia(id: number, file: File): Promise<{ media_id: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  return upload<{ media_id: string }>(`/agent/enrolls/${id}/media`, form)
 }
 
 // —— 邀请链接 ——

@@ -454,7 +454,6 @@ func Setup(r *gin.Engine, d Deps) {
 	// 前端 admin 与 console 共用 admin_token，故走 admin scope 鉴权。
 	console := api.Group("/console")
 	console.Use(middleware.Auth(d.JWT, "admin"))
-	console.Use(middleware.AdminOpLog(d.OpLogSvc))
 	{
 		// 权限点清单（供平台勾选）
 		console.GET("/agent-permissions", d.Console.Permissions)
@@ -464,6 +463,7 @@ func Setup(r *gin.Engine, d Deps) {
 		console.GET("/agents/:id", d.Console.GetAgent)
 		console.PUT("/agents/:id", d.Console.UpdateAgent)
 		console.PUT("/agents/:id/status", d.Console.SetAgentStatus)
+		console.PUT("/agents/:id/permissions", d.Console.SetAgentPermissions)
 		console.DELETE("/agents/:id", d.Console.DeleteAgent)
 		// 名额管理
 		console.GET("/agents/:id/quota", d.Console.AgentWallet)
@@ -478,6 +478,7 @@ func Setup(r *gin.Engine, d Deps) {
 		console.POST("/enrolls/:id/refund", d.Console.RefundEnroll)
 		console.GET("/enrolls/:id/material", d.Console.GetMaterial)
 		console.POST("/enrolls/:id/material", d.Console.FillMaterial)
+		console.POST("/enrolls/:id/media", d.Console.UploadMedia)
 		// 邀请链接
 		console.GET("/enroll-invites", d.Console.ListInvites)
 		console.POST("/enroll-invites", d.Console.CreateInvite)
@@ -485,6 +486,15 @@ func Setup(r *gin.Engine, d Deps) {
 		console.DELETE("/enroll-invites/:id", d.Console.DeleteInvite)
 		// 佣金结算
 		console.GET("/enroll-settlements", d.Console.ListSettlements)
+
+		// 微信服务商凭证（脱敏读 / 保存；私钥·公钥落 secrets/ 文件，不入库不对外）。
+		console.GET("/wx-partner", d.Console.GetWxPartner)
+		console.PUT("/wx-partner", d.Console.SaveWxPartner)
+
+		// 代理操作日志（平台视角查看所有代理在 /agent 端的写操作审计）。
+		console.GET("/agent-oplogs", d.OpLog.AgentList)
+		console.GET("/agent-oplogs/options", d.OpLog.AgentOptions)
+		console.GET("/agent-oplogs/export", d.OpLog.AgentExport)
 	}
 
 	// 独立代理端（代理只看/只碰自己名下；自研扩展，epay 无）。
@@ -496,6 +506,7 @@ func Setup(r *gin.Engine, d Deps) {
 
 		authed := agent.Group("")
 		authed.Use(middleware.Auth(d.JWT, "agent"))
+		authed.Use(middleware.AgentOpLog(d.OpLogSvc)) // 代理写操作自动埋点（scope=agent）
 		{
 			authed.GET("/profile", d.Agent.Profile)
 			authed.GET("/permissions", d.Agent.Permissions)
@@ -511,6 +522,7 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.POST("/enrolls/:id/refund", d.Agent.RefundEnroll)
 			authed.GET("/enrolls/:id/material", d.Agent.GetMaterial)
 			authed.POST("/enrolls/:id/material", d.Agent.FillMaterial)
+			authed.POST("/enrolls/:id/media", d.Agent.UploadMedia)
 			// 邀请链接
 			authed.GET("/enroll-invites", d.Agent.ListInvites)
 			authed.POST("/enroll-invites", d.Agent.CreateInvite)

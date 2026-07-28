@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -130,7 +131,7 @@ func (s *EnrollService) CreateEnroll(ctx context.Context, req CreateEnrollReq) (
 	}
 
 	e := &model.SubMerchantEnroll{
-		EnrollNo:     genEnrollNo(),
+		EnrollNo:     s.genUniqueEnrollNo(),
 		AgentID:      req.AgentID,
 		MerchantName: name,
 		ContactPhone: strings.TrimSpace(req.ContactPhone),
@@ -817,6 +818,58 @@ func (s *EnrollService) FillMaterial(id uint, agentID *uint, req dto.EnrollMater
 	return s.repo.FindEnroll(id)
 }
 
+// 进件资料图片约束（对齐微信 media/upload：JPG/PNG/BMP，单张 ≤2M）。
+const (
+	enrollMediaMaxBytes = 2 * 1024 * 1024 // 2M
+)
+
+var enrollMediaExts = map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".bmp": true}
+
+// UploadMaterialMedia 上传一张进件资料图片（营业执照/身份证正反面），返回微信 media_id 供填料表单回填。
+// 归属 + 状态校验与 FillMaterial 一致（只在 paid/rejected 阶段可传）；文件类型/大小前置校验，
+// 通过后调 SubMerchantService.UploadMedia 换 media_id。图片二进制不落库，仅换回 media_id。
+func (s *EnrollService) UploadMaterialMedia(ctx context.Context, id uint, agentID *uint, filename string, data []byte) (string, error) {
+	e, err := s.repo.FindEnroll(id)
+	if err != nil {
+		return "", enErr("进件单不存在")
+	}
+	if agentID != nil && e.AgentID != *agentID {
+		return "", enErr("该进件单不属于您")
+	}
+	if e.Status != model.EnrollStatusPaid && e.Status != model.EnrollStatusRejected {
+		return "", enErr("当前状态不可上传资料（需已支付待完善或被驳回后重填）")
+	}
+	// 文件校验（类型/大小/非空）——不依赖凭证，先于凭证检查，给最可操作的报错。
+	if len(data) == 0 {
+		return "", enErr("图片内容为空")
+	}
+	if len(data) > enrollMediaMaxBytes {
+		return "", enErr("图片不能超过 2M，请压缩后重试")
+	}
+	ext := strings.ToLower(filename)
+	if i := strings.LastIndex(ext, "."); i >= 0 {
+		ext = ext[i:]
+	} else {
+		ext = ""
+	}
+	if !enrollMediaExts[ext] {
+		return "", enErr("图片仅支持 JPG/PNG/BMP 格式")
+	}
+	// 凭证就绪才实际打微信网关。
+	if s.submch == nil || !s.submch.Configured() {
+		return "", enErr("微信服务商凭证未配置，无法上传图片，请先在系统设置填写")
+	}
+	mediaID, err := s.submch.UploadMedia(ctx, filename, data)
+	if err != nil {
+		var se *SubMchError
+		if errors.As(err, &se) {
+			return "", enErr(se.Msg)
+		}
+		return "", err
+	}
+	return mediaID, nil
+}
+
 // GetMaterialView 回显填料表单的非敏感字段（GET）。★敏感字段只回「是否已填」布尔，不回原文。
 // 未填过（material_meta 空）返回 Filled=false 的空视图。agentID 非空校验归属。
 func (s *EnrollService) GetMaterialView(id uint, agentID *uint) (*dto.EnrollMaterialView, error) {
@@ -865,9 +918,23 @@ func genInviteCode() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// genEnrollNo 生成进件单号：EN + yyyyMMddHHmmss + 6 位随机十六进制（业务唯一键）。
+// genEnrollNo 生成进件单号：TY + 8 位随机数字（业务唯一键，短号便于人工核对）。
 func genEnrollNo() string {
-	b := make([]byte, 3)
+	b := make([]byte, 4)
 	_, _ = rand.Read(b)
-	return fmt.Sprintf("EN%s%s", time.Now().Format("20060102150405"), hex.EncodeToString(b))
+	n := binary.BigEndian.Uint32(b) % 100000000
+	return fmt.Sprintf("TY%08d", n)
+}
+
+// genUniqueEnrollNo 生成不与库中现有单号冲突的进件单号（8 位随机数字空间较小，需查重重试）。
+// 重试上限内均命中已存在则退回一个候选值，由 DB uniqueIndex 兜底报错。
+func (s *EnrollService) genUniqueEnrollNo() string {
+	no := genEnrollNo()
+	for i := 0; i < 8; i++ {
+		if _, err := s.repo.FindEnrollByNo(no); err != nil {
+			return no // 查不到 = 未占用，可用
+		}
+		no = genEnrollNo()
+	}
+	return no
 }

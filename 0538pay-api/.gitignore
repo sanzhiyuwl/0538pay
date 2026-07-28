@@ -18,3 +18,7 @@ vendor/
 # 用户上传产物（锚定路径，仅忽略内容，保留目录占位）
 /uploads/*
 !/uploads/.gitkeep
+
+# 敏感凭证文件（微信服务商私钥/公钥等，不对外服务、不入库，只留目录占位）
+/secrets/*
+!/secrets/.gitkeep

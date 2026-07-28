@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"io"
 	"strconv"
 
 	"github.com/epvia/api/internal/dto"
@@ -17,10 +18,47 @@ import (
 type ConsoleHandler struct {
 	agent  *service.AgentService
 	enroll *service.EnrollService
+	submch *service.SubMerchantService
 }
 
-func NewConsoleHandler(agent *service.AgentService, enroll *service.EnrollService) *ConsoleHandler {
-	return &ConsoleHandler{agent: agent, enroll: enroll}
+func NewConsoleHandler(agent *service.AgentService, enroll *service.EnrollService, submch *service.SubMerchantService) *ConsoleHandler {
+	return &ConsoleHandler{agent: agent, enroll: enroll, submch: submch}
+}
+
+// GetWxPartner GET /api/console/wx-partner 读取服务商凭证（脱敏，私钥/公钥/APIv3 密钥不回原文）。
+func (h *ConsoleHandler) GetWxPartner(c *gin.Context) {
+	resp.OK(c, h.submch.CredView())
+}
+
+// SaveWxPartner PUT /api/console/wx-partner 保存服务商凭证。
+// 私钥/公钥/APIv3 密钥留空=不改（避免脱敏回显误清空），非空则校验后落库（私钥/公钥写 secrets/ 文件）。
+func (h *ConsoleHandler) SaveWxPartner(c *gin.Context) {
+	var req struct {
+		SpMchID     string `json:"sp_mchid"`
+		SpAppID     string `json:"sp_appid"`
+		SerialNo    string `json:"serial_no"`
+		PublicKeyID string `json:"public_key_id"`
+		PrivateKey  string `json:"private_key"`
+		PublicKey   string `json:"public_key"`
+		APIv3Key    string `json:"apiv3_key"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.submch.SaveCreds(service.PartnerCredUpdate{
+		SpMchID:     req.SpMchID,
+		SpAppID:     req.SpAppID,
+		SerialNo:    req.SerialNo,
+		PublicKeyID: req.PublicKeyID,
+		PrivateKey:  req.PrivateKey,
+		PublicKey:   req.PublicKey,
+		APIv3Key:    req.APIv3Key,
+	}); err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, h.submch.CredView())
 }
 
 func failConsole(c *gin.Context, err error) {
@@ -50,6 +88,36 @@ func consoleIntQuery(c *gin.Context, key string, def int) int {
 		return v
 	}
 	return def
+}
+
+// enrollMediaMaxUpload 单次上传请求体上限（略高于 2M 图片上限，留 multipart 头开销余量）。
+const enrollMediaMaxUpload = 3 * 1024 * 1024
+
+// readEnrollMedia 从 multipart 表单读取 file 字段（进件资料图片上传共用，console+agent）。
+// 校验存在 + 大小上限；返回原始文件名与二进制。失败时已写好响应，返回 ok=false。
+// 更细的类型/大小/状态校验在 service 层 UploadMaterialMedia 内做。
+func readEnrollMedia(c *gin.Context) (string, []byte, bool) {
+	fh, err := c.FormFile("file")
+	if err != nil {
+		resp.Fail(c, 400, "请选择要上传的图片文件")
+		return "", nil, false
+	}
+	if fh.Size > enrollMediaMaxUpload {
+		resp.Fail(c, 400, "图片不能超过 2M，请压缩后重试")
+		return "", nil, false
+	}
+	f, err := fh.Open()
+	if err != nil {
+		resp.Fail(c, 400, "读取上传文件失败")
+		return "", nil, false
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, enrollMediaMaxUpload+1))
+	if err != nil {
+		resp.Fail(c, 400, "读取上传文件失败")
+		return "", nil, false
+	}
+	return fh.Filename, data, true
 }
 
 // —— 权限点清单 ——
@@ -130,6 +198,27 @@ func (h *ConsoleHandler) UpdateAgent(c *gin.Context) {
 		return
 	}
 	if err := h.agent.Update(id, req.Name, req.Contact, req.Remark, req.Status, req.Permissions, req.Password); err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, nil)
+}
+
+// SetAgentPermissions PUT /api/console/agents/:id/permissions 只更新代理权限点（权限分配独立页用）。
+func (h *ConsoleHandler) SetAgentPermissions(c *gin.Context) {
+	id := consoleIDParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "参数错误")
+		return
+	}
+	var req struct {
+		Permissions []string `json:"permissions"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	if err := h.agent.SetPermissions(id, req.Permissions); err != nil {
 		failConsole(c, err)
 		return
 	}
@@ -334,6 +423,21 @@ func (h *ConsoleHandler) FillMaterial(c *gin.Context) {
 		return
 	}
 	resp.OK(c, e)
+}
+
+// UploadMedia POST /api/console/enrolls/:id/media 上传一张进件资料图片，返回微信 media_id。
+// multipart/form-data，字段名 file。平台端不限归属（agentID=nil）。
+func (h *ConsoleHandler) UploadMedia(c *gin.Context) {
+	filename, data, ok := readEnrollMedia(c)
+	if !ok {
+		return
+	}
+	mediaID, err := h.enroll.UploadMaterialMedia(c.Request.Context(), consoleIDParam(c), nil, filename, data)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"media_id": mediaID})
 }
 
 // —— 邀请链接 ——

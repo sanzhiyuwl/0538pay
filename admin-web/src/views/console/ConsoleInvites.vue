@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus, Copy, Trash2 } from 'lucide-vue-next'
-import { Panel, Button, Badge, Switch, Drawer, Pagination } from '@/components/ui'
+import { Panel, Button, Badge, Switch, Drawer, Pagination, Select } from '@/components/ui'
 import {
   fetchAgents,
   fetchInvites,
@@ -12,6 +12,8 @@ import {
   type Invite,
 } from '@/lib/api/console'
 import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
+import { useConfirm } from '@/composables/useConfirm'
 
 const invites = ref<Invite[]>([])
 const total = ref(0)
@@ -23,6 +25,18 @@ const pageSize = 20
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 
 const agentName = (id: number) => (id === 0 ? '平台' : agents.value.find((a) => a.id === id)?.name ?? `#${id}`)
+const toast = useToast()
+const confirm = useConfirm()
+
+// 收单同款 Select 选项
+const agentFilterOptions = computed(() => [
+  { value: '', label: '全部' },
+  ...agents.value.map((a) => ({ value: String(a.id), label: a.name })),
+])
+const agentOwnerOptions = computed(() => [
+  { value: '', label: '平台自己（无代理）' },
+  ...agents.value.map((a) => ({ value: String(a.id), label: `${a.name}（${a.account}）` })),
+])
 
 // 公开自助进件页地址（客户扫码/点开的落地页；公开页在后续批次实现）
 const enrollUrl = (code: string) => `${location.origin}/enroll/${code}`
@@ -38,7 +52,7 @@ async function load() {
     invites.value = list
     total.value = t
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '加载邀请链接失败')
+    toast.error(e instanceof ApiError ? e.message : '加载邀请链接失败')
   } finally {
     loading.value = false
   }
@@ -62,15 +76,15 @@ function go(p: number) {
 async function copyLink(code: string) {
   try {
     await navigator.clipboard.writeText(enrollUrl(code))
-    alert('链接已复制')
+    toast.success('链接已复制')
   } catch {
-    alert(enrollUrl(code))
+    toast.info(enrollUrl(code))
   }
 }
 
 async function toggle(v: Invite) {
   if (v.status === 2) {
-    alert('已失效的链接不可再启用，请新建替换')
+    toast.info('已失效的链接不可再启用，请新建替换')
     return
   }
   const next = v.status === 1 ? 0 : 1
@@ -78,17 +92,18 @@ async function toggle(v: Invite) {
     await setInviteStatus(v.id, next)
     v.status = next
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '操作失败')
+    toast.error(e instanceof ApiError ? e.message : '操作失败')
   }
 }
 
 async function remove(v: Invite) {
-  if (!confirm(`确定删除邀请链接「${v.name || v.code}」？`)) return
+  if (!(await confirm(`确定删除邀请链接「${v.name || v.code}」？`, { title: '删除邀请链接', danger: true }))) return
   try {
     await deleteInvite(v.id)
+    toast.success('已删除')
     await load()
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '删除失败')
+    toast.error(e instanceof ApiError ? e.message : '删除失败')
   }
 }
 
@@ -110,9 +125,10 @@ async function save() {
       name: form.name || undefined,
     })
     drawer.value = false
+    toast.success('已生成')
     await load()
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '生成失败')
+    toast.error(e instanceof ApiError ? e.message : '生成失败')
   } finally {
     saving.value = false
   }
@@ -128,10 +144,7 @@ async function save() {
       <div class="filter-bar">
         <div class="filter-item">
           <label class="filter-label">归属代理</label>
-          <select v-model="filterAgent" class="field-input w-48" @change="go(1)">
-            <option value="">全部</option>
-            <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
+          <Select :model-value="filterAgent" :options="agentFilterOptions" searchable class="w-48" @update:model-value="(v) => { filterAgent = String(v); go(1) }" />
         </div>
       </div>
     </Panel>
@@ -200,10 +213,7 @@ async function save() {
       <div class="space-y-3.5">
         <div class="row-field">
           <label class="lbl">归属代理</label>
-          <select v-model="form.agentId" class="field-input flex-1">
-            <option value="">平台自己（无代理）</option>
-            <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}（{{ a.account }}）</option>
-          </select>
+          <Select v-model="form.agentId" :options="agentOwnerOptions" searchable class="flex-1" />
         </div>
         <div class="row-field">
           <label class="lbl">备注</label>

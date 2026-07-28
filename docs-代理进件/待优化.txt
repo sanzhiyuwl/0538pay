@@ -41,7 +41,13 @@
 
 建议：后期统一做配置层敏感字段加密存储（读写时透明加解密），private_key/apiv3_key 一并纳入；与 epay 线 sys_rsa_private 一起处理，避免两套方案。
 
-状态：待优化
+更新（2026-07-28 23:50分）：私钥/公钥已改为文件存储——落 0538pay-api/secrets/ 目录（HTTP 不可达+不入库+0600权限），
+      DB 只存 "@file:xxx.pem" 指针不再存 PEM 明文，拖库拿不到私钥（见开发进度.txt 第十八节）。
+      剩余：① APIv3 密钥仍明文存 pay_config（回调解密频繁读，暂留 config）；
+      ② secrets/ 文件本身仍是明文 PEM（未做磁盘加密）。后期统一做敏感字段加密存储时把这两项+
+      epay 线 sys_rsa_private 一并纳入（读写透明加解密），避免多套方案。
+
+状态：部分缓解（私钥/公钥已离库入文件+HTTP隔离），APIv3密钥明文 + 文件层加密待统一处理
 
 
 编号：2
@@ -54,7 +60,7 @@
 
 建议：删代理时同事务级联删钱包+流水，或改为停用（status=0）软处理不物理删（名额已售涉及资金，倾向禁止有余额/有流水的代理被物理删，只允许停用）。下批做代理端资金闭环时一并定策略。
 
-状态：待优化
+状态：已优化（2026-07-28 20:35分）——采用「守卫式物理删」策略：有资金/业务足迹的代理一律拒绝物理删并提示改用「停用」，只有纯净代理（无名额流水、无进件单、无邀请链接）才允许删。实现：AgentService.Delete 加三道守卫（QuotaLogCount>0 拦名额资金记录、EnrollRepo.CountByAgent>0 拦进件单、CountInvitesByAgent>0 拦邀请），全过才调 AgentRepo.DeleteWithWallet（同事务删代理+随建的空钱包行，杜绝钱包孤儿）。main.go 加 agentSvc.SetEnrollRepo(enrollRepo) 注入。前端 ConsoleAgents 删除确认文案同步为守卫语义。真跑全绿：纯净代理 A 删成功且残留钱包=0；有名额流水的代理 B 删返 1301「有名额资金记录不能删除」；Go 单测 TestAgentDeleteGuard（连本地 MySQL）覆盖纯净可删+无孤儿/名额流水拦/进件单拦/邀请拦四场景通过。
 
 
 编号：3
@@ -68,3 +74,21 @@
 建议：路径一进件成功前就应保证名额已冻结/预扣（创建进件单或提交微信时预占 1 名额），成功时转正、失败时释放；而不是成功后才扣。下批做付费前置 + 资金闭环（第 4 项退款/资金）时统一设计名额的冻结→消耗→释放三态，替换当前的成功后直扣。
 
 状态：已优化（2026-07-28 20:10分）——已实现名额冻结三态：pay_agent_quota 加 frozen 列；AgentRepo.FreezeQuota/ConsumeFrozen/ReleaseFrozen 三个行锁事务方法（流水 type=freeze/consume/release）。建单（CreateEnroll，含免付/收款两分支）路径一即冻结 1 名额、可用不足直接拦不建单；进件成功（settleOnFinish）冻结转消耗（frozen→total_used）；终态失败释放回可用——超时关单（CloseTimeoutPending）、退款（RefundEnroll flipped 时）、建单任一步失败（下单失败/建单出错，releaseOnFail）均释放。释放幂等（无冻结不刷高余额），消耗无冻结报错防重复。真跑：HTTP 建单冻结 2/可用不足 1302；Go 单测 TestQuotaFreezeLifecycle 全程冻结/消耗/释放/幂等/流水条数 5 全绿。
+
+
+编号：4
+
+时间：2026-07-29 00:25分
+
+标题：控制台「管理日志 / 运维日志」两类审计未做（本轮只做了代理操作日志）
+
+问题：用户要「运维日志 / 代理操作日志 / 管理日志」三类。本轮（第二十批）只把「代理操作日志」真打通（scope=agent，agent 端写操作自动埋点 + console 只读查询页）。另两类未做：
+  - 管理日志：控制台 /console 自己的写操作（管代理 / 改权限 / 发名额 / 结算等）目前无审计。原 console 路由组误挂过 AdminOpLog 中间件，但它剥 /api/admin 前缀、对 /api/console 路由恒不匹配（死代码 no-op），本轮已删除。
+  - 运维日志：系统侧事件（cron 定时任务、进件提交微信、微信回调、名额冻结/释放等）无集中审计。
+
+建议：
+  - 管理日志：给 console 路由组加一个 prefix=/api/console 的埋点中间件 + 资源段派生（照 AdminOpLog/LookupAdminAction 套路），或直接复用现有 scope=admin 数据做只读展示页（管代理走的是 admin token，本就属 admin scope）。
+  - 运维日志：在关键系统节点（scheduler、SubmitToWx、pay_notify 进件回调、FreezeQuota/ReleaseFrozen）手动调 OpLogService.Record（新增 scope=system）埋点。
+  - 三类可共用同一 pay_oplog 表 + 同一查询/导出/详情前端组件（ConsoleAgentLogs.vue 可参数化 scope 复用）。
+
+状态：待做

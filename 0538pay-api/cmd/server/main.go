@@ -173,10 +173,12 @@ func main() {
 	roleSvc := service.NewRoleService(repository.NewRoleRepo(db))
 	// 代理进件平台（自研扩展，epay 无）：代理域 + 进件域 + 特约商户进件（微信服务商 APIv3）。
 	agentSvc := service.NewAgentService(repository.NewAgentRepo(db))
-	enrollSvc := service.NewEnrollService(repository.NewEnrollRepo(db), configSvc)
+	enrollRepo := repository.NewEnrollRepo(db)
+	enrollSvc := service.NewEnrollService(enrollRepo, configSvc)
 	submchSvc := service.NewSubMerchantService(configSvc) // 特约商户进件微信接口（提交/查状态）
 	enrollSvc.SetSubMerchant(submchSvc)                    // 注入：提交微信 + 查申请单状态
 	enrollSvc.SetAgentRepo(agentSvc.Repo())               // 注入：路径一进件成功扣名额
+	agentSvc.SetEnrollRepo(enrollRepo)                    // 注入：删代理守卫查名下进件单/邀请足迹
 	enrollSvc.SetPayService(paySvc)                        // 注入：付费前置下开户费收款单
 	paySvc.SetEnrollPayHook(enrollSvc.FinalizeEnrollPay)   // tid=6 开户费收款成功放行进件单填料
 	agentSvc.SetJWT(jm)                                    // 注入：独立代理端 /agent 登录签发 scope=agent 的 token
@@ -278,7 +280,7 @@ func main() {
 		OpLog:     handler.NewOpLogHandler(opLogSvc),
 		OpLogSvc:  opLogSvc,
 		Role:      handler.NewRoleHandler(roleSvc),
-		Console:   handler.NewConsoleHandler(agentSvc, enrollSvc),
+		Console:   handler.NewConsoleHandler(agentSvc, enrollSvc, submchSvc),
 		Agent:     handler.NewAgentHandler(agentSvc, enrollSvc),
 		EnrollPublic: handler.NewEnrollPublicHandler(enrollSvc, agentSvc, captchaSvc),
 	}

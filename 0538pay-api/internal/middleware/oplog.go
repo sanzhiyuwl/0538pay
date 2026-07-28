@@ -40,6 +40,12 @@ func AdminOpLog(oplog *service.OpLogService) gin.HandlerFunc {
 	return opLogFor(oplog, service.ScopeAdmin, "/api/admin", service.LookupAdminAction)
 }
 
+// AgentOpLog 代理端写操作自动埋点中间件。挂在 agent 写操作路由组上。
+// 动作元数据来自 service.agentActions 显式映射，未登记的路由不记（避免噪音）。
+func AgentOpLog(oplog *service.OpLogService) gin.HandlerFunc {
+	return opLogFor(oplog, service.ScopeAgent, "/api/agent", service.LookupAgentAction)
+}
+
 // opLogFor 构造某端的埋点中间件。scope 区分商户/管理端；prefix 为路由前缀（用于剥离得到路由模板）；
 // lookup 为该端的动作元数据查询（未登记/未识别返回 ok=false 时直接放行不记）。
 // 仅对写操作(POST/PUT/DELETE)埋点，GET 一律放行。

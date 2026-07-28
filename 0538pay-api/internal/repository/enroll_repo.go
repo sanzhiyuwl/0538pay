@@ -100,6 +100,13 @@ func (r *EnrollRepo) MarkEnrollRefunded(id uint) (bool, error) {
 	return res.RowsAffected == 1, nil
 }
 
+// CountByAgent 统计某代理名下进件单数（删代理守卫用）。
+func (r *EnrollRepo) CountByAgent(agentID uint) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.SubMerchantEnroll{}).Where("agent_id = ?", agentID).Count(&n).Error
+	return n, err
+}
+
 // —— 邀请链接 ——
 
 // ListInvites 分页查询邀请链接（AgentID 非空则按代理隔离）。
@@ -115,6 +122,13 @@ func (r *EnrollRepo) ListInvites(agentID *uint, page, pageSize int) ([]model.Enr
 	var list []model.EnrollInvite
 	err := tx.Order("id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&list).Error
 	return list, total, err
+}
+
+// CountInvitesByAgent 统计某代理名下邀请链接数（删代理守卫用）。
+func (r *EnrollRepo) CountInvitesByAgent(agentID uint) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.EnrollInvite{}).Where("agent_id = ?", agentID).Count(&n).Error
+	return n, err
 }
 
 // FindInviteByCode 按 code 取邀请链接（公开页校验用）。

@@ -90,13 +90,17 @@ func HasPermission(permissions, key string) bool {
 // AgentService 代理业务编排：代理 CRUD、权限、名额钱包/流水、代理端登录。
 // 平台端 /console 管所有代理，代理端 /agent 只碰自己——共用本 service，入参强制带 agent_id 隔离。
 type AgentService struct {
-	repo *repository.AgentRepo
-	jm   *jwtauth.Manager // 代理端登录签发 JWT（scope=agent），未注入前登录不可用
+	repo       *repository.AgentRepo
+	enrollRepo *repository.EnrollRepo // 删代理守卫：查名下进件单/邀请足迹，未注入前守卫仅看名额侧
+	jm         *jwtauth.Manager       // 代理端登录签发 JWT（scope=agent），未注入前登录不可用
 }
 
 func NewAgentService(repo *repository.AgentRepo) *AgentService {
 	return &AgentService{repo: repo}
 }
+
+// SetEnrollRepo 注入进件仓储（删代理守卫据此判断代理是否有进件/邀请业务足迹）。
+func (s *AgentService) SetEnrollRepo(er *repository.EnrollRepo) { s.enrollRepo = er }
 
 // SetJWT 注入 JWT 管理器（代理端 /agent 登录签发 scope=agent 的 token）。
 func (s *AgentService) SetJWT(jm *jwtauth.Manager) { s.jm = jm }
@@ -153,6 +157,21 @@ func (s *AgentService) Repo() *repository.AgentRepo { return s.repo }
 
 // Permissions 返回权限点清单（供平台勾选）。
 func (s *AgentService) Permissions() []AgentPermission { return AgentPermissionCatalog }
+
+// HasPermissionLive 按 agent_id 实时查库判断是否拥有某权限点。
+// ★ 用于接口门控：权限存 JWT 是登录时快照，平台改权限后旧 token 不会更新，
+//   故门控实时读库，保证平台一开通、代理下次操作即刻生效，无需重登。
+func (s *AgentService) HasPermissionLive(agentID uint, key string) bool {
+	a, err := s.repo.FindByID(agentID)
+	if err != nil {
+		return false
+	}
+	// 停用的代理一律无权（与登录态兜底一致）。
+	if a.Status != 1 {
+		return false
+	}
+	return HasPermission(a.Permissions, key)
+}
 
 // AgentError 携带业务提示，handler 统一返回错误码。
 type AgentError struct{ Msg string }
@@ -234,8 +253,51 @@ func (s *AgentService) SetStatus(id uint, status int8) error {
 	return s.repo.Update(id, map[string]any{"status": status})
 }
 
-// Delete 删除代理。
-func (s *AgentService) Delete(id uint) error { return s.repo.Delete(id) }
+// SetPermissions 只更新代理的权限点集合（权限分配独立页用，不动名称/账号/备注）。
+// 权限清洗后落库；实时门控 HasPermissionLive 读库即生效，代理无需重登。
+func (s *AgentService) SetPermissions(id uint, permKeys []string) error {
+	if _, err := s.repo.FindByID(id); err != nil {
+		return agErr("代理不存在")
+	}
+	return s.repo.Update(id, map[string]any{"permissions": NormalizePermissions(permKeys)})
+}
+
+// Delete 删除代理（守卫式物理删）。
+// 涉及资金/业务留痕的代理禁止物理删——只要有名额流水（买过/用过名额）、进件单或邀请链接，
+// 一律拒绝并提示改用「停用」，避免删掉 pay_agent 行后留下钱包/流水/进件单/邀请/结算流水孤儿记录。
+// 只有纯净代理（从未售过名额、无任何进件/邀请）才允许物理删，并同事务把随建的空钱包行一并清掉。
+func (s *AgentService) Delete(id uint) error {
+	if _, err := s.repo.FindByID(id); err != nil {
+		return agErr("代理不存在")
+	}
+	// ① 名额足迹：有流水即买过/用过名额，涉及资金。
+	logs, err := s.repo.QuotaLogCount(id)
+	if err != nil {
+		return err
+	}
+	if logs > 0 {
+		return agErr("该代理有名额资金记录，不能删除；如需停用请改用「停用」")
+	}
+	// ② 进件/邀请足迹（进件仓储已注入时才查；未注入则仅凭名额侧判断）。
+	if s.enrollRepo != nil {
+		enrolls, err := s.enrollRepo.CountByAgent(id)
+		if err != nil {
+			return err
+		}
+		if enrolls > 0 {
+			return agErr("该代理名下有进件单，不能删除；如需停用请改用「停用」")
+		}
+		invites, err := s.enrollRepo.CountInvitesByAgent(id)
+		if err != nil {
+			return err
+		}
+		if invites > 0 {
+			return agErr("该代理名下有邀请链接，不能删除；如需停用请改用「停用」")
+		}
+	}
+	// 纯净代理：同事务删代理 + 随建的空钱包行。
+	return s.repo.DeleteWithWallet(id)
+}
 
 // Wallet 取代理名额钱包。
 func (s *AgentService) Wallet(agentID uint) (*model.AgentQuotaWallet, error) {

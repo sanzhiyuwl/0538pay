@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Plus } from 'lucide-vue-next'
-import { Panel, Button, Badge, Drawer, Pagination } from '@/components/ui'
+import { Panel, Button, Badge, Drawer, Pagination, Select } from '@/components/ui'
 import {
   fetchAgents,
   fetchQuotaLogs,
@@ -12,6 +12,9 @@ import {
   type QuotaWallet,
 } from '@/lib/api/console'
 import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
 
 const logs = ref<QuotaLog[]>([])
 const total = ref(0)
@@ -31,6 +34,16 @@ const typeText: Record<string, { label: string; variant: 'success' | 'warning' |
 }
 const agentName = (id: number) => agents.value.find((a) => a.id === id)?.name ?? `#${id}`
 
+// 收单同款 Select 选项
+const agentFilterOptions = computed(() => [
+  { value: '', label: '全部代理' },
+  ...agents.value.map((a) => ({ value: String(a.id), label: a.name })),
+])
+const agentPickOptions = computed(() => [
+  { value: '', label: '请选择代理' },
+  ...agents.value.map((a) => ({ value: String(a.id), label: `${a.name}（${a.account}）` })),
+])
+
 async function load() {
   loading.value = true
   try {
@@ -42,7 +55,7 @@ async function load() {
     logs.value = list
     total.value = t
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '加载名额流水失败')
+    toast.error(e instanceof ApiError ? e.message : '加载名额流水失败')
   } finally {
     loading.value = false
   }
@@ -89,11 +102,11 @@ async function loadWallet() {
 
 async function save() {
   if (!form.agentId) {
-    alert('请选择代理')
+    toast.error('请选择代理')
     return
   }
   if (!form.change) {
-    alert('变动数量不能为 0')
+    toast.error('变动数量不能为 0')
     return
   }
   saving.value = true
@@ -104,9 +117,10 @@ async function save() {
       remark: form.remark || (form.change > 0 ? '平台售卖名额' : '平台扣减名额'),
     })
     drawer.value = false
+    toast.success('已处理')
     await load()
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '操作失败')
+    toast.error(e instanceof ApiError ? e.message : '操作失败')
   } finally {
     saving.value = false
   }
@@ -122,10 +136,7 @@ async function save() {
       <div class="filter-bar">
         <div class="filter-item">
           <label class="filter-label">代理</label>
-          <select v-model="filterAgent" class="field-input w-48" @change="go(1)">
-            <option value="">全部代理</option>
-            <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
+          <Select :model-value="filterAgent" :options="agentFilterOptions" searchable class="w-48" @update:model-value="(v) => { filterAgent = String(v); go(1) }" />
         </div>
       </div>
     </Panel>
@@ -176,10 +187,7 @@ async function save() {
       <div class="space-y-3.5">
         <div class="row-field">
           <label class="lbl">代理<span class="text-destructive">*</span></label>
-          <select v-model="form.agentId" class="field-input flex-1" @change="loadWallet">
-            <option value="">请选择代理</option>
-            <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}（{{ a.account }}）</option>
-          </select>
+          <Select :model-value="form.agentId" :options="agentPickOptions" searchable class="flex-1" @update:model-value="(v) => { form.agentId = String(v); loadWallet() }" />
         </div>
         <div v-if="wallet" class="bg-muted/40 px-3 py-2 text-sm">
           可用名额：<span class="font-semibold tabular-nums">{{ wallet.balance }}</span>

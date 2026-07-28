@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { Eye, Plus } from 'lucide-vue-next'
-import { Panel, Button, Badge, Drawer, Pagination } from '@/components/ui'
+import { Panel, Button, Badge, Drawer, Pagination, Select } from '@/components/ui'
 import EnrollMaterialDrawer from '@/views/enroll/EnrollMaterialDrawer.vue'
+import { useToast } from '@/composables/useToast'
+import { useConfirm } from '@/composables/useConfirm'
 import {
   fetchMyEnrolls,
   getMyEnroll,
@@ -12,12 +15,16 @@ import {
   refundMyEnroll,
   getMyEnrollMaterial,
   fillMyEnrollMaterial,
+  uploadMyEnrollMedia,
 } from '@/lib/api/agent'
 import type { Enroll } from '@/lib/api/console'
 import { ApiError } from '@/lib/api/client'
 import { useAgentAuthStore } from '@/stores/agentAuth'
 
 const agentAuth = useAgentAuthStore()
+const toast = useToast()
+const confirm = useConfirm()
+const router = useRouter()
 
 const enrolls = ref<Enroll[]>([])
 const total = ref(0)
@@ -39,6 +46,17 @@ const statusMeta: Record<string, { label: string; variant: 'default' | 'success'
 }
 const pathText: Record<number, string> = { 1: '预购名额', 2: '商户自付' }
 
+// 状态筛选下拉选项（收单同款 Select）
+const statusOptions = computed(() => [
+  { value: '', label: '全部' },
+  ...Object.entries(statusMeta).map(([k, m]) => ({ value: k, label: m.label })),
+])
+// 资金路径下拉选项
+const pathOptions = [
+  { value: 2, label: '商户自付（分账）' },
+  { value: 1, label: '预购名额（全额归我）' },
+]
+
 async function load() {
   loading.value = true
   try {
@@ -51,7 +69,7 @@ async function load() {
     enrolls.value = list
     total.value = t
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '加载进件单失败')
+    toast.error(e instanceof ApiError ? e.message : '加载进件单失败')
   } finally {
     loading.value = false
   }
@@ -89,6 +107,16 @@ async function openDetail(e: Enroll) {
 
 const canSubmit = computed(() => detail.value?.status === 'paid' || detail.value?.status === 'rejected')
 const canSync = computed(() => detail.value?.status === 'submitted')
+// 待支付 → 可重新打开收款台付开户费（复用已建收款单，不新建单，避免重复收费）
+const canPay = computed(() => detail.value?.status === 'pending_pay' && !!detail.value?.pay_order_no)
+function openCashier(tradeNo: string) {
+  // 新窗口打开收款台：进件单列表/详情状态不丢，付完回来直接查状态即可。
+  const href = router.resolve(`/pay/cashier/${tradeNo}`).href
+  window.open(href, '_blank')
+}
+function goPay() {
+  if (detail.value?.pay_order_no) openCashier(detail.value.pay_order_no)
+}
 // 已开通硬锁定：sub_mchid 非空一律不可退（最高优先级，代理端亦然）
 const subMchLocked = computed(() => !!detail.value?.wx_sub_mchid)
 // 可退：有 refund 权限 + 未开通硬锁 + 状态在可退集合（已付待完善/审核中/已驳回）
@@ -114,15 +142,15 @@ async function onMaterialSaved() {
 
 async function doRefund() {
   if (!detail.value) return
-  if (!confirm(`确认原路退还「${detail.value.merchant_name}」的开户费全额？退款后不可撤销。`)) return
+  if (!(await confirm(`确认原路退还「${detail.value.merchant_name}」的开户费全额？退款后不可撤销。`, { title: '退款确认', danger: true }))) return
   acting.value = true
   try {
     const r = await refundMyEnroll(detail.value.id)
-    alert(r.msg || '退款成功')
+    toast.success(r.msg || '退款成功')
     detail.value = await getMyEnroll(detail.value.id)
     await load()
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '退款失败')
+    toast.error(e instanceof ApiError ? e.message : '退款失败')
   } finally {
     acting.value = false
   }
@@ -133,9 +161,10 @@ async function doSubmit() {
   acting.value = true
   try {
     detail.value = await submitMyEnroll(detail.value.id)
+    toast.success('已提交微信')
     await load()
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '提交微信失败')
+    toast.error(e instanceof ApiError ? e.message : '提交微信失败')
   } finally {
     acting.value = false
   }
@@ -145,9 +174,10 @@ async function doSync() {
   acting.value = true
   try {
     detail.value = await syncMyEnroll(detail.value.id)
+    toast.success('已同步微信状态')
     await load()
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '查询微信状态失败')
+    toast.error(e instanceof ApiError ? e.message : '查询微信状态失败')
   } finally {
     acting.value = false
   }
@@ -163,7 +193,7 @@ function openCreate() {
 }
 async function doCreate() {
   if (!form.merchantName.trim()) {
-    alert('请填写商户名称')
+    toast.error('请填写商户名称')
     return
   }
   creating.value = true
@@ -176,13 +206,18 @@ async function doCreate() {
     })
     createDrawer.value = false
     await load()
-    if (r.pay?.qrcode || r.pay?.pay_url) {
-      alert(`进件单已建，待支付开户费 ¥${r.pay.money}。收款单号：${r.pay.trade_no}\n付款链接：${r.pay.pay_url || r.pay.qrcode}`)
+    if (r.pay?.trade_no && (r.pay?.qrcode || r.pay?.pay_url)) {
+      // 建单成功即引导去支付；即便这里关掉，进件单详情「去支付」按钮随时可重新打开（不会丢链接）。
+      const go = await confirm(
+        `进件单已建，待支付开户费 ¥${r.pay.money}。\n收款单号：${r.pay.trade_no}\n\n现在去支付？稍后也可在进件单详情点「去支付」重新打开。`,
+        { title: '进件单已创建', confirmText: '去支付', cancelText: '稍后' },
+      )
+      if (go) openCashier(r.pay.trade_no)
     } else {
-      alert('进件单已建（无需收费，已放行填料）')
+      toast.success('进件单已建（无需收费，已放行填料）')
     }
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '建单失败')
+    toast.error(e instanceof ApiError ? e.message : '建单失败')
   } finally {
     creating.value = false
   }
@@ -207,10 +242,7 @@ async function doCreate() {
         </div>
         <div class="filter-item">
           <label class="filter-label">状态</label>
-          <select v-model="filters.status" class="field-input w-32">
-            <option value="">全部</option>
-            <option v-for="(m, k) in statusMeta" :key="k" :value="k">{{ m.label }}</option>
-          </select>
+          <Select v-model="filters.status" :options="statusOptions" class="w-32" />
         </div>
         <div class="ml-auto flex items-center gap-2">
           <Button size="sm" @click="search">搜索</Button>
@@ -226,23 +258,25 @@ async function doCreate() {
             <tr>
               <th class="w-[18%]">进件单号</th>
               <th class="w-[22%]">商户名称</th>
-              <th class="col-center w-[12%]">路径</th>
+              <th class="col-center w-[13%]">支付方式</th>
               <th class="col-center w-[14%]">状态</th>
-              <th class="w-[18%]">sub_mchid</th>
-              <th class="col-center w-[10%]">操作</th>
+              <th class="w-[18%]">特约商户号</th>
+              <th class="col-center w-[11%]">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="e in enrolls" :key="e.id">
               <td class="truncate font-medium tabular-nums">{{ e.enroll_no }}</td>
               <td class="truncate">{{ e.merchant_name }}</td>
-              <td class="col-center text-xs">{{ pathText[e.path] ?? '—' }}</td>
+              <td class="col-center">
+                <Badge :variant="e.path === 1 ? 'success' : 'default'">{{ pathText[e.path] ?? '—' }}</Badge>
+              </td>
               <td class="col-center">
                 <Badge :variant="statusMeta[e.status]?.variant ?? 'muted'">
                   {{ statusMeta[e.status]?.label ?? e.status }}
                 </Badge>
               </td>
-              <td class="truncate tabular-nums dim">{{ e.wx_sub_mchid || '—' }}</td>
+              <td class="truncate tabular-nums" :class="e.wx_sub_mchid ? '' : 'dim'">{{ e.wx_sub_mchid || '未开通' }}</td>
               <td class="col-center">
                 <Button variant="ghost" size="sm" @click="openDetail(e)"><Eye class="size-4" /></Button>
               </td>
@@ -289,7 +323,7 @@ async function doCreate() {
           <span class="dim">微信申请单号</span><span class="tabular-nums">{{ detail.wx_applyment_id || '—' }}</span>
         </div>
         <div class="flex justify-between border-b border-border/50 py-2">
-          <span class="dim">sub_mchid</span><span class="tabular-nums">{{ detail.wx_sub_mchid || '—' }}</span>
+          <span class="dim">特约商户号</span><span class="tabular-nums">{{ detail.wx_sub_mchid || '未开通' }}</span>
         </div>
         <div v-if="detail.reject_reason" class="py-2">
           <div class="dim mb-1">驳回原因</div>
@@ -308,6 +342,7 @@ async function doCreate() {
           {{ acting ? '查询中…' : '查状态' }}
         </Button>
         <Button v-if="canFill" :disabled="acting" variant="outline" @click="openMaterial">填料</Button>
+        <Button v-if="canPay" @click="goPay">去支付</Button>
         <Button v-if="canSubmit" :disabled="acting" @click="doSubmit">
           {{ acting ? '提交中…' : detail?.status === 'rejected' ? '重新提交' : '提交微信' }}
         </Button>
@@ -321,6 +356,7 @@ async function doCreate() {
       :merchant-name="detail?.merchant_name"
       :fetch-fn="getMyEnrollMaterial"
       :submit-fn="fillMyEnrollMaterial"
+      :upload-fn="uploadMyEnrollMedia"
       @saved="onMaterialSaved"
     />
 
@@ -337,10 +373,7 @@ async function doCreate() {
         </div>
         <div class="row-field">
           <label class="lbl">资金路径</label>
-          <select v-model.number="form.path" class="field-input flex-1">
-            <option :value="2">商户自付（分账）</option>
-            <option :value="1">预购名额（全额归我）</option>
-          </select>
+          <Select v-model="form.path" :options="pathOptions" class="flex-1" />
         </div>
         <div class="row-field">
           <label class="lbl">收款方式</label>

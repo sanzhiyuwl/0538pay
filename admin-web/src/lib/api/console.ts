@@ -2,7 +2,7 @@
  * 代理控制台 API（平台运营视角，管所有代理进件；自研扩展）。
  * 走 admin token（与后台共用）。接口前缀 /console/*。
  */
-import { request, type PageResult } from './client'
+import { request, upload, type PageResult } from './client'
 
 // —— 权限点清单 ——
 export interface AgentPermission {
@@ -53,6 +53,10 @@ export function updateAgent(id: number, body: AgentSaveReq) {
 }
 export function setAgentStatus(id: number, status: number) {
   return request(`/console/agents/${id}/status`, { method: 'PUT', body: { status } })
+}
+// 只更新权限点（权限分配独立页用，不动名称/账号/备注）
+export function setAgentPermissions(id: number, permissions: string[]) {
+  return request(`/console/agents/${id}/permissions`, { method: 'PUT', body: { permissions } })
 }
 export function deleteAgent(id: number) {
   return request(`/console/agents/${id}`, { method: 'DELETE' })
@@ -217,6 +221,12 @@ export function getEnrollMaterial(id: number): Promise<EnrollMaterialView> {
 export function fillEnrollMaterial(id: number, body: EnrollMaterialReq): Promise<Enroll> {
   return request<Enroll>(`/console/enrolls/${id}/material`, { method: 'POST', body })
 }
+/** 上传一张进件资料图片（营业执照/身份证），返回微信 media_id。 */
+export function uploadEnrollMedia(id: number, file: File): Promise<{ media_id: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  return upload<{ media_id: string }>(`/console/enrolls/${id}/media`, form)
+}
 
 // —— 邀请链接 ——
 export interface Invite {
@@ -260,3 +270,116 @@ export function fetchSettlements(params: {
 } = {}): Promise<PageResult<Settlement>> {
   return request<PageResult<Settlement>>('/console/enroll-settlements', { query: { ...params } })
 }
+
+// —— 微信服务商凭证（脱敏读 / 保存；私钥·公钥落后端 secrets/ 文件，不入库不对外）——
+export interface WxPartnerView {
+  sp_mchid: string
+  sp_appid: string
+  serial_no: string
+  public_key_id: string
+  has_private_key: boolean
+  has_public_key: boolean
+  has_apiv3_key: boolean
+  private_key_fp: string // 私钥内容指纹(SHA256前12位)，空=未配
+  public_key_fp: string
+  apiv3_key_fp: string
+  configured: boolean
+}
+export interface WxPartnerSaveReq {
+  sp_mchid: string
+  sp_appid: string
+  serial_no: string
+  public_key_id: string
+  private_key?: string // 留空=不改
+  public_key?: string // 留空=不改
+  apiv3_key?: string // 留空=不改
+}
+export function getWxPartner(): Promise<WxPartnerView> {
+  return request<WxPartnerView>('/console/wx-partner')
+}
+export function saveWxPartner(body: WxPartnerSaveReq): Promise<WxPartnerView> {
+  return request<WxPartnerView>('/console/wx-partner', { method: 'PUT', body })
+}
+
+// —— 代理操作日志（scope=agent，复用 pay_oplog 表；平台查看代理在 /agent 端的写操作审计）——
+export interface AgentOpLog {
+  id: number
+  scope: string
+  uid: number // 代理 ID
+  operator: string // 代理名（冗余存）
+  action: string
+  actionCN: string
+  category: string // enroll/fund
+  level: string // normal/warning/danger
+  target: string
+  detail: string
+  result: string // ok/fail
+  ip: string
+  date: string
+}
+export interface AgentOpLogParams {
+  page?: number
+  pageSize?: number
+  uid?: number
+  action?: string
+  level?: string
+  result?: string
+  keyword?: string
+  starttime?: string
+  endtime?: string
+}
+export interface AgentOpActionOption {
+  value: string
+  label: string
+  category: string
+  level: string
+}
+export function fetchAgentOpLogs(params: AgentOpLogParams = {}): Promise<PageResult<AgentOpLog>> {
+  return request<PageResult<AgentOpLog>>('/console/agent-oplogs', { query: { ...params } })
+}
+export function fetchAgentOpActionOptions(): Promise<{ actions: AgentOpActionOption[] }> {
+  return request<{ actions: AgentOpActionOption[] }>('/console/agent-oplogs/options')
+}
+/** 导出代理操作日志 CSV（UTF-8 BOM，浏览器直接下载）。走 admin token。 */
+export async function exportAgentOpLogs(params: AgentOpLogParams = {}): Promise<void> {
+  const token = localStorage.getItem('admin_token') || ''
+  const qs = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.append(k, String(v))
+  }
+  const suffix = qs.toString() ? `?${qs.toString()}` : ''
+  const res = await fetch(`/api/console/agent-oplogs/export${suffix}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new Error(`导出失败(${res.status})`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `代理操作日志_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+/** 级别 → Badge 变体 + 中文（代理日志复用管理端语义）。 */
+export const agentOpLevelMeta: Record<string, { text: string; variant: 'destructive' | 'warning' | 'muted' }> = {
+  danger: { text: '高危', variant: 'destructive' },
+  warning: { text: '重要', variant: 'warning' },
+  normal: { text: '常规', variant: 'muted' },
+}
+/** 结果 → Badge 变体 + 中文。 */
+export const agentOpResultMeta: Record<string, { text: string; variant: 'success' | 'destructive' }> = {
+  ok: { text: '成功', variant: 'success' },
+  fail: { text: '失败', variant: 'destructive' },
+}
+export const agentOpLevelOptions = [
+  { value: '', label: '全部级别' },
+  { value: 'danger', label: '高危' },
+  { value: 'warning', label: '重要' },
+  { value: 'normal', label: '常规' },
+]
+export const agentOpResultOptions = [
+  { value: '', label: '全部结果' },
+  { value: 'ok', label: '成功' },
+  { value: 'fail', label: '失败' },
+]

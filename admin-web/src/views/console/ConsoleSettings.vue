@@ -3,9 +3,13 @@ import { reactive, ref, onMounted } from 'vue'
 import { Panel, Button, Switch } from '@/components/ui'
 import { fetchConfig, saveConfig } from '@/lib/api/config'
 import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
 
 // 进件计价规则（后端 config 分组 enroll，价格后台可配、程序不硬编码）
 const form = reactive({
+  enroll_pay_uid: '0',
   enroll_wholesale_price: '100',
   enroll_retail_price: '200',
   enroll_platform_share: '100',
@@ -26,7 +30,7 @@ async function load() {
       if (kv[k] !== undefined) form[k] = kv[k]
     }
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '加载进件设置失败')
+    toast.error(e instanceof ApiError ? e.message : '加载进件设置失败')
   } finally {
     loading.value = false
   }
@@ -37,9 +41,9 @@ async function save() {
   saving.value = true
   try {
     await saveConfig('enroll', { ...form })
-    alert('已保存')
+    toast.success('已保存')
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '保存失败')
+    toast.error(e instanceof ApiError ? e.message : '保存失败')
   } finally {
     saving.value = false
   }
@@ -51,6 +55,14 @@ async function save() {
     <Panel title="进件设置" subtitle="进件业务计价规则，价格后台可配（程序不硬编码金额）">
       <div v-if="loading" class="py-10 text-center dim">加载中…</div>
       <div v-else class="max-w-xl space-y-3.5">
+        <div class="row-field">
+          <label class="lbl">收款商户 UID</label>
+          <input v-model="form.enroll_pay_uid" class="field-input flex-1" />
+        </div>
+        <p class="pl-[110px] text-[11px] text-muted-foreground">
+          进件开户费的收款商户 UID（平台收款方，收开户零售价）。必填且需为已存在的商户，未配置时无法建进件单。
+        </p>
+
         <div class="row-field">
           <label class="lbl">名额批发价(元)</label>
           <input v-model="form.enroll_wholesale_price" class="field-input flex-1" />
@@ -110,10 +122,10 @@ async function save() {
       </div>
     </Panel>
 
-    <Panel title="微信服务商凭证" subtitle="进件用的 sp_mchid 单例，配置在 系统设置 · 支付设置">
+    <Panel title="微信服务商凭证" subtitle="进件用的 sp_mchid 单例，已独立成「服务商配置」页">
       <p class="text-sm text-muted-foreground">
-        平台微信服务商凭证（sp_mchid / 商户私钥 / 证书序列号 / APIv3密钥 / 平台公钥）是全平台唯一一套，
-        与"微信服务商模式收单"共用同一份，统一在系统设置里维护，不在此重复配置（避免配两遍导致事故）。
+        平台微信服务商凭证（sp_mchid / 商户私钥 / 证书序列号 / APIv3 密钥 / 平台公钥）是全平台唯一一套，
+        与"微信服务商模式收单"共用同一份，请在左侧「服务商配置」页维护，本页只管进件计价规则（避免配两遍导致事故）。
       </p>
     </Panel>
   </div>

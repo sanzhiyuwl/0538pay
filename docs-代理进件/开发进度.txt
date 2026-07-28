@@ -312,13 +312,14 @@
 ----------------------------------------------------
 十、半成品 / 未提交改动 / 阻塞
 ----------------------------------------------------
-  - 填料的图片类字段（营业执照/身份证正反面）目前填 media_id 占位，未做“图片上传→换 media_id”接口
-    （微信 media/upload），沙箱批次一并接（待优化，可记 待优化.txt）。
-  - 微信服务商真实/沙箱凭证未配置：提交微信侧、查状态、【自动驳回退】、填料 Configured() 门控均未连真实微信
-    端到端真跑（下一步第 1 项，阻塞在用户给凭证）。
-  - wx_partner_private_key / apiv3_key 明文存 config（待优化.txt#1）；删代理未级联清钱包/流水（待优化.txt#2）。
-  - commit：一批二批 cbaff1f、三批 /agent 2eb6d63、四批 /enroll 606b0b6、五批 退款 d9fbaf4、六批 填料 76f2b13；
-    本批（第七批 名额冻结三态）改动待 commit。
+  - 填料图片上传（营业执照/身份证正反面）：已做（第十三节，media/upload 换 media_id）。★上传逻辑（multipart
+    打包 + meta-JSON 签名 + Wechatpay-Serial 头）已用 httptest 假网关单测覆盖；真实换 media_id 仍需沙箱凭证端到端。
+  - 微信服务商真实/沙箱凭证未配置：提交微信侧、查状态、【自动驳回退】、填料 Configured() 门控、图片真实上传均未连
+    真实微信端到端真跑（下一步第 1 项，阻塞在用户给凭证）。
+  - wx_partner_private_key / apiv3_key 明文存 config（待优化.txt#1，待后期与 epay 线 sys_rsa_private 统一加密）。
+  - 删代理钱包/流水孤儿：已解（待优化.txt#2，见第十二节，守卫式物理删）。
+  - commit：一批二批 cbaff1f、三批 /agent 2eb6d63、四批 /enroll 606b0b6、五批 退款 d9fbaf4、六批 填料 76f2b13、
+    七批 名额冻结三态 f9fc929；本批（第八批 删代理守卫 + 第九批 图片上传）改动待 commit。
 
 ----------------------------------------------------
 十一、第七批：名额冻结三态（路径一进件生命周期，销 待优化.txt#3）
@@ -355,3 +356,385 @@
       消耗A(冻1 used1)→释放B(可用1 冻0)→重复释放幂等(不刷高)→无冻结消耗拦→流水条数=5(purchase1+freeze2+consume1+release1)，全绿。
     · ★消耗态(finished→ConsumeFrozen)靠 Go 单测覆盖（HTTP 走 finished 需微信 sync 真凭证，本机不可达）。
   - 测试数据（测试代理+其钱包/流水/进件单、enroll_path1_charge 配置、单测 test agent）已全部清库，临时 server 已停。
+
+----------------------------------------------------
+十二、第八批：删代理守卫式物理删（销 待优化.txt#2，杜绝钱包/流水/进件/邀请孤儿）
+----------------------------------------------------
+  背景：原 ConsoleHandler 删代理走裸物理 Delete，只删 pay_agent 行；pay_agent_quota（钱包）、
+  pay_agent_quota_log（名额流水）、pay_submch_enroll（进件单）、pay_enroll_invite（邀请）、
+  pay_enroll_settle_log（结算流水）都挂 agent_id，会残留成孤儿——且这些全是资金/业务留痕，不该被误删。
+
+  策略（对齐 待优化.txt#2 的建议）：守卫式物理删——有任何资金/业务足迹的代理一律拒删并提示改用「停用」，
+  只有纯净代理（无名额流水、无进件单、无邀请链接）才允许物理删，且同事务把随建的空钱包行一并清掉。
+
+  后端（0538pay-api）：
+  - repository/agent_repo.go：新增 DeleteWithWallet(id)（同事务删代理 + pay_agent_quota 空钱包行）、
+    QuotaLogCount(agentID)（名额流水条数，判资金足迹）。
+  - repository/enroll_repo.go：新增 CountByAgent(agentID)（名下进件单数）、CountInvitesByAgent(agentID)（名下邀请数）。
+  - service/agent.go：AgentService 加 enrollRepo 字段 + SetEnrollRepo 注入；Delete(id) 改为守卫式——
+    ① QuotaLogCount>0 → 1301「有名额资金记录，不能删除；如需停用请改用停用」；
+    ② 进件仓储已注入时，CountByAgent>0 → 拦「名下有进件单」、CountInvitesByAgent>0 → 拦「名下有邀请链接」；
+    全过 → DeleteWithWallet（纯净代理连空钱包一并清）。
+  - cmd/server/main.go：enrollRepo 提为共享变量（agentSvc 与 enrollSvc 共用同实例），
+    加 agentSvc.SetEnrollRepo(enrollRepo) 注入。
+
+  前端（admin-web）：
+  - views/console/ConsoleAgents.vue：删除确认文案改为守卫语义（「仅无名额记录、无进件单和邀请的代理可删；
+    有资金/业务记录的请改用停用」）；拦截提示已由 alert(e.message) 透出后端 1301 文案。
+
+  自检自验（全绿）：
+  - go build ./... 无 error + go build -o bin 产物无 error；npm run build（vue-tsc 严格）无 error。
+  - go test ./internal/service ./internal/repository 全过（无回归）。
+  - Go 单测 TestAgentDeleteGuard（连本地 MySQL，高位 test id 990001~990004 跑完清库）：
+    纯净代理可删且删后钱包=0（无孤儿）/ 有名额流水拦 / 有进件单拦 / 有邀请拦，四场景全绿。
+  - HTTP 真跑：admin 登录→建纯净代理 A（990005）删返 code 0、DB 校验残留钱包=0；
+    建代理 B（990006）售 5 名额后删返 code 1301「有名额资金记录不能删除」。
+  - 测试数据（代理 A/B 及其钱包/流水）已全部清库；临时 server 已停；临时验证脚本已删；git status 无意外残留。
+
+  ★注：本批只堵「误删致孤儿」。有足迹代理的正式退场路径是「停用」（SetStatus status=0），
+    物理删只留给从未产生任何足迹的纯净代理。将来若要支持「有足迹代理的归档删除」，需另设级联归档策略（当前不做）。
+
+----------------------------------------------------
+十三、第九批：填料图片上传（media/upload 换 media_id，补第八节图片占位缺口）
+----------------------------------------------------
+  背景：第八批填料把营业执照/身份证正反面填 media_id 占位，没做上传。本批补齐——前端选图即上传至
+  微信「文件上传」接口换 media_id 回填，原图不落库。★确认：微信特约商户进件 applyment4sub 本身无 OCR
+  接口（核官方文档：进件只有文件上传/视频上传/提交申请单/查状态/结算账户修改查询），证件文字字段仍手动录入；
+  用户已拍板本批只做图片上传，OCR 另议。
+
+  微信接口（官方文档核对）：POST /v3/merchant/media/upload，multipart/form-data，
+  ★参与签名的 body 是 meta 的 JSON 串 {"filename","sha256"}（不是整个 multipart），
+  Content-Type 由 multipart writer 带 boundary 生成；带 Wechatpay-Serial 头；图片 JPG/PNG/BMP、≤2M；应答 media_id。
+
+  后端（0538pay-api）：
+  - service/submerchant.go：新增 UploadMedia(ctx, filename, data)——算 sha256、组 meta JSON、
+    用 meta JSON 做签名 body（复用 wxpayv3.BuildAuthorization）、发 multipart 到 media/upload、带 Wechatpay-Serial、
+    解析 media_id。★apiHost 提为字段 + host() 方法（默认正式网关，单测可指向 httptest）；
+    doRequest/UploadMedia 的网关地址都改走 s.host()。
+  - service/enroll.go：新增 UploadMaterialMedia(ctx, id, agentID, filename, data)——归属+状态(paid/rejected)校验，
+    文件校验（非空/≤2M/JPG-PNG-BMP，★不依赖凭证故先于凭证检查，给最可操作报错）→ 凭证就绪才 UploadMedia。
+    常量 enrollMediaMaxBytes=2M、enrollMediaExts。
+  - handler：console.go 加 readEnrollMedia（共用 multipart 读文件 helper，含 3M 请求体上限兜底）+ ConsoleHandler.UploadMedia；
+    agent.go 加 AgentHandler.UploadMedia（PermEnroll 门控 + 归属自己）。
+  - router：POST /api/console/enrolls/:id/media、POST /api/agent/enrolls/:id/media。
+
+  前端（admin-web）：
+  - lib/api/client.ts：新增 upload<T>(path, FormData) helper——multipart 上传，不设 Content-Type（交浏览器带 boundary），
+    共用 request 的 token/401/解包逻辑。
+  - lib/api/console.ts：uploadEnrollMedia(id, file)；lib/api/agent.ts：uploadMyEnrollMedia(id, file)。
+  - views/enroll/EnrollMaterialDrawer.vue：新增 uploadFn prop；执照照片/身份证人像面/国徽面 3 个 media_id 文本框
+    改为图片上传控件（选图即传，前端预校验类型/2M，成功回填 media_id 并显「已上传 ✓」/「重新上传」，失败 alert）；
+    footer 提示补图片上传说明。ConsoleEnroll.vue / AgentEnroll.vue 各注入自己的 upload API。
+  - style.css：新增 .media-btn（上传按钮，直角 radius-sm + bg-muted + input 边框，:has(input:disabled) 置灰）
+    / .media-ok（已上传标记，primary 色），沿用 oklch 令牌。
+
+  自检自验（全绿）：
+  - go build ./... + go build -o bin 无 error；npm run build（vue-tsc 严格）无 error。
+  - go test ./internal/service ./internal/repository 全过（无回归）。
+  - Go 单测：TestUploadMediaMultipartAndSign（httptest 假网关 + 自签 RSA 私钥）断言 Content-Type=multipart、
+    Authorization=WECHATPAY2-SHA256-RSA2048、Wechatpay-Serial 头、meta.sha256 与原图一致、file 二进制逐字节一致、
+    应答 media_id 正确回填——★覆盖真实凭证不可达时无法端到端验证的「打包+签名」核心路径；
+    TestUploadMediaNoCreds 未配凭证直接报错不打网关。
+  - HTTP 真跑（免付建 paid 单，enroll 16）：坏类型 txt→1302「仅支持 JPG/PNG/BMP」、>2M→1302「不能超过 2M」、
+    合法 png 但未配凭证→1302「凭证未配置」、不存在单→1302「不存在」、无文件→400、无 token→401，均符合预期。
+    ★发现并修正：文件校验原在凭证检查之后，导致坏类型/超大也报「凭证未配置」；已把文件校验提前到凭证检查之前。
+  - 测试数据（enroll 16、代理 990007 及钱包/流水、enroll config）已清库，临时 server 停、临时验证脚本删、git 无残留。
+
+  ★阻塞：真实「图片二进制→微信 media_id」需服务商沙箱凭证端到端（同 submit/sync，见第九节），本机不可自建；
+    上传打包+签名逻辑已由单测充分覆盖，待凭证到位即可连真跑。
+
+----------------------------------------------------
+十四、UI 打磨批「顶部提示 + 下拉菜单跟随收单样式」（2026-07-28）
+----------------------------------------------------
+起因：代理进件各页仍用浏览器原生 window.confirm / alert（弹「localhost:5173 显示」难看的系统框）
+      与原生 <select>（下拉样式与收单页不一致），用户要求统一到收单同款视觉。
+
+收单基准：收单页（Orders.vue 等）确认用自研 <Modal>（居中/直角边框/底部右对齐按钮），
+          下拉用自研 <Select>（:options + v-model，直角 radius + oklch 令牌）。
+
+新增全局能力（对齐 Toast 单例宿主模式）：
+  - composables/useConfirm.ts：模块级单例，open(message, {title,confirmText,cancelText,danger}) 返回 Promise<boolean>。
+  - components/ui/ConfirmHost.vue：复用收单同款 <Modal>+<Button> 渲染确认框（danger→destructive 红按钮）。
+  - App.vue 挂 <ConfirmHost />；components/ui/index.ts 导出 ConfirmHost。
+
+改造页（原生 confirm/alert→useConfirm/useToast，原生 <select>→<Select>）：
+  - agent/AgentInvites.vue、agent/AgentEnroll.vue、agent/AgentQuota.vue、agent/AgentSettlement.vue
+  - console/ConsoleAgents.vue、console/ConsoleEnroll.vue、console/ConsoleInvites.vue、
+    console/ConsoleQuota.vue、console/ConsoleSettlement.vue、console/ConsoleSettings.vue
+  - enroll/EnrollMaterialDrawer.vue（主体类型/银行账户类型两个下拉 + 全部校验 alert→toast）
+
+要点：
+  - 删除按钮/退款等不可逆操作的确认框加 danger:true（红色确定按钮）。
+  - 建单成功后含付款链接的长文案仍需可读，改用 confirm 单动作弹窗（confirmText「知道了」）而非 toast。
+  - 带 @change 的原生 select（筛选联动 go(1)/loadWallet）改为 <Select> 的 :model-value + @update:model-value，
+    因 Select 只 emit update:modelValue 不 emit change；filters.status 的窄类型放宽为 string 以兼容 Select 值类型。
+
+自检自验（全绿）：
+  - npm run build（vue-tsc 严格）无 error。
+  - vite dev 起服务，curl /console/agents、/agent/enroll、ConfirmHost.vue、useConfirm.ts、
+    ConsoleEnroll.vue、AgentEnroll.vue、EnrollMaterialDrawer.vue 均 HTTP 200，transform 无编译错误。
+  - 全局扫 views/{agent,console,enroll} 已无原生 confirm(/alert(/<select 残留。
+  - 临时启动的 5174 dev server 已停（保留用户在用的 5173）。
+
+----------------------------------------------------
+十五、控制台导航折叠化 + 新增概况页（2026-07-28）
+----------------------------------------------------
+起因：平台代理控制台 /console 侧栏原为一级平铺 6 项（代理管理/名额管理/进件申请/邀请链接/
+      佣金结算/进件设置）。为后续往控制台加更多模块（目前仅计划）留出结构，改两级折叠：
+      顶端加「概况」单项落地页，现有 6 项收进「微信特约商户」折叠分组。
+
+决策（用户拍板）：概况占用根路径 /console 作落地页；代理管理挪到 /console/agents。
+      与代理端 /agent、商户端 /m 的「进来先看总览」习惯一致。
+
+改动：
+  - config/nav.ts：consoleNav 从一级平铺改两级——{概况,/console} + {微信特约商户, children:[
+    代理管理/console/agents、名额管理、进件申请、邀请链接、佣金结算、进件设置]}；
+    新增 Handshake 图标；consoleLeaves 改 flatMap 扁平化（含单项与分组子项，供路由/面包屑）。
+  - views/console/ConsoleOverview.vue（新增）：平台视角概况，四个统计格（进件代理数/进件单总数/
+    审核中/已开通完成，靠 fetchAgents+fetchEnrolls 各 pageSize:1 取 total）+ 六页快捷入口卡片。
+    只读聚合，拉取失败不阻塞。
+  - router/index.ts：ConsoleOverview 懒加载；consolePages 加 '/console'→Overview、
+    '/console/agents'→ConsoleAgents（原 /console 指向 ConsoleAgents 已挪走）。
+    consoleChildren 仍从 consoleLeaves 生成（/console→''），自动跟着 nav 走。
+  - layouts/ConsoleLayout.vue：套用 AdminLayout 同款两级折叠交互（openKeys Set + nodeActive +
+    toggle + ChevronDown 旋转 + v-show 子列表 transition），分组含当前路由自动展开（watch route）；
+    面包屑兜底标题「代理管理」改「概况」。
+
+自检自验（全绿）：
+  - npm run build（vue-tsc 严格）无 error。
+  - vite dev curl /console、/console/agents、/console/quota、/console/settings、
+    ConsoleOverview.vue、nav.ts、ConsoleLayout.vue 均 HTTP 200，transform 无编译错误；
+    transform 后 nav.ts 确认含「微信特约商户」分组 +「概况」单项 + /console/agents。
+
+----------------------------------------------------
+十六、三处修复：进件设置收款商户UID + 代理权限实时生效 + 支付链接可找回（2026-07-28 22:30分）
+----------------------------------------------------
+本轮修三个用户实测暴露的问题，均已自检全绿。
+
+问题一：进件设置缺「收款商户 UID」字段
+  现象：建进件单报「进件开户费收款商户未配置（系统设置·进件设置 enroll_pay_uid）」。
+  根因：后端 enroll.go 建单强依赖 config enroll_pay_uid（收开户零售价的平台收款方），
+        但 ConsoleSettings.vue 从未暴露该字段，值恒为默认 "0"，建单被前置拦截。
+  修复：ConsoleSettings.vue form 加 enroll_pay_uid + 模板顶部「收款商户 UID」输入框；
+        key 早已在 config enroll 分组白名单内，saveConfig 直接持久化。
+  提示用户：该 UID 必须是已存在的真实商户，否则收款单建不出来。
+
+问题二：平台已给代理开权限，代理端仍报「无该功能权限，请联系平台开通」(1303)
+  根因：权限在登录时烤进 JWT（agent.go Login 里 Generate 带 a.Permissions 快照），
+        requirePerm 读的是旧 token 里的权限串——平台改权限后旧 token 不更新，
+        导致「菜单能看能点（前端 Profile 实时拉的对），但一操作后端说没权限」。
+  修复：service/agent.go 加 HasPermissionLive(agentID,key)——按 agent_id 实时查库判断，
+        顺带「代理停用(status!=1)一律无权」兜底；handler/agent.go 删 currentAgentPerms，
+        requirePerm 改走 HasPermissionLive。平台一开通、代理下次操作即刻生效，无需重登。
+
+问题三：建单成功弹出的支付链接窗口一关就丢，找不回付款链接
+  现象：EN20260728215640e9c22c（id=18，pending_pay，pay_order_no=2026072821564022745，
+        pay_order status=0 未支付 ¥200）——链接其实可找回，但当时详情页无入口。
+  修复：ConsoleEnroll.vue + AgentEnroll.vue 详情抽屉加「去支付」按钮——
+        canPay = status==='pending_pay' && !!pay_order_no，点击 router.push
+        /pay/cashier/<pay_order_no>（复用已建收款单，不新建、不重复收费）。
+        同时把建单成功弹窗从「只展示链接(知道了)」改为「去支付 / 稍后」双动作——
+        点去支付直接 router.push /pay/cashier/<trade_no>，稍后关掉也能从详情按钮重开。
+
+自检自验（全绿）：
+  - admin-web npm run build（vue-tsc 严格）无 error；0538pay-api go build ./... 无 error。
+  - curl 后端 /api/agent/permissions 返 401（鉴权门控正常），前端 5173 返 200。
+  - DB 核实 pay_order 2026072821564022745 status=0 未支付 ¥200，去支付按钮可正常跳收款台复用该单。
+
+补充（2026-07-28 22:45分）：「去支付」改新窗口打开。
+  原 goPay/建单成功弹窗用 router.push 跳收款台，会离开进件单列表/详情丢状态。
+  改 openCashier(tradeNo)——router.resolve(`/pay/cashier/<no>`).href + window.open(_blank)，
+  新标签页开收款台，进件单列表/详情不丢，付完回来直接点「查状态」。
+  ConsoleEnroll.vue + AgentEnroll.vue 同改。npm run build 无 error。
+
+补充（2026-07-28 23:00分）：控制台「微信特约商户」子导航重排序。
+  原序：代理管理→名额管理→进件申请→邀请链接→佣金结算→进件设置。
+  新序（用户拍板）：代理管理→进件申请→名额管理→邀请链接→佣金结算→进件设置。
+  仅 config/nav.ts consoleNav children 调序，纯配置无类型变化，npm run build 无 error。
+  订单页结论：不另开——进件申请页(ConsoleEnroll.vue)已具列表+详情+行操作+筛选，等同订单页。
+
+----------------------------------------------------
+十七、微信服务商凭证独立成「服务商配置」页（2026-07-28 23:20分）
+----------------------------------------------------
+起因：服务商凭证原只在进件设置页放一段"去别处配"的说明文字，前端从没做过录入页；
+      用户要求单独成一页，别都堆在设置里。
+
+背景：后端 config 分组 wx_partner 早已齐全（config.go 8 字段 + 分组白名单），只缺前端录入界面。
+      与后端 SubMerchantService.creds()/Configured() 同源。
+
+改动：
+  - views/console/ConsoleWxPartner.vue（新增）：fetchConfig/saveConfig('wx_partner') 读写 8 字段——
+    sp_mchid/serial_no/private_key(textarea)/public_key(textarea) 四项必填带 * +
+    sp_appid/public_key_id/apiv3_key 可选 + sandbox 沙箱/生产 Switch。
+    顶部 Badge「已配齐/未配齐」与后端 Configured() 同口径（4 项必填非空），私钥/公钥用等宽 textarea。
+  - config/nav.ts：consoleNav「微信特约商户」组末尾加「服务商配置」/console/wx-partner，KeyRound 图标。
+  - router/index.ts：ConsoleWxPartner 懒加载 + consolePages 加 /console/wx-partner（consoleChildren 自动跟 nav）。
+  - ConsoleSettings.vue：原「微信服务商凭证」说明 Panel 改指向左侧「服务商配置」页，本页只管进件计价。
+
+自检自验（全绿）：
+  - npm run build（vue-tsc 严格）无 error，ConsoleWxPartner-*.js 独立分包。
+  - curl 后端 /api/admin/config/wx_partner 返 401（鉴权门控正常），分组白名单早已含 wx_partner 八键。
+
+----------------------------------------------------
+十八、服务商凭证私钥/公钥文件上传 + 敏感字段脱敏 + 安全存储（2026-07-28 23:50分）
+----------------------------------------------------
+起因：用户要求商户 API 私钥/微信支付公钥改成文件上传，且必须存到安全位置、能安全读回；
+      服务商配置页不适合明文显示的字段做隐藏处理。
+
+★安全存储位置设计（核心）：新建 0538pay-api/secrets/ 目录存密钥文件。
+  为什么安全（对比公开可下载的 uploads/）：
+  ① 不挂任何 HTTP 静态路由——router.go 只有 r.Static("/uploads",...)，secrets/ HTTP 完全不可达
+     （已真跑验证：/secrets/xxx.pem、/uploads/../secrets/xxx.pem 路径穿越等全 404）。
+  ② .gitignore 锚定 /secrets/* 仅留 .gitkeep——密钥永不入代码库（git add -n 确认只 .gitkeep 入库）。
+  ③ 文件权限 0600（仅属主可读写），目录 0700。
+
+★存储模型：DB 只存指针不存密钥明文。约定 config 值 "@file:<文件名>" 前缀标记文件指针，
+  否则当明文（向后兼容旧数据/迁移期）。即便拖库也拿不到私钥。
+
+后端：
+  - internal/service/secretfile.go（新增）：secretFilePrefix="@file:"/secretsDir="./secrets"/
+    resolveSecret(读回原文,识别前缀→读 secrets/,失败返空=未配)/saveSecretFile(写 0600 文件+返指针)/
+    secretFingerprint(SHA256前12位,脱敏核对用)。
+  - submerchant.go：creds() 私钥/公钥改走 resolveSecret；新增 PartnerCredView(脱敏视图:敏感字段
+    只回 has_*+指纹fp,非机密明文)+CredView()；PartnerCredUpdate+SaveCreds(私钥/公钥"留空=不改",
+    非空→ParsePrivateKey/ParsePublicKey 校验合法→saveSecretFile 落文件→config 存指针;
+    APIv3密钥留空不改/非空须32位存config;走 cfg.SaveGroup 只写出现的键=天然留空不改)。
+  - console.go：ConsoleHandler 注入 submch；GetWxPartner(GET 脱敏)/SaveWxPartner(PUT 保存)。
+  - main.go NewConsoleHandler 传 submchSvc；router GET/PUT /console/wx-partner。
+  - 上一步去掉的 sandbox 开关：config.go 删默认值+白名单移除,PartnerCreds.Sandbox 删,DB 行清。
+
+一次性迁移：把 DB 现存 wx_partner 私钥(1707字符)/公钥(450字符)明文导出为 secrets/*.pem 文件+
+  DB 值改 @file: 指针（临时 cmd/migratesecrets 跑完即删）。
+
+前端：
+  - lib/api/console.ts：WxPartnerView(脱敏)/WxPartnerSaveReq/getWxPartner/saveWxPartner。
+  - views/console/ConsoleWxPartner.vue（重写）：私钥/公钥用 <input type=file> 读 .pem 文本到内存
+    (FileReader,校验含 -----BEGIN,≤64KB)随鉴权 PUT 提交;敏感字段展示"已配置·指纹 xxx"或"未配置",
+    不回原文;APIv3 密钥 type=password;明文字段(商户号/序列号/appid/公钥ID)正常编辑;save 后清本地暂存原文。
+
+自检自验（全绿）：
+  - go build ./... + npm run build（vue-tsc 严格）无 error。
+  - 迁移后冒烟测试(走 service resolveSecret 读文件→签名→微信只读查询)：Configured()=true+微信
+    返 PARAM_ERROR"未能找到申请单"（验签通过,凭证有效,文件读回链路打通）。
+  - HTTP 真跑(admin token)：GET 脱敏视图私钥/公钥/APIv3 只回 has_*+指纹,原文零泄露;负向非法私钥被拒
+    (格式不正确);正向只改 sp_appid+敏感留空→私钥指纹不变(留空不改生效);测试 sp_appid 已复位空。
+  - ★安全验证：secrets/ 目录 HTTP 全 404(含路径穿越);git 只跟踪 .gitkeep 不跟踪 .pem。
+  - 临时迁移工具/冒烟测试/日志已删,临时后端已停。
+
+----------------------------------------------------
+十九、控制台导航重构 + 权限分配独立页（按组分配 + 折叠）（2026-07-28 收工前一轮）
+----------------------------------------------------
+本轮是纯前端 UI/交互打磨，无后端逻辑变化（权限点后端 group 字段早已就绪）。分四小步，均自检全绿。
+
+（1）服务商配置页上传按钮样式 + 注释内联
+  - ConsoleWxPartner.vue：私钥/公钥上传按钮换 Upload 图标 + 状态胶囊
+    （.key-tag-set/.key-tag-picked 绿 = Badge success hex，.key-tag-unset 红 = destructive hex），
+    文件行 button 旁配 .key-hint 说明。
+  - 所有输入框下方的独立注释文字全部内联进 placeholder（用户嫌下方注释乱），
+    界面只留输入框自身占位提示，视觉更清爽。
+
+（2）导航：代理管理/名额管理/佣金结算 提级为顶级项 + 微信特约商户置顶
+  - config/nav.ts consoleNav 结构调整为：
+      概况(/console) → 微信特约商户组[进件申请/邀请链接/进件设置/服务商配置] →
+      代理管理(/console/agents) → 权限分配(/console/permissions) →
+      名额管理(/console/quota) → 佣金结算(/console/settlement)。
+  - 理由（用户）：代理管理/名额管理/佣金结算/权限分配 之后各自还会挂更多子功能，
+    先各占一个顶级位（node.to 单项），不塞进特约商户组。微信特约商户组紧跟概况置顶。
+  - ConsoleLayout.vue 两级折叠已支持顶级单项（v-if=node.to 渲染图标+RouterLink）与分组（node.children）混排。
+
+（3）权限功能抽出为独立「权限分配」页（原在代理编辑抽屉里）
+  - views/console/ConsolePermissions.vue（新增）：左=代理列表（搜索 + 每行当前权限摘要），
+    右=按分组勾选 + 保存。dirty 追踪（改动才亮保存/重置，显「有未保存的改动」）；
+    保存调 setAgentPermissions(id, keys) 后回写 selected.permissions 保持基准同步。
+  - lib/api/console.ts：setAgentPermissions(id, permissions) → PUT /console/agents/:id/permissions。
+  - 后端：service/agent.go SetPermissions(id, keys)（只改 permissions，name/account 不动）；
+    handler/console.go SetAgentPermissions（绑 {permissions []string}）；router PUT /console/agents/:id/permissions。
+  - ConsoleAgents.vue：权限勾选块加 v-if="!editing"（仅新建时选初始权限，标题改「初始权限」），
+    编辑态改显提示「功能权限请在左侧『权限分配』页调整」。
+  - 决策（用户 AskUserQuestion）：按代理逐个分配；新建代理时保留权限勾选，编辑时移到新页。
+
+（4）权限分配改「按组分配」+ 折叠 + 样式优化（用户嫌逐点勾选乱）
+  - ConsolePermissions.vue：每个权限分组（进件/收单/后续新模块）渲染成一张卡片：
+    · 组头三态勾选框（Check=全选 / Minus=半选 / 空=未选），groupState 返回 all/some/none；
+      toggleGroup 整组一键开/关（非全选即整组开，已全选则整组关）。
+    · 组头「N/M」计数徽标 + ChevronDown 折叠箭头（collapsed Set + toggleCollapse，v-show 组内），
+      右侧「开通整组/取消整组」文字快捷。
+    · 组内各权限点仍可单独勾（精细调），两列自适应描边卡片，选中态主色描边。
+  - ★以后加新模块只需在后端 AgentPermissionCatalog 追加带 Group 的权限点，此页自动多出一张卡片
+    + 一个组开关，前端零改动。
+
+自检自验（全绿）：
+  - admin-web npm run build（vue-tsc 严格）无 error；0538pay-api go build ./... 无 error。
+  - 后端真跑：/console/agents/:id/permissions PUT 200（改权限只动 permissions，实测代理 990008 name/account 不变）；
+    /console/agent-permissions、/console/agents 列表均 200；权限点 group 字段（进件/收单）后端返回正确。
+  - 导航结构 transform 后确认：概况 + 微信特约商户组置顶 + 代理管理/权限分配/名额管理/佣金结算 四顶级项。
+
+----------------------------------------------------
+二十、进件页打磨 + 单号缩短 + 可搜索代理下拉 + 代理操作日志（2026-07-29 00:25分 收工）
+----------------------------------------------------
+本轮先做若干 UI/交互打磨，再新增「代理操作日志」审计功能（真埋点 + 真查询，全链路真跑通过）。
+
+（1）权限分配页样式重做（用户嫌原生复选框丑）
+  - ConsolePermissions.vue：原生 <input checkbox> 换成自绘方块勾选指示器
+    （选中主色实底 + 白 Check，组头半选态 Minus）；
+    权限点从扁平灰底改为可点选描边卡片（未选浅灰描边 / hover 主色淡描边 / 选中主色淡底+主色描边+标题变主色）；
+    2 列 grid gap-2 空位不再渲染灰填充块；组头计数改药丸徽标 N/M（tabular-nums）。
+  - 折叠功能：组头 ChevronDown 点标题区折叠/展开（collapsed Set + toggleCollapse，v-show 组内）；
+    勾选框与折叠分离，右侧「开通整组/取消整组」独立按钮，点折叠不误触勾选。
+
+（2）进件单号缩短：EN+14 位时间+6hex（22 位）→ TY+8 位数字（10 位）
+  - service/enroll.go genEnrollNo：改 fmt.Sprintf("TY%08d", rand%1e8)，import 加 encoding/binary。
+  - 新增 genUniqueEnrollNo（EnrollService 方法）：8 位随机空间小，建单时 FindEnrollByNo 查重重试≤8 次，
+    DB uniqueIndex 兜底；CreateEnroll 里 EnrollNo 改调它。
+  - enroll_test.go TestGenEnrollNo 断言改 TY 前缀 + 纯数字 + 长度 10。
+  - ★只影响新建单，历史 EN 单号不变。
+  - 顺手清库：删掉 8 笔 EN 测试进件单 + 7 张关联开户费收款单（pay_order param 挂 EN 单号，含 1 张孤儿单），
+    TY 单保留（用户「清 EN 留 TY」要求）。全 path=2 不占名额、无冻结需释放、结算日志表本空。
+
+（3）进件单列表列改造（console/enroll + 同步 agent/enroll）
+  - 「路径」列名改「支付方式」，纯文本升级 Badge：预购名额=success 绿 / 商户自付=default 蓝。
+  - 「sub_mchid」列名改中文「特约商户号」，空值 —/未开通（列表与详情抽屉两处都改）。
+  - 新增「联系电话」列（放商户名称后，tabular-nums，空值 dim —）。
+  - 列宽配平到 100%：商户名称 20% 多占，其余 8 列各 10% 平均分；
+    「来源/支付方式/状态」三列去 col-center 改左对齐（用户嫌居中列间距空得难看），只留操作居中。
+
+（4）通用 Select 组件加 searchable 开关（用户：代理多了下拉难选）
+  - components/ui/Select.vue：新增可选 prop searchable，向后兼容（不传行为不变）。
+    开启后面板顶部固定搜索框（打开自动聚焦 + @keydown.stop），实时按 label 过滤，无匹配显「无匹配项」；
+    打开清空关键字。
+  - 4 个控制台页共 7 处代理下拉全部加 searchable：
+    ConsoleEnroll（筛选+建单归属）/ConsoleInvites（筛选+归属）/ConsoleQuota（筛选+选代理）/ConsoleSettlement（筛选）。
+
+（5）★代理操作日志（审计新功能，复用 pay_oplog 表 scope=agent）
+  用户要「运维日志/代理操作日志/管理日志」。决策（AskUserQuestion）：本轮先只做「代理操作日志」真打通；
+  管理日志复用已有 scope=admin 数据；运维日志（系统事件）留下一批。
+  - 后端：
+    · service/oplog.go：加 ScopeAgent 常量 + OpCatEnroll 分类 + agentActions 显式映射表（9 条：建单/提交/同步/退款/填料/上传/生成邀请/启停邀请/删邀请，退款标 danger、建单 warning）
+      + LookupAgentAction + AgentOpActionOptions + AgentList/AgentExportRows。
+    · middleware/oplog.go：加 AgentOpLog（复用通用 opLogFor，prefix=/api/agent，scope=agent）。
+    · handler/oplog.go：加 AgentList/AgentOptions/AgentExport（CSV idCol=代理ID）。
+    · router：agent authed 组挂 AgentOpLog 中间件（自动埋点代理写操作）；
+      console 组加 GET /console/agent-oplogs、/options、/export（平台查看）。
+      ★顺手删掉 console 组上误挂的 AdminOpLog（它剥 /api/admin 前缀，对 /api/console 路由恒不匹配，是死代码 no-op）。
+  - 前端：
+    · lib/api/console.ts：加 AgentOpLog 类型 + fetchAgentOpLogs/fetchAgentOpActionOptions/exportAgentOpLogs
+      + level/result meta 与下拉选项。
+    · views/console/ConsoleAgentLogs.vue（新增）：筛选（可搜索代理下拉/动作/级别/结果/关键字/时间范围）+ 导出 CSV
+      + 列表（ID/代理/操作/级别/对象/结果/时间/详情）+ 详情 Modal（解析 detail JSON）。
+    · config/nav.ts：consoleNav 加「审计日志」组（ScrollText 图标）→ 子项「代理操作日志」/console/agent-logs。
+    · router/index.ts：注册 ConsoleAgentLogs 懒加载 + 路由映射。
+
+自检自验（全绿）：
+  - admin-web npm run build（vue-tsc 严格）无 error；0538pay-api go build ./... 无 error；
+    go test ./internal/service/ 通过（含改后的 TestGenEnrollNo）。
+  - ★全链路真跑：建临时代理号(bcrypt)真登录 → POST /agent/enroll-invites 生成邀请(code:0) →
+    中间件异步埋点 → pay_oplog 落 scope=agent 一行（uid/operator/action=生成邀请链接/category=enroll/
+    level=normal/target/result=ok/ip 全部正确）→ console GET /agent-oplogs 查到该行 + uid 筛选 total=1。
+  - 无 token 访问 /console/agent-oplogs 返 401（路由活 + 鉴权生效）；options 返 9 条动作。
+  - 清理：删临时代理号 + 其邀请 + 验证日志 + genhash 临时文件；停临时 server；git 无意外残留。
+
+下一步（交接）：
+  - 「管理日志」页：console 现无自己的操作日志（AdminOpLog 已从 console 移除）。可选方案：
+    给 console 组加一个 prefix=/api/console 的埋点中间件 + 派生/映射，或直接复用 admin scope 数据做只读展示页。
+  - 「运维日志」：系统事件（cron/进件提交微信/回调/名额冻结释放）需在关键节点手动埋点，未做。
+  - 代理端登录密码 bcrypt，本轮用临时号验证；正式代理号密码明文未知（不影响功能）。

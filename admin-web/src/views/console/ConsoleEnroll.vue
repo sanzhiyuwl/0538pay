@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { Eye, Plus } from 'lucide-vue-next'
-import { Panel, Button, Badge, Drawer, Pagination } from '@/components/ui'
+import { Panel, Button, Badge, Drawer, Pagination, Select } from '@/components/ui'
 import EnrollMaterialDrawer from '@/views/enroll/EnrollMaterialDrawer.vue'
+import { useToast } from '@/composables/useToast'
+import { useConfirm } from '@/composables/useConfirm'
 import {
   fetchAgents,
   fetchEnrolls,
@@ -13,6 +16,7 @@ import {
   refundEnroll,
   getEnrollMaterial,
   fillEnrollMaterial,
+  uploadEnrollMedia,
   type Agent,
   type Enroll,
 } from '@/lib/api/console'
@@ -41,6 +45,34 @@ const statusMeta: Record<string, { label: string; variant: 'default' | 'success'
 const sourceText: Record<number, string> = { 1: '平台代填', 2: '代理代填', 3: '客户自助' }
 const pathText: Record<number, string> = { 1: '预购名额', 2: '商户自付' }
 const agentName = (id: number) => (id === 0 ? '平台' : agents.value.find((a) => a.id === id)?.name ?? `#${id}`)
+const toast = useToast()
+const confirm = useConfirm()
+const router = useRouter()
+
+// 收单同款 Select 选项
+const statusOptions = computed(() => [
+  { value: '', label: '全部' },
+  ...Object.entries(statusMeta).map(([k, m]) => ({ value: k, label: m.label })),
+])
+const sourceOptions = [
+  { value: '', label: '全部' },
+  { value: '1', label: '平台代填' },
+  { value: '2', label: '代理代填' },
+  { value: '3', label: '客户自助' },
+]
+// 代理筛选（含「全部」）与建单归属（含「平台自己」）——值统一用字符串
+const agentFilterOptions = computed(() => [
+  { value: '', label: '全部' },
+  ...agents.value.map((a) => ({ value: String(a.id), label: a.name })),
+])
+const agentOwnerOptions = computed(() => [
+  { value: '', label: '平台自己（无代理）' },
+  ...agents.value.map((a) => ({ value: String(a.id), label: a.name })),
+])
+const pathOptions = [
+  { value: 2, label: '商户自付（分账）' },
+  { value: 1, label: '预购名额（全额归代理）' },
+]
 
 async function load() {
   loading.value = true
@@ -56,7 +88,7 @@ async function load() {
     enrolls.value = list
     total.value = t
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '加载进件单失败')
+    toast.error(e instanceof ApiError ? e.message : '加载进件单失败')
   } finally {
     loading.value = false
   }
@@ -112,7 +144,7 @@ function openCreate() {
 }
 async function doCreate() {
   if (!form.merchantName.trim()) {
-    alert('请填写商户名称')
+    toast.error('请填写商户名称')
     return
   }
   creating.value = true
@@ -126,18 +158,33 @@ async function doCreate() {
     })
     createDrawer.value = false
     await load()
-    if (r.pay?.qrcode || r.pay?.pay_url) {
-      alert(`进件单已建，待支付开户费 ¥${r.pay.money}。收款单号：${r.pay.trade_no}\n付款链接：${r.pay.pay_url || r.pay.qrcode}`)
+    if (r.pay?.trade_no && (r.pay?.qrcode || r.pay?.pay_url)) {
+      // 建单成功即引导去支付；即便这里关掉，进件单详情「去支付」按钮随时可重新打开（不会丢链接）。
+      const go = await confirm(
+        `进件单已建，待支付开户费 ¥${r.pay.money}。\n收款单号：${r.pay.trade_no}\n\n现在去支付？稍后也可在进件单详情点「去支付」重新打开。`,
+        { title: '进件单已创建', confirmText: '去支付', cancelText: '稍后' },
+      )
+      if (go) openCashier(r.pay.trade_no)
     } else {
-      alert('进件单已建（无需收费，已放行填料）')
+      toast.success('进件单已建（无需收费，已放行填料）')
     }
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '建单失败')
+    toast.error(e instanceof ApiError ? e.message : '建单失败')
   } finally {
     creating.value = false
   }
 }
 
+// 待支付 → 可重新打开收款台付开户费（复用已建的收款单，不新建单，避免重复收费）
+const canPay = computed(() => detail.value?.status === 'pending_pay' && !!detail.value?.pay_order_no)
+function openCashier(tradeNo: string) {
+  // 新窗口打开收款台：进件单列表/详情状态不丢，付完回来直接查状态即可。
+  const href = router.resolve(`/pay/cashier/${tradeNo}`).href
+  window.open(href, '_blank')
+}
+function goPay() {
+  if (detail.value?.pay_order_no) openCashier(detail.value.pay_order_no)
+}
 // 已支付待完善 / 被驳回可重提 → 提交微信审核
 const canSubmit = computed(() => detail.value?.status === 'paid' || detail.value?.status === 'rejected')
 // 审核中 → 可主动查微信最新状态
@@ -167,9 +214,10 @@ async function doSubmit() {
   acting.value = true
   try {
     detail.value = await submitEnroll(detail.value.id)
+    toast.success('已提交微信')
     await load()
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '提交微信失败')
+    toast.error(e instanceof ApiError ? e.message : '提交微信失败')
   } finally {
     acting.value = false
   }
@@ -179,24 +227,25 @@ async function doSync() {
   acting.value = true
   try {
     detail.value = await syncEnroll(detail.value.id)
+    toast.success('已同步微信状态')
     await load()
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '查询微信状态失败')
+    toast.error(e instanceof ApiError ? e.message : '查询微信状态失败')
   } finally {
     acting.value = false
   }
 }
 async function doRefund() {
   if (!detail.value) return
-  if (!confirm(`确认原路退还「${detail.value.merchant_name}」的开户费全额？退款后不可撤销。`)) return
+  if (!(await confirm(`确认原路退还「${detail.value.merchant_name}」的开户费全额？退款后不可撤销。`, { title: '退款确认', danger: true }))) return
   acting.value = true
   try {
     const r = await refundEnroll(detail.value.id)
-    alert(r.msg || '退款成功')
+    toast.success(r.msg || '退款成功')
     detail.value = await getEnroll(detail.value.id)
     await load()
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '退款失败')
+    toast.error(e instanceof ApiError ? e.message : '退款失败')
   } finally {
     acting.value = false
   }
@@ -221,26 +270,15 @@ async function doRefund() {
         </div>
         <div class="filter-item">
           <label class="filter-label">状态</label>
-          <select v-model="filters.status" class="field-input w-32">
-            <option value="">全部</option>
-            <option v-for="(m, k) in statusMeta" :key="k" :value="k">{{ m.label }}</option>
-          </select>
+          <Select v-model="filters.status" :options="statusOptions" class="w-32" />
         </div>
         <div class="filter-item">
           <label class="filter-label">代理</label>
-          <select v-model="filters.agentId" class="field-input w-40">
-            <option value="">全部</option>
-            <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
+          <Select v-model="filters.agentId" :options="agentFilterOptions" searchable class="w-40" />
         </div>
         <div class="filter-item">
           <label class="filter-label">来源</label>
-          <select v-model="filters.source" class="field-input w-28">
-            <option value="">全部</option>
-            <option value="1">平台代填</option>
-            <option value="2">代理代填</option>
-            <option value="3">客户自助</option>
-          </select>
+          <Select v-model="filters.source" :options="sourceOptions" class="w-28" />
         </div>
         <div class="ml-auto flex items-center gap-2">
           <Button size="sm" @click="search">搜索</Button>
@@ -254,38 +292,42 @@ async function doRefund() {
         <table class="tbl w-full table-fixed">
           <thead>
             <tr>
-              <th class="w-[15%]">进件单号</th>
-              <th class="w-[18%]">商户名称</th>
-              <th class="w-[12%]">归属代理</th>
-              <th class="col-center w-[9%]">来源</th>
-              <th class="col-center w-[9%]">路径</th>
-              <th class="col-center w-[12%]">状态</th>
-              <th class="w-[13%]">sub_mchid</th>
-              <th class="col-center w-[8%]">操作</th>
+              <th class="w-[10%]">进件单号</th>
+              <th class="w-[20%]">商户名称</th>
+              <th class="w-[10%]">联系电话</th>
+              <th class="w-[10%]">归属代理</th>
+              <th class="w-[10%]">来源</th>
+              <th class="w-[10%]">支付方式</th>
+              <th class="w-[10%]">状态</th>
+              <th class="w-[10%]">特约商户号</th>
+              <th class="col-center w-[10%]">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="e in enrolls" :key="e.id">
               <td class="truncate font-medium tabular-nums">{{ e.enroll_no }}</td>
               <td class="truncate">{{ e.merchant_name }}</td>
+              <td class="truncate tabular-nums" :class="e.contact_phone ? '' : 'dim'">{{ e.contact_phone || '—' }}</td>
               <td class="truncate dim">{{ agentName(e.agent_id) }}</td>
-              <td class="col-center text-xs">{{ sourceText[e.source] ?? '—' }}</td>
-              <td class="col-center text-xs">{{ pathText[e.path] ?? '—' }}</td>
-              <td class="col-center">
+              <td class="text-xs dim">{{ sourceText[e.source] ?? '—' }}</td>
+              <td>
+                <Badge :variant="e.path === 1 ? 'success' : 'default'">{{ pathText[e.path] ?? '—' }}</Badge>
+              </td>
+              <td>
                 <Badge :variant="statusMeta[e.status]?.variant ?? 'muted'">
                   {{ statusMeta[e.status]?.label ?? e.status }}
                 </Badge>
               </td>
-              <td class="truncate tabular-nums dim">{{ e.wx_sub_mchid || '—' }}</td>
+              <td class="truncate tabular-nums" :class="e.wx_sub_mchid ? '' : 'dim'">{{ e.wx_sub_mchid || '未开通' }}</td>
               <td class="col-center">
                 <Button variant="ghost" size="sm" @click="openDetail(e)"><Eye class="size-4" /></Button>
               </td>
             </tr>
             <tr v-if="loading">
-              <td colspan="8" class="py-10 text-center dim">加载中…</td>
+              <td colspan="9" class="py-10 text-center dim">加载中…</td>
             </tr>
             <tr v-else-if="!enrolls.length">
-              <td colspan="8" class="py-10 text-center dim">暂无进件单</td>
+              <td colspan="9" class="py-10 text-center dim">暂无进件单</td>
             </tr>
           </tbody>
         </table>
@@ -332,7 +374,7 @@ async function doRefund() {
           <span class="dim">微信申请单号</span><span class="tabular-nums">{{ detail.wx_applyment_id || '—' }}</span>
         </div>
         <div class="flex justify-between border-b border-border/50 py-2">
-          <span class="dim">sub_mchid</span><span class="tabular-nums">{{ detail.wx_sub_mchid || '—' }}</span>
+          <span class="dim">特约商户号</span><span class="tabular-nums">{{ detail.wx_sub_mchid || '未开通' }}</span>
         </div>
         <div v-if="detail.reject_reason" class="py-2">
           <div class="dim mb-1">驳回原因</div>
@@ -352,6 +394,7 @@ async function doRefund() {
           {{ acting ? '查询中…' : '查状态' }}
         </Button>
         <Button v-if="canFill" :disabled="acting" variant="outline" @click="openMaterial">填料</Button>
+        <Button v-if="canPay" @click="goPay">去支付</Button>
         <Button v-if="canSubmit" :disabled="acting" @click="doSubmit">
           {{ acting ? '提交中…' : detail?.status === 'rejected' ? '重新提交' : '提交微信' }}
         </Button>
@@ -365,6 +408,7 @@ async function doRefund() {
       :merchant-name="detail?.merchant_name"
       :fetch-fn="getEnrollMaterial"
       :submit-fn="fillEnrollMaterial"
+      :upload-fn="uploadEnrollMedia"
       @saved="onMaterialSaved"
     />
 
@@ -381,17 +425,11 @@ async function doRefund() {
         </div>
         <div class="row-field">
           <label class="lbl">归属代理</label>
-          <select v-model="form.agentId" class="field-input flex-1">
-            <option value="">平台自己（无代理）</option>
-            <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
+          <Select v-model="form.agentId" :options="agentOwnerOptions" searchable class="flex-1" />
         </div>
         <div class="row-field">
           <label class="lbl">资金路径</label>
-          <select v-model.number="form.path" class="field-input flex-1">
-            <option :value="2">商户自付（分账）</option>
-            <option :value="1">预购名额（全额归代理）</option>
-          </select>
+          <Select v-model="form.path" :options="pathOptions" class="flex-1" />
         </div>
         <div class="row-field">
           <label class="lbl">收款方式</label>

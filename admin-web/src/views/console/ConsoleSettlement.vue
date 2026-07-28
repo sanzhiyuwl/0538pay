@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Panel, Badge, Pagination } from '@/components/ui'
+import { Panel, Badge, Pagination, Select } from '@/components/ui'
 import { fetchAgents, fetchSettlements, type Agent, type Settlement } from '@/lib/api/console'
 import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
 
 const rows = ref<Settlement[]>([])
 const total = ref(0)
@@ -16,6 +19,12 @@ const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 const pathText: Record<number, string> = { 1: '预购名额（全额归代理）', 2: '商户自付（分账）' }
 const agentName = (id: number) => agents.value.find((a) => a.id === id)?.name ?? `#${id}`
 
+// 代理筛选下拉（收单同款 Select）
+const agentFilterOptions = computed(() => [
+  { value: '', label: '全部代理' },
+  ...agents.value.map((a) => ({ value: String(a.id), label: a.name })),
+])
+
 async function load() {
   loading.value = true
   try {
@@ -27,7 +36,7 @@ async function load() {
     rows.value = list
     total.value = t
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '加载佣金结算失败')
+    toast.error(e instanceof ApiError ? e.message : '加载佣金结算失败')
   } finally {
     loading.value = false
   }
@@ -55,10 +64,7 @@ function go(p: number) {
       <div class="filter-bar">
         <div class="filter-item">
           <label class="filter-label">代理</label>
-          <select v-model="filterAgent" class="field-input w-48" @change="go(1)">
-            <option value="">全部代理</option>
-            <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
+          <Select :model-value="filterAgent" :options="agentFilterOptions" searchable class="w-48" @update:model-value="(v) => { filterAgent = String(v); go(1) }" />
         </div>
       </div>
     </Panel>

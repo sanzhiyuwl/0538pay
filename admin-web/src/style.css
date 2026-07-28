@@ -245,6 +245,33 @@
   color: var(--muted-foreground);
 }
 
+/* ===== 图片上传按钮 .media-btn / 已上传标记 .media-ok（进件填料图片字段）===== */
+.media-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 2.25rem;
+  padding: 0 0.875rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--input);
+  background: var(--muted);
+  font-size: 13px;
+  color: var(--foreground);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.media-btn:hover {
+  border-color: color-mix(in oklch, var(--ring) 55%, var(--input));
+}
+.media-btn:has(input:disabled) {
+  opacity: 0.6;
+  cursor: default;
+}
+.media-ok {
+  font-size: 13px;
+  color: var(--primary);
+}
+
 /* ===== 下拉操作菜单 .menu-panel / .menu-item（行操作、更多菜单）===== */
 .menu-panel {
   border-radius: var(--radius-md);

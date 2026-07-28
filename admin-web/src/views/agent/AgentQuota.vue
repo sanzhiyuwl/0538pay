@@ -4,6 +4,9 @@ import { Panel, Badge, Pagination } from '@/components/ui'
 import { fetchMyWallet, fetchMyQuotaLogs } from '@/lib/api/agent'
 import type { QuotaLog, QuotaWallet } from '@/lib/api/console'
 import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
 
 const wallet = ref<QuotaWallet | null>(null)
 const logs = ref<QuotaLog[]>([])
@@ -28,7 +31,7 @@ async function load() {
     logs.value = list
     total.value = t
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '加载名额流水失败')
+    toast.error(e instanceof ApiError ? e.message : '加载名额流水失败')
   } finally {
     loading.value = false
   }

@@ -5,6 +5,11 @@ import { Panel, Button, Badge, Switch, Drawer, Pagination } from '@/components/u
 import { fetchMyInvites, createMyInvite, setMyInviteStatus, deleteMyInvite } from '@/lib/api/agent'
 import type { Invite } from '@/lib/api/console'
 import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
+import { useConfirm } from '@/composables/useConfirm'
+
+const toast = useToast()
+const confirm = useConfirm()
 
 const invites = ref<Invite[]>([])
 const total = ref(0)
@@ -23,7 +28,7 @@ async function load() {
     invites.value = list
     total.value = t
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '加载邀请链接失败')
+    toast.error(e instanceof ApiError ? e.message : '加载邀请链接失败')
   } finally {
     loading.value = false
   }
@@ -39,15 +44,15 @@ function go(p: number) {
 async function copyLink(code: string) {
   try {
     await navigator.clipboard.writeText(enrollUrl(code))
-    alert('链接已复制')
+    toast.success('链接已复制')
   } catch {
-    alert(enrollUrl(code))
+    toast.info(enrollUrl(code))
   }
 }
 
 async function toggle(v: Invite) {
   if (v.status === 2) {
-    alert('已失效的链接不可再启用，请新建替换')
+    toast.info('已失效的链接不可再启用，请新建替换')
     return
   }
   const next = v.status === 1 ? 0 : 1
@@ -55,17 +60,18 @@ async function toggle(v: Invite) {
     await setMyInviteStatus(v.id, next)
     v.status = next
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '操作失败')
+    toast.error(e instanceof ApiError ? e.message : '操作失败')
   }
 }
 
 async function remove(v: Invite) {
-  if (!confirm(`确定删除邀请链接「${v.name || v.code}」？`)) return
+  if (!(await confirm(`确定删除邀请链接「${v.name || v.code}」？`, { title: '删除邀请链接', danger: true }))) return
   try {
     await deleteMyInvite(v.id)
+    toast.success('已删除')
     await load()
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '删除失败')
+    toast.error(e instanceof ApiError ? e.message : '删除失败')
   }
 }
 
@@ -84,9 +90,10 @@ async function save() {
   try {
     await createMyInvite({ name: form.name || undefined })
     drawer.value = false
+    toast.success('已生成')
     await load()
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '生成失败')
+    toast.error(e instanceof ApiError ? e.message : '生成失败')
   } finally {
     saving.value = false
   }

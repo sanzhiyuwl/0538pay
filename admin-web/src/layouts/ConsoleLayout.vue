@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, RouterLink, RouterView } from 'vue-router'
-import { Menu, ArrowLeft, Sun, Moon, Server } from 'lucide-vue-next'
-import { consoleNav, consoleLeaves } from '@/config/nav'
+import { Menu, ArrowLeft, Sun, Moon, Server, ChevronDown } from 'lucide-vue-next'
+import { consoleNav, consoleLeaves, type NavNode } from '@/config/nav'
 import { useThemeStore } from '@/stores/theme'
 import { cn } from '@/lib/utils'
 import UserMenu from '@/components/UserMenu.vue'
@@ -12,8 +12,27 @@ const route = useRoute()
 const mobileOpen = ref(false)
 
 const currentTitle = computed(
-  () => consoleLeaves.find((i) => i.to === route.path)?.title ?? '代理管理',
+  () => consoleLeaves.find((i) => i.to === route.path)?.title ?? '概况',
 )
+
+// —— 两级折叠：分组是否含当前路由 / 展开态 ——
+function nodeActive(node: NavNode): boolean {
+  return node.children?.some((c) => c.to === route.path) ?? false
+}
+const openKeys = ref<Set<string>>(new Set())
+function syncOpen() {
+  consoleNav.forEach((n) => {
+    if (n.children && nodeActive(n)) openKeys.value.add(n.title)
+  })
+}
+syncOpen()
+watch(() => route.path, syncOpen)
+
+function toggle(node: NavNode) {
+  if (!node.children) return
+  if (openKeys.value.has(node.title)) openKeys.value.delete(node.title)
+  else openKeys.value.add(node.title)
+}
 </script>
 
 <template>
@@ -22,7 +41,7 @@ const currentTitle = computed(
     <aside
       :class="
         cn(
-          'z-40 flex w-[11.75rem] shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300',
+          'z-40 flex w-[13.5rem] shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300',
           'max-lg:fixed max-lg:h-full',
           mobileOpen ? 'max-lg:translate-x-0' : 'max-lg:-translate-x-full',
         )
@@ -43,12 +62,14 @@ const currentTitle = computed(
         <div class="border-t border-sidebar-border" />
       </div>
 
-      <!-- 菜单（一级平铺） -->
+      <!-- 菜单（两级折叠） -->
       <nav class="flex-1 overflow-y-auto px-3 py-2">
         <ul class="space-y-1">
           <li v-for="node in consoleNav" :key="node.title">
+            <!-- 单项（无子菜单） -->
             <RouterLink
-              :to="node.to!"
+              v-if="node.to"
+              :to="node.to"
               class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
               active-class="!bg-sidebar-accent !text-sidebar-accent-foreground font-semibold"
               exact-active-class="!bg-sidebar-accent !text-sidebar-accent-foreground font-semibold"
@@ -61,6 +82,59 @@ const currentTitle = computed(
                 >{{ node.badge }}</span
               >
             </RouterLink>
+
+            <!-- 有子菜单 -->
+            <template v-else>
+              <button
+                :class="
+                  cn(
+                    'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                    nodeActive(node)
+                      ? 'text-sidebar-accent-foreground'
+                      : 'text-sidebar-foreground hover:bg-sidebar-accent',
+                  )
+                "
+                @click="toggle(node)"
+              >
+                <component :is="node.icon" class="size-[18px] shrink-0" />
+                <span class="flex-1 text-left">{{ node.title }}</span>
+                <ChevronDown
+                  :class="[
+                    'size-4 shrink-0 text-muted-foreground transition-transform',
+                    openKeys.has(node.title) && 'rotate-180',
+                  ]"
+                />
+              </button>
+
+              <!-- 子项 -->
+              <transition
+                enter-active-class="transition-all duration-200 ease-out"
+                leave-active-class="transition-all duration-150 ease-in"
+                enter-from-class="opacity-0 max-h-0"
+                enter-to-class="opacity-100 max-h-96"
+                leave-from-class="opacity-100 max-h-96"
+                leave-to-class="opacity-0 max-h-0"
+              >
+                <ul v-show="openKeys.has(node.title)" class="mt-0.5 space-y-0.5 overflow-hidden pl-3.5">
+                  <li v-for="leaf in node.children" :key="leaf.to">
+                    <RouterLink
+                      :to="leaf.to"
+                      class="flex items-center gap-2.5 rounded-lg py-2 pl-3 pr-2 text-[13px] text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      active-class="!bg-sidebar-accent !text-sidebar-accent-foreground font-medium"
+                      exact-active-class="!bg-sidebar-accent !text-sidebar-accent-foreground font-medium"
+                    >
+                      <component :is="leaf.icon" v-if="leaf.icon" class="size-4 shrink-0" />
+                      <span class="flex-1 truncate">{{ leaf.title }}</span>
+                      <span
+                        v-if="leaf.badge"
+                        class="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary"
+                        >{{ leaf.badge }}</span
+                      >
+                    </RouterLink>
+                  </li>
+                </ul>
+              </transition>
+            </template>
           </li>
         </ul>
       </nav>

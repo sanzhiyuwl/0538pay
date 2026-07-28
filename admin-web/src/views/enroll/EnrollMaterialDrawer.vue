@@ -1,15 +1,28 @@
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
-import { Drawer, Button } from '@/components/ui'
+import { Drawer, Button, Select } from '@/components/ui'
 import type { EnrollMaterialReq, EnrollMaterialView } from '@/lib/api/console'
 import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
+
+// 收单同款 Select 选项
+const subjectTypeOptions = [
+  { value: 'SUBJECT_TYPE_INDIVIDUAL', label: '个体户' },
+  { value: 'SUBJECT_TYPE_ENTERPRISE', label: '企业' },
+]
+const bankAccountTypeOptions = [
+  { value: 'BANK_ACCOUNT_TYPE_PERSONAL', label: '对私（个人）' },
+  { value: 'BANK_ACCOUNT_TYPE_CORPORATE', label: '对公（企业）' },
+]
 
 /**
  * 「填全套资料」抽屉（console / agent 共用；自研扩展）。
  * 对齐微信 APIv3 特约商户进件 applyment4sub 核心字段，一期覆盖个体户/企业。
  * 敏感字段（身份证/银行账号/超管手机等）明文提交，后端 RSA-OAEP 加密落库；
  * 回显时敏感字段一律不回原文，仅显示「已填/未填」，改填要重新输入原文。
- * 图片类填 media_id 占位（一期不做图片上传）。
+ * 图片类字段（营业执照/身份证正反面）走图片上传：选图 → 上传微信 media/upload → 拿 media_id 回填。
  */
 const props = defineProps<{
   modelValue: boolean
@@ -17,6 +30,7 @@ const props = defineProps<{
   merchantName?: string
   fetchFn: (id: number) => Promise<EnrollMaterialView>
   submitFn: (id: number, body: EnrollMaterialReq) => Promise<unknown>
+  uploadFn: (id: number, file: File) => Promise<{ media_id: string }>
 }>()
 const emit = defineEmits<{ 'update:modelValue': [v: boolean]; saved: [] }>()
 
@@ -96,7 +110,7 @@ async function loadView(id: number) {
     has.mobilePhone = v.has_mobile_phone
     has.contactEmail = v.has_contact_email
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '加载资料失败')
+    toast.error(e instanceof ApiError ? e.message : '加载资料失败')
   } finally {
     loading.value = false
   }
@@ -112,16 +126,54 @@ watch(
 
 const sensitivePlaceholder = (filled: boolean) => (filled ? '已填（如需修改请重新输入原文）' : '必填')
 
+// —— 图片上传（营业执照/身份证正反面）——
+// 三个 media_id 字段各自的上传中状态，按 form 字段名区分。
+const uploading = reactive<Record<string, boolean>>({
+  license_copy: false,
+  id_card_copy: false,
+  id_card_national: false,
+})
+
+// 选图即上传：校验类型/大小 → uploadFn 换 media_id → 回填对应字段。
+async function onPickImage(field: 'license_copy' | 'id_card_copy' | 'id_card_national', e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  const okExt = /\.(jpe?g|png|bmp)$/i.test(file.name)
+  if (!okExt) {
+    toast.error('图片仅支持 JPG/PNG/BMP 格式')
+    input.value = ''
+    return
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    toast.error('图片不能超过 2M，请压缩后重试')
+    input.value = ''
+    return
+  }
+  if (!props.enrollId) return
+  uploading[field] = true
+  try {
+    const { media_id } = await props.uploadFn(props.enrollId, file)
+    form[field] = media_id
+    toast.success('图片已上传')
+  } catch (err) {
+    toast.error(err instanceof ApiError ? err.message : '图片上传失败')
+  } finally {
+    uploading[field] = false
+    input.value = '' // 允许重选同名文件
+  }
+}
+
 async function doSave() {
   if (!props.enrollId) return
   if (!form.merchant_shortname.trim()) {
-    alert('请填写商户简称')
+    toast.error('请填写商户简称')
     return
   }
   // 敏感字段：未填过则本次必须填；填过可留空表示不改（后端未收到值时保留原密文）。
   const requireIfNew = (val: string, filled: boolean, label: string): boolean => {
     if (!filled && !val.trim()) {
-      alert(`请填写${label}`)
+      toast.error(`请填写${label}`)
       return false
     }
     return true
@@ -136,11 +188,11 @@ async function doSave() {
   saving.value = true
   try {
     await props.submitFn(props.enrollId, { ...form })
-    alert('资料已保存')
+    toast.success('资料已保存')
     emit('saved')
     emit('update:modelValue', false)
   } catch (e) {
-    alert(e instanceof ApiError ? e.message : '保存资料失败')
+    toast.error(e instanceof ApiError ? e.message : '保存资料失败')
   } finally {
     saving.value = false
   }
@@ -162,10 +214,7 @@ async function doSave() {
         <h4 class="text-sm font-medium">主体基础</h4>
         <div class="row-field">
           <label class="lbl">主体类型</label>
-          <select v-model="form.subject_type" class="field-input flex-1">
-            <option value="SUBJECT_TYPE_INDIVIDUAL">个体户</option>
-            <option value="SUBJECT_TYPE_ENTERPRISE">企业</option>
-          </select>
+          <Select v-model="form.subject_type" :options="subjectTypeOptions" class="flex-1" />
         </div>
         <div class="row-field">
           <label class="lbl">商户简称<span class="text-destructive">*</span></label>
@@ -202,7 +251,14 @@ async function doSave() {
         </div>
         <div class="row-field">
           <label class="lbl">执照照片</label>
-          <input v-model="form.license_copy" placeholder="media_id（一期填占位）" class="field-input flex-1" />
+          <div class="flex flex-1 items-center gap-2">
+            <label class="media-btn">
+              <input type="file" accept=".jpg,.jpeg,.png,.bmp" class="hidden" :disabled="uploading.license_copy" @change="onPickImage('license_copy', $event)" />
+              {{ uploading.license_copy ? '上传中…' : form.license_copy ? '重新上传' : '选择图片' }}
+            </label>
+            <span v-if="form.license_copy" class="media-ok">已上传 ✓</span>
+            <span v-else class="dim text-xs">JPG/PNG/BMP，≤2M</span>
+          </div>
         </div>
       </section>
 
@@ -227,11 +283,25 @@ async function doSave() {
         </div>
         <div class="row-field">
           <label class="lbl">人像面照片</label>
-          <input v-model="form.id_card_copy" placeholder="media_id（一期填占位）" class="field-input flex-1" />
+          <div class="flex flex-1 items-center gap-2">
+            <label class="media-btn">
+              <input type="file" accept=".jpg,.jpeg,.png,.bmp" class="hidden" :disabled="uploading.id_card_copy" @change="onPickImage('id_card_copy', $event)" />
+              {{ uploading.id_card_copy ? '上传中…' : form.id_card_copy ? '重新上传' : '选择图片' }}
+            </label>
+            <span v-if="form.id_card_copy" class="media-ok">已上传 ✓</span>
+            <span v-else class="dim text-xs">JPG/PNG/BMP，≤2M</span>
+          </div>
         </div>
         <div class="row-field">
           <label class="lbl">国徽面照片</label>
-          <input v-model="form.id_card_national" placeholder="media_id（一期填占位）" class="field-input flex-1" />
+          <div class="flex flex-1 items-center gap-2">
+            <label class="media-btn">
+              <input type="file" accept=".jpg,.jpeg,.png,.bmp" class="hidden" :disabled="uploading.id_card_national" @change="onPickImage('id_card_national', $event)" />
+              {{ uploading.id_card_national ? '上传中…' : form.id_card_national ? '重新上传' : '选择图片' }}
+            </label>
+            <span v-if="form.id_card_national" class="media-ok">已上传 ✓</span>
+            <span v-else class="dim text-xs">JPG/PNG/BMP，≤2M</span>
+          </div>
         </div>
       </section>
 
@@ -240,10 +310,7 @@ async function doSave() {
         <h4 class="text-sm font-medium">结算银行账户 <span class="text-[11px] text-muted-foreground">（账号/户名敏感，加密存储）</span></h4>
         <div class="row-field">
           <label class="lbl">账户类型</label>
-          <select v-model="form.bank_account_type" class="field-input flex-1">
-            <option value="BANK_ACCOUNT_TYPE_PERSONAL">对私（个人）</option>
-            <option value="BANK_ACCOUNT_TYPE_CORPORATE">对公（企业）</option>
-          </select>
+          <Select v-model="form.bank_account_type" :options="bankAccountTypeOptions" class="flex-1" />
         </div>
         <div class="row-field">
           <label class="lbl">开户名称<span class="text-destructive">*</span></label>
@@ -287,6 +354,7 @@ async function doSave() {
       <p class="text-[11px] text-muted-foreground">
         敏感字段（身份证、银行账号、超管手机等）经 RSA-OAEP 加密后组装进 material_json，不明文落库；
         回显只显示「已填」不回原文。已填过的敏感字段留空表示不修改，保留原密文。
+        执照/身份证图片选图后即上传至微信换取 media_id（原图不落库），需先在系统设置配好服务商凭证。
       </p>
     </div>
     <template #footer>

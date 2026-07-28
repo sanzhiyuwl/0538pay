@@ -10,10 +10,11 @@ import (
 	"github.com/epvia/api/internal/repository"
 )
 
-// 操作日志 scope：商户端 / 管理端（同一张 pay_oplog 表按 scope 区分，一表两用）。
+// 操作日志 scope：商户端 / 管理端 / 代理端（同一张 pay_oplog 表按 scope 区分，一表多用）。
 const (
 	ScopeMerchant = "merchant"
 	ScopeAdmin    = "admin"
+	ScopeAgent    = "agent" // 独立代理端 /agent 的写操作（进件/退款/邀请/结算等）
 )
 
 // 操作级别。
@@ -35,6 +36,7 @@ const (
 	OpCatRisk     = "risk"     // 风控/黑名单（管理端）
 	OpCatContent  = "content"  // 内容运营（管理端）
 	OpCatSystem   = "system"   // 系统/权限/数据（管理端）
+	OpCatEnroll   = "enroll"   // 进件/邀请/名额/结算（代理端）
 )
 
 // OpActionMeta 动作元数据：中文名 + 分类 + 级别 + 默认对象模板。
@@ -200,6 +202,52 @@ func LookupAdminAction(key string) (OpActionMeta, bool) {
 		Level:    level,
 		Target:   verb + res.CN,
 	}, true
+}
+
+// ===== 代理端操作日志（scope=agent，复用同表）=====
+// 代理端 /agent 写操作路由固定（进件/邀请两类），条目少，用显式映射即可，语义比派生更准。
+// key = "METHOD 路由模板"（不含 /api/agent 前缀）。
+
+var agentActions = map[string]OpActionMeta{
+	// —— 进件（建单收开户费/退款为资金敏感，标 danger/warning）——
+	"POST /enrolls":               {"建进件单", OpCatEnroll, OpLevelWarning, "创建特约商户进件单"},
+	"POST /enrolls/:id/submit":    {"提交微信审核", OpCatEnroll, OpLevelNormal, "提交进件资料至微信"},
+	"POST /enrolls/:id/sync":      {"同步微信状态", OpCatEnroll, OpLevelNormal, "查询微信进件状态"},
+	"POST /enrolls/:id/refund":    {"进件退款", OpCatFund, OpLevelDanger, "原路退还开户费"},
+	"POST /enrolls/:id/material":  {"填写进件资料", OpCatEnroll, OpLevelNormal, "填写/更新进件资料"},
+	"POST /enrolls/:id/media":     {"上传进件图片", OpCatEnroll, OpLevelNormal, "上传进件媒体文件"},
+	// —— 邀请链接 ——
+	"POST /enroll-invites":             {"生成邀请链接", OpCatEnroll, OpLevelNormal, "生成进件邀请码"},
+	"PUT /enroll-invites/:id/status":   {"启停邀请链接", OpCatEnroll, OpLevelNormal, "启用/停用邀请链接"},
+	"DELETE /enroll-invites/:id":       {"删除邀请链接", OpCatEnroll, OpLevelWarning, "删除邀请链接"},
+}
+
+// LookupAgentAction 按 "METHOD 路由模板" 查代理端动作元数据，未登记返回 (zero,false)。
+func LookupAgentAction(key string) (OpActionMeta, bool) {
+	m, ok := agentActions[key]
+	return m, ok
+}
+
+// AgentOpActionOptions 代理端动作下拉选项（前端筛选用，按登记表去重）。
+func (s *OpLogService) AgentOpActionOptions() []map[string]string {
+	seen := map[string]bool{}
+	out := make([]map[string]string, 0, len(agentActions))
+	for _, m := range agentActions {
+		if seen[m.CN] {
+			continue
+		}
+		seen[m.CN] = true
+		out = append(out, map[string]string{"value": m.CN, "label": m.CN, "category": m.Category, "level": m.Level})
+	}
+	return out
+}
+
+// AgentList / AgentExportRows 代理端操作日志（平台在控制台查看所有代理的操作）。
+func (s *OpLogService) AgentList(q dto.OpLogQuery) ([]dto.OpLogView, int64, error) {
+	return s.listScope(ScopeAgent, q)
+}
+func (s *OpLogService) AgentExportRows(q dto.OpLogQuery) ([]dto.OpLogView, error) {
+	return s.exportScope(ScopeAgent, q)
 }
 
 // OpActionOptions 商户端动作下拉选项（前端筛选用，按分类聚合）。

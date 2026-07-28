@@ -48,17 +48,20 @@ func TestDecimalToApplyment(t *testing.T) {
 	}
 }
 
-// TestGenEnrollNo 进件单号格式：EN 前缀 + 14 位时间 + 6 位十六进制，且两次生成不重复。
+// TestGenEnrollNo 进件单号格式：TY 前缀 + 8 位数字。
 func TestGenEnrollNo(t *testing.T) {
 	a := genEnrollNo()
-	if len(a) != 2+14+6 { // EN + yyyyMMddHHmmss + 6hex
-		t.Errorf("进件单号长度=%d 期望 22，值=%s", len(a), a)
+	if len(a) != 2+8 { // TY + 8 位数字
+		t.Errorf("进件单号长度=%d 期望 10，值=%s", len(a), a)
 	}
-	if a[:2] != "EN" {
-		t.Errorf("进件单号前缀=%s 期望 EN", a[:2])
+	if a[:2] != "TY" {
+		t.Errorf("进件单号前缀=%s 期望 TY", a[:2])
 	}
-	if b := genEnrollNo(); a == b {
-		t.Error("两次生成的进件单号不应相同")
+	for _, c := range a[2:] {
+		if c < '0' || c > '9' {
+			t.Errorf("进件单号后缀应为纯数字，值=%s", a)
+			break
+		}
 	}
 }
 
