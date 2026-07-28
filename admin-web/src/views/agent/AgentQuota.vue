@@ -15,7 +15,9 @@ const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 
 const typeText: Record<string, { label: string; variant: 'success' | 'warning' | 'muted' }> = {
   purchase: { label: '购买', variant: 'success' },
+  freeze: { label: '建单冻结', variant: 'warning' },
   consume: { label: '消耗', variant: 'warning' },
+  release: { label: '释放', variant: 'success' },
   refund: { label: '退回', variant: 'muted' },
 }
 
@@ -49,11 +51,15 @@ function go(p: number) {
 
 <template>
   <div class="space-y-2.5">
-    <Panel title="名额钱包" subtitle="预购名额（路径一）用于进件成功时抵扣；名额售卖由平台操作">
-      <div class="grid grid-cols-3 gap-2.5">
+    <Panel title="名额钱包" subtitle="预购名额（路径一）建单即冻结预占，进件成功转消耗、失败释放回可用；名额售卖由平台操作">
+      <div class="grid grid-cols-4 gap-2.5">
         <div class="bg-muted/40 px-4 py-3">
-          <div class="text-[11px] text-muted-foreground">当前余额</div>
+          <div class="text-[11px] text-muted-foreground">可用余额</div>
           <div class="mt-1 text-2xl font-semibold tabular-nums">{{ wallet?.balance ?? '—' }}</div>
+        </div>
+        <div class="bg-muted/40 px-4 py-3">
+          <div class="text-[11px] text-muted-foreground">冻结中</div>
+          <div class="mt-1 text-2xl font-semibold tabular-nums">{{ wallet?.frozen ?? '—' }}</div>
         </div>
         <div class="bg-muted/40 px-4 py-3">
           <div class="text-[11px] text-muted-foreground">累计购买</div>

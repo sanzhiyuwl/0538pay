@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -110,6 +111,24 @@ func (s *EnrollService) CreateEnroll(ctx context.Context, req CreateEnrollReq) (
 	// 路径一且配置客户免付开户费：跳过收款，建单即 paid 放行填料。
 	freePath1 := req.Path == model.EnrollPathQuota && s.cfg.Str("enroll_path1_charge") == "0"
 
+	// 路径一预购名额：建单即冻结 1 名额（预占额度，防超额建单）。可用不足直接拦，不建单。
+	// 冻结在成功时转消耗、失败（关单/退款/下单回滚）时释放回可用。路径二不占名额，跳过。
+	isQuotaPath := req.Path == model.EnrollPathQuota && s.agentRepo != nil && req.AgentID > 0
+	if isQuotaPath {
+		if err := s.agentRepo.FreezeQuota(req.AgentID, "", "进件建单冻结名额"); err != nil {
+			if errors.Is(err, repository.ErrInsufficientBalance) {
+				return nil, nil, enErr("名额不足，无法建单（请先购买名额或联系平台）")
+			}
+			return nil, nil, err
+		}
+	}
+	// 冻结后续任一步失败都要释放，避免名额悬空。releaseOnFail 在 return err 前调用。
+	releaseOnFail := func(relNo string) {
+		if isQuotaPath {
+			_ = s.agentRepo.ReleaseFrozen(req.AgentID, relNo, "进件建单失败释放冻结名额")
+		}
+	}
+
 	e := &model.SubMerchantEnroll{
 		EnrollNo:     genEnrollNo(),
 		AgentID:      req.AgentID,
@@ -124,24 +143,29 @@ func (s *EnrollService) CreateEnroll(ctx context.Context, req CreateEnrollReq) (
 	if freePath1 || retail.LessThanOrEqual(decimal.Zero) {
 		e.Status = model.EnrollStatusPaid // 无需收费，直接放行填料
 		if err := s.repo.CreateEnroll(e); err != nil {
+			releaseOnFail("")
 			return nil, nil, err
 		}
 		return e, nil, nil
 	}
 
 	if s.pay == nil {
+		releaseOnFail("")
 		return nil, nil, enErr("收款服务未就绪，无法收取开户费")
 	}
 	payUID := uint(s.cfg.Int("enroll_pay_uid", 0))
 	if payUID == 0 {
+		releaseOnFail("")
 		return nil, nil, enErr("进件开户费收款商户未配置（系统设置·进件设置 enroll_pay_uid）")
 	}
 	plugin := strings.TrimSpace(req.Plugin)
 	if plugin == "" {
+		releaseOnFail("")
 		return nil, nil, enErr("请选择支付方式")
 	}
 
 	if err := s.repo.CreateEnroll(e); err != nil {
+		releaseOnFail("")
 		return nil, nil, err
 	}
 
@@ -149,8 +173,9 @@ func (s *EnrollService) CreateEnroll(ctx context.Context, req CreateEnrollReq) (
 	param, _ := json.Marshal(map[string]string{"enroll_no": e.EnrollNo})
 	resp, err := s.pay.CreateInternalOrder(ctx, payUID, enrollPayTid, "特约商户进件开户费", retail, plugin, string(param))
 	if err != nil {
-		// 下单失败：回滚进件单，避免留一堆无法支付的脏 pending_pay 单。
+		// 下单失败：回滚进件单 + 释放冻结名额，避免留脏 pending_pay 单和悬空冻结。
 		_ = s.repo.UpdateEnroll(e.ID, map[string]any{"status": model.EnrollStatusClosed})
+		releaseOnFail(e.EnrollNo)
 		return nil, nil, enErr("拉起开户费收款失败: " + err.Error())
 	}
 	// 回填收款单号，便于对账/退款追溯。
@@ -280,6 +305,10 @@ func (s *EnrollService) CloseTimeoutPending() (int64, error) {
 		e := &list[i]
 		if err := s.repo.UpdateEnroll(e.ID, map[string]any{"status": model.EnrollStatusClosed}); err != nil {
 			continue
+		}
+		// 路径一超时关单：释放建单时冻结的名额回可用（进件未成，名额不该被占）。
+		if e.Path == model.EnrollPathQuota && s.agentRepo != nil && e.AgentID > 0 {
+			_ = s.agentRepo.ReleaseFrozen(e.AgentID, e.EnrollNo, "进件超时关单释放冻结名额")
 		}
 		s.anchorInviteExpire(e.InviteCode) // 终态事件锚定链接 24h
 		n++
@@ -532,9 +561,12 @@ func (s *EnrollService) settleOnFinish(e *model.SubMerchantEnroll) error {
 
 	switch e.Path {
 	case model.EnrollPathQuota:
-		// 扣代理 1 名额（余额不足也不阻断进件已成的事实，仅记流水；名额兜底见待优化）。
+		// 进件成功：把建单时冻结的 1 名额转为消耗（frozen→total_used）。建单已预占，此处不再动可用余额。
+		// 无冻结可转（漏冻结/重复消耗）返回错误，但不阻断进件已成的事实，仅记日志（幂等由状态跃迁保证）。
 		if s.agentRepo != nil && e.AgentID > 0 {
-			_ = s.agentRepo.ChangeQuota(e.AgentID, "consume", -1, decimal.Zero, e.EnrollNo, "进件成功扣名额")
+			if err := s.agentRepo.ConsumeFrozen(e.AgentID, e.EnrollNo, "进件成功消耗冻结名额"); err != nil {
+				_ = err
+			}
 		}
 		log.AgentAmount = e.RetailAmount // 客户付的全额分给代理
 		log.PlatformAmount = decimal.Zero
@@ -608,6 +640,10 @@ func (s *EnrollService) RefundEnroll(ctx context.Context, id uint, agentID *uint
 		return nil, err
 	}
 	if flipped {
+		// 路径一退款（进件未成即放弃）：释放建单时冻结的名额回可用。仅本次真正翻转时释放一次（幂等防重复）。
+		if e.Path == model.EnrollPathQuota && s.agentRepo != nil && e.AgentID > 0 {
+			_ = s.agentRepo.ReleaseFrozen(e.AgentID, e.EnrollNo, "进件退款释放冻结名额")
+		}
 		s.anchorInviteExpire(e.InviteCode) // 退款完成=终态事件，锚定链接 24h
 	}
 	msg := "退款成功，开户费已原路退还"

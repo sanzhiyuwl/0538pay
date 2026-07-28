@@ -24,7 +24,9 @@ const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 
 const typeText: Record<string, { label: string; variant: 'success' | 'warning' | 'muted' }> = {
   purchase: { label: '购买', variant: 'success' },
+  freeze: { label: '建单冻结', variant: 'warning' },
   consume: { label: '消耗', variant: 'warning' },
+  release: { label: '释放', variant: 'success' },
   refund: { label: '退回', variant: 'muted' },
 }
 const agentName = (id: number) => agents.value.find((a) => a.id === id)?.name ?? `#${id}`
@@ -180,8 +182,8 @@ async function save() {
           </select>
         </div>
         <div v-if="wallet" class="bg-muted/40 px-3 py-2 text-sm">
-          当前名额余额：<span class="font-semibold tabular-nums">{{ wallet.balance }}</span>
-          <span class="dim">（累计购买 {{ wallet.total_buy }} / 累计消耗 {{ wallet.total_used }}）</span>
+          可用名额：<span class="font-semibold tabular-nums">{{ wallet.balance }}</span>
+          <span class="dim">（冻结中 {{ wallet.frozen }} / 累计购买 {{ wallet.total_buy }} / 累计消耗 {{ wallet.total_used }}）</span>
         </div>
         <div class="row-field">
           <label class="lbl">变动数量<span class="text-destructive">*</span></label>

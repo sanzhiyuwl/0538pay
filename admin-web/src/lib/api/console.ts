@@ -62,6 +62,7 @@ export function deleteAgent(id: number) {
 export interface QuotaWallet {
   agent_id: number
   balance: number
+  frozen: number
   total_buy: number
   total_used: number
 }

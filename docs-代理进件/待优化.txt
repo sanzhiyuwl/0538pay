@@ -67,4 +67,4 @@
 
 建议：路径一进件成功前就应保证名额已冻结/预扣（创建进件单或提交微信时预占 1 名额），成功时转正、失败时释放；而不是成功后才扣。下批做付费前置 + 资金闭环（第 4 项退款/资金）时统一设计名额的冻结→消耗→释放三态，替换当前的成功后直扣。
 
-状态：待优化
+状态：已优化（2026-07-28 20:10分）——已实现名额冻结三态：pay_agent_quota 加 frozen 列；AgentRepo.FreezeQuota/ConsumeFrozen/ReleaseFrozen 三个行锁事务方法（流水 type=freeze/consume/release）。建单（CreateEnroll，含免付/收款两分支）路径一即冻结 1 名额、可用不足直接拦不建单；进件成功（settleOnFinish）冻结转消耗（frozen→total_used）；终态失败释放回可用——超时关单（CloseTimeoutPending）、退款（RefundEnroll flipped 时）、建单任一步失败（下单失败/建单出错，releaseOnFail）均释放。释放幂等（无冻结不刷高余额），消耗无冻结报错防重复。真跑：HTTP 建单冻结 2/可用不足 1302；Go 单测 TestQuotaFreezeLifecycle 全程冻结/消耗/释放/幂等/流水条数 5 全绿。

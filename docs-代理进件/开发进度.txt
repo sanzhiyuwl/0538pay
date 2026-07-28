@@ -314,9 +314,44 @@
 ----------------------------------------------------
   - 填料的图片类字段（营业执照/身份证正反面）目前填 media_id 占位，未做“图片上传→换 media_id”接口
     （微信 media/upload），沙箱批次一并接（待优化，可记 待优化.txt）。
-  - settleOnFinish 路径一扣名额用 `_ =` 忽略余额不足（进件已成不回滚）——名额冻结→消耗→释放三态待做（待优化.txt#3）。
   - 微信服务商真实/沙箱凭证未配置：提交微信侧、查状态、【自动驳回退】、填料 Configured() 门控均未连真实微信
     端到端真跑（下一步第 1 项，阻塞在用户给凭证）。
   - wx_partner_private_key / apiv3_key 明文存 config（待优化.txt#1）；删代理未级联清钱包/流水（待优化.txt#2）。
-  - 一批二批 commit cbaff1f、三批 /agent commit 2eb6d63、四批 /enroll commit 606b0b6、五批 退款 commit d9fbaf4；
-    本批（第六批 填料）改动待 commit。
+  - commit：一批二批 cbaff1f、三批 /agent 2eb6d63、四批 /enroll 606b0b6、五批 退款 d9fbaf4、六批 填料 76f2b13；
+    本批（第七批 名额冻结三态）改动待 commit。
+
+----------------------------------------------------
+十一、第七批：名额冻结三态（路径一进件生命周期，销 待优化.txt#3）
+----------------------------------------------------
+  背景：原 settleOnFinish 路径一进件成功后才 ChangeQuota 直扣 1 名额，且余额不足用 `_ =` 忽略（进件已成不回滚），
+  会出现代理超额建单 + 名额账不平。本批改为“建单即冻结预占、成功转消耗、失败释放”的三态，从根上防超额。
+
+  语义：balance=可用（可再建路径一单的额度），frozen=冻结中（已建单未终结）。
+
+  后端（0538pay-api）：
+  - model/agent.go：AgentQuotaWallet 加 Frozen 列（pay_agent_quota.frozen）；AgentQuotaLog.Type 注释补
+    freeze/consume/release。
+  - repository/agent_repo.go：新增 lockWallet（行锁读+兜底建）+ 三个行锁事务方法：
+    · FreezeQuota——可用-1、冻结+1；可用<1 返回 ErrInsufficientBalance（流水 type=freeze，Change=-1）。
+    · ConsumeFrozen——冻结-1、total_used+1（可用不动，建单已扣）；无冻结可转返回 ErrInsufficientBalance
+      防重复消耗（流水 type=consume）。
+    · ReleaseFrozen——冻结-1、可用+1；无冻结可退静默跳过（幂等，防重复释放刷高余额）（流水 type=release，Change=+1）。
+  - service/enroll.go：
+    · CreateEnroll——路径一(agentRepo 就绪+agentID>0)建单即 FreezeQuota，可用不足直接 1302“名额不足”不建单；
+      releaseOnFail 闭包在建单后任一步失败（免付建单出错/收款服务未就绪/收款商户未配/无支付方式/建单入库失败/
+      下单失败回滚）都释放冻结，避免名额悬空。免付与收款两分支都在冻结之后。
+    · settleOnFinish——路径一由 ChangeQuota 直扣改为 ConsumeFrozen（冻结转消耗）。
+    · CloseTimeoutPending——路径一超时关单释放冻结（进件未成名额不该被占）。
+    · RefundEnroll——路径一退款且 flipped(本次真正翻转)时释放冻结（幂等，重复退不重复放）。
+  - 前端（admin-web）：console.ts QuotaWallet 加 frozen 字段；AgentQuota 钱包卡片 3→4 格加“冻结中”，
+    grid-cols-4；ConsoleQuota 售卖抽屉钱包提示行加“冻结中 N”；两处名额流水 typeText 加 freeze/consume/release 徽标。
+
+  自检自验（全绿）：
+  - go build ./... 无 error；npm run build（vue-tsc 严格）无 error；go test ./internal/repository ./internal/service 全过。
+  - 真跑闭环：
+    · HTTP（连本地库，配 enroll_path1_charge=0 免付走纯冻结）：测试代理售 2 名额→建路径一单A(balance2→1,frozen1)→
+      建单B(balance1→0,frozen2)→建单C 拦“名额不足”1302；wallet 校验 balance0/frozen2 正确。
+    · Go 单测 TestQuotaFreezeLifecycle（连本地 MySQL，高位 test agent 跑完清库）：售2→冻结2(可用0冻2)→可用不足拦→
+      消耗A(冻1 used1)→释放B(可用1 冻0)→重复释放幂等(不刷高)→无冻结消耗拦→流水条数=5(purchase1+freeze2+consume1+release1)，全绿。
+    · ★消耗态(finished→ConsumeFrozen)靠 Go 单测覆盖（HTTP 走 finished 需微信 sync 真凭证，本机不可达）。
+  - 测试数据（测试代理+其钱包/流水/进件单、enroll_path1_charge 配置、单测 test agent）已全部清库，临时 server 已停。

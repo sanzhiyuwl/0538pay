@@ -130,6 +130,95 @@ func (r *AgentRepo) ChangeQuota(agentID uint, typ string, change int, amount dec
 	})
 }
 
+// —— 名额冻结三态（路径一进件生命周期：建单冻结 → 成功消耗 / 失败释放）——
+// 语义：balance=可用（可再建单），frozen=冻结中（已建单未终结）。三态在一条事务里行锁流转，
+// 保证代理不能超额建单（冻结即预占额度），进件失败名额如数退回可用，成功才真正计入消耗。
+
+// lockWallet 行锁读钱包，不存在则建（兜底）。事务内调用。
+func (r *AgentRepo) lockWallet(tx *gorm.DB, agentID uint) (*model.AgentQuotaWallet, error) {
+	var w model.AgentQuotaWallet
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&w, "agent_id = ?", agentID).Error
+	if err == gorm.ErrRecordNotFound {
+		w = model.AgentQuotaWallet{AgentID: agentID}
+		if e := tx.Create(&w).Error; e != nil {
+			return nil, e
+		}
+		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&w, "agent_id = ?", agentID).Error
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &w, nil
+}
+
+// FreezeQuota 建单冻结 1 名额：可用 balance-1、冻结 frozen+1。可用不足返回 ErrInsufficientBalance。
+// 流水 type=freeze，Change=-1（记可用减少），Before/After 记可用余额。
+func (r *AgentRepo) FreezeQuota(agentID uint, relNo, remark string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		w, err := r.lockWallet(tx, agentID)
+		if err != nil {
+			return err
+		}
+		if w.Balance < 1 {
+			return ErrInsufficientBalance
+		}
+		before := w.Balance
+		if err := tx.Model(&model.AgentQuotaWallet{}).Where("agent_id = ?", agentID).
+			Updates(map[string]any{"balance": before - 1, "frozen": w.Frozen + 1, "updated_at": time.Now()}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&model.AgentQuotaLog{
+			AgentID: agentID, Type: "freeze", Change: -1, Before: before, After: before - 1,
+			Amount: decimal.Zero, RelNo: relNo, AddTime: time.Now(), Remark: remark,
+		}).Error
+	})
+}
+
+// ConsumeFrozen 进件成功：冻结转消耗，frozen-1、total_used+1（balance 不动，建单时已扣）。
+// 无冻结可转（frozen<1）返回 ErrInsufficientBalance（防重复消耗/漏冻结）。流水 type=consume，Before/After 记可用余额（不变）。
+func (r *AgentRepo) ConsumeFrozen(agentID uint, relNo, remark string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		w, err := r.lockWallet(tx, agentID)
+		if err != nil {
+			return err
+		}
+		if w.Frozen < 1 {
+			return ErrInsufficientBalance
+		}
+		if err := tx.Model(&model.AgentQuotaWallet{}).Where("agent_id = ?", agentID).
+			Updates(map[string]any{"frozen": w.Frozen - 1, "total_used": w.TotalUsed + 1, "updated_at": time.Now()}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&model.AgentQuotaLog{
+			AgentID: agentID, Type: "consume", Change: -1, Before: w.Balance, After: w.Balance,
+			Amount: decimal.Zero, RelNo: relNo, AddTime: time.Now(), Remark: remark,
+		}).Error
+	})
+}
+
+// ReleaseFrozen 进件失败（关单/退款/建单回滚）：冻结退回可用，frozen-1、balance+1。
+// 无冻结可退（frozen<1）视为已处理，静默跳过不报错（幂等，防重复释放把余额刷高）。流水 type=release，Change=+1。
+func (r *AgentRepo) ReleaseFrozen(agentID uint, relNo, remark string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		w, err := r.lockWallet(tx, agentID)
+		if err != nil {
+			return err
+		}
+		if w.Frozen < 1 {
+			return nil // 无冻结可退，幂等跳过
+		}
+		before := w.Balance
+		if err := tx.Model(&model.AgentQuotaWallet{}).Where("agent_id = ?", agentID).
+			Updates(map[string]any{"balance": before + 1, "frozen": w.Frozen - 1, "updated_at": time.Now()}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&model.AgentQuotaLog{
+			AgentID: agentID, Type: "release", Change: 1, Before: before, After: before + 1,
+			Amount: decimal.Zero, RelNo: relNo, AddTime: time.Now(), Remark: remark,
+		}).Error
+	})
+}
+
 // QuotaLogs 分页查询名额流水（可按代理过滤）。
 func (r *AgentRepo) QuotaLogs(agentID *uint, page, pageSize int) ([]model.AgentQuotaLog, int64, error) {
 	tx := r.db.Model(&model.AgentQuotaLog{})
