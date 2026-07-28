@@ -138,6 +138,21 @@ func (r *EnrollRepo) DeleteInvite(id uint) error {
 	return r.db.Delete(&model.EnrollInvite{}, id).Error
 }
 
+// IncInviteOpen 打开数 +1（原子），首次打开顺带记 first_access_at。公开页落地打点用。
+func (r *EnrollRepo) IncInviteOpen(id uint, first bool) error {
+	updates := map[string]any{"open_count": gorm.Expr("open_count + 1")}
+	if first {
+		updates["first_access_at"] = time.Now()
+	}
+	return r.db.Model(&model.EnrollInvite{}).Where("id = ?", id).Updates(updates).Error
+}
+
+// IncInviteSubmit 提交数 +1（原子）。公开页成功建单后打点用。
+func (r *EnrollRepo) IncInviteSubmit(id uint) error {
+	return r.db.Model(&model.EnrollInvite{}).Where("id = ?", id).
+		Update("submit_count", gorm.Expr("submit_count + 1")).Error
+}
+
 // ExpireDueInvites 把 expire_at 已到且仍启用的邀请链接置为 expired（定时任务用）。
 // 返回受影响行数。
 func (r *EnrollRepo) ExpireDueInvites(now time.Time) (int64, error) {

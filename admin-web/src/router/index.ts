@@ -105,6 +105,7 @@ const MerchantOAuthCallback = () => import('@/views/merchant/MerchantOAuthCallba
 
 // —— 官网 / 支付前台页（懒加载，首页 SiteHome 除外）——
 const Paypage = () => import('@/views/site/Paypage.vue')
+const EnrollPublic = () => import('@/views/enroll/EnrollPublic.vue')
 const ClassicDocs = () => import('@/views/site/templates/classic/ClassicDocs.vue')
 const ClassicAbout = () => import('@/views/site/templates/classic/ClassicAbout.vue')
 const ClassicAgreement = () => import('@/views/site/templates/classic/ClassicAgreement.vue')
@@ -127,6 +128,7 @@ const pathTitleMap: Record<string, string> = {
   ...Object.fromEntries(merchantLeaves.map((l) => [l.to, l.title])),
   ...Object.fromEntries(agentLeaves.map((l) => [l.to, l.title])),
   '/agent/login': '代理登录',
+  '/enroll': '商户进件',
   '/admin': '平台概况',
   '/admin/style-guide': '设计规范',
   '/login': '登录',
@@ -303,6 +305,8 @@ const router = createRouter({
     { path: '/pay/verify', name: 'pay-verify', component: PayVerify },
     // 公开聚合收款页（扫码进入，输金额→选方式→走收单链）
     { path: '/paypage', name: 'paypage', component: Paypage },
+    // 客户自助进件公开页（免登录，靠邀请 code；自研扩展）
+    { path: '/enroll/:code', name: 'enroll-public', component: EnrollPublic },
     // 后台登录页（独立，无侧栏）
     { path: '/login', name: 'login', component: Login },
     // 管理后台（运营端）

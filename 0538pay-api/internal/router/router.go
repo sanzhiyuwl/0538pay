@@ -1,6 +1,8 @@
 package router
 
 import (
+	"time"
+
 	"github.com/epvia/api/internal/handler"
 	"github.com/epvia/api/internal/middleware"
 	"github.com/epvia/api/internal/service"
@@ -54,6 +56,7 @@ type Deps struct {
 	Role           *handler.RoleHandler
 	Console        *handler.ConsoleHandler
 	Agent          *handler.AgentHandler
+	EnrollPublic   *handler.EnrollPublicHandler
 }
 
 // Setup 注册所有路由。
@@ -434,6 +437,17 @@ func Setup(r *gin.Engine, d Deps) {
 	{
 		paypage.GET("/info", d.Paypage.Info)
 		paypage.POST("/submit", d.Paypage.Submit)
+	}
+
+	// 客户自助进件公开页（/enroll/:code，免登录，靠邀请 code；自研扩展，epay 无）。
+	// 图形验证码防脚本 + 限流防刷：落地/验证码宽松，提交严格（每 IP 5 分钟最多 10 次）。
+	if d.EnrollPublic != nil {
+		enrollPub := api.Group("/enroll")
+		{
+			enrollPub.GET("/captcha", d.EnrollPublic.Captcha)
+			enrollPub.GET("/:code", d.EnrollPublic.Info)
+			enrollPub.POST("/:code", middleware.RateLimit(10, 5*time.Minute), d.EnrollPublic.Submit)
+		}
 	}
 
 	// 代理控制台（平台运营视角，管所有代理进件；自研扩展，epay 无）。

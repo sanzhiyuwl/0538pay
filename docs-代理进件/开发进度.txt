@@ -8,7 +8,7 @@
 ----------------------------------------------------
 一、总体状态快照
 ----------------------------------------------------
-阶段：★第一批打地基 + 第二批 submerchant 提交/查状态 + 付费前置建单闭环 + 第三批独立代理端 /agent 完成（2026-07-28 更新）★
+阶段：★第一批打地基 + 第二批 submerchant 提交/查状态 + 付费前置建单闭环 + 第三批独立代理端 /agent + 第四批客户自助公开页 /enroll/:code 完成（2026-07-28 更新）★
 规划文档：docs-代理进件/00-代理进件平台总体规划.txt（纲领）
           docs-代理进件/01-代理控制台改造与进件一期设计.txt（一期详细设计）
 关键决策：全部拍定（见 00/01 文档「已定」区），要点——
@@ -172,17 +172,56 @@
   - 测试数据（两代理+进件单+邀请+钱包/流水）已清库、config 已复位、临时 server 已停。
 
 ----------------------------------------------------
-六、下一步（新窗口从这里接着做）
+六、第四批已完成：客户自助进件公开页 /enroll/:code（2026-07-28 18:56分）
 ----------------------------------------------------
-  1. 客户自助公开页 /enroll/:code：免登录 PC+H5，图形验证码 + 限流 + 敏感字段加密提交（source=3，走 CreateEnroll）。
-     邀请链接的 open_count/submit_count 打点、终态锚定 24h 已就绪，公开页读 code 落地。
-  2. 退款四道拦截 + sub_mchid 硬锁定；自动退（微信驳回后）+ 手动退（代理端 refund 权限已留）。复用 channel.Refunder。
-  3. 一期沙箱：配微信服务商沙箱凭证，端到端跑通 submit→sync→finished（结算/扣名额已就绪）。
-  4. 填全套资料（paid 后第2步）：目前 material_json 还没有前端填报表单 + 敏感字段加密落库入口，
-     SubmitToWx 已就绪但缺“填料”这一步（公开页/代理端建完单后填）。代理端 AgentEnroll 详情抽屉可加“填料”入口。
+  后端（0538pay-api）：
+
+  - repository/enroll_repo.go：IncInviteOpen(id, first)（open_count+1 原子，首次记 first_access_at）、
+    IncInviteSubmit(id)（submit_count+1 原子），公开页落地/建单打点用。
+  - service/enroll.go 加公开页方法：
+    · PublicInviteInfo{Code, AgentName, RetailNote}。
+    · ResolveInvite(code, agentName func(uint)string)：校验邀请存在+启用+未失效（expired/disabled/missing
+      各返对应业务错误）→ IncInviteOpen 打点 → 返回展示信息（agentName 供“由 XX 提供进件服务”）。
+    · PublicCreateEnrollReq{Code, MerchantName, ContactPhone, Plugin}。
+    · PublicCreateEnroll(ctx, req)：校验邀请可用 → 归属绑定该邀请代理 → 调 CreateEnroll
+      （Path 固定 EnrollPathSelf 商户自付、Source=EnrollSourceSelf=3）→ IncInviteSubmit 打点 → 返回单+收银台。
+  - middleware/ratelimit.go（新建，无外部依赖）：ipLimiter 内存滑动窗口按 IP 限流，超限回 429；
+    RateLimit(max, window) 中间件，后台 goroutine 定期 gc。多实例部署需换 Redis（届时替换实现，调用处不变）。
+  - handler/enroll_public.go（新建）：EnrollPublicHandler{enroll, agent, captcha}；
+    agentName(id)（0=平台，查 AgentService.Get，查不到回退“服务商”）；
+    · Info    GET  /api/enroll/:code   → ResolveInvite + 打点，返回展示信息。
+    · Captcha GET  /api/enroll/captcha  → CaptchaService.Generate 下发 token+SVG。
+    · Submit  POST /api/enroll/:code    → captcha.Verify（一次性防脚本）→ PublicCreateEnroll → {enroll, pay}。
+  - router.go：/api/enroll 公开组（全免登录），POST 挂 middleware.RateLimit(10, 5*time.Minute) 防刷；
+    Deps 加 EnrollPublic 字段。main.go：EnrollPublic: handler.NewEnrollPublicHandler(enrollSvc, agentSvc, captchaSvc)。
+
+  前端（admin-web）：
+
+  - lib/api/enrollPublic.ts（新建）：fetchEnrollInfo / fetchEnrollCaptcha / submitEnroll + 类型。
+  - views/enroll/EnrollPublic.vue（新建）：PC/H5 同套响应式卡片（max-w-md 居中）。
+    落地拉 Info（失效显“链接已失效”）+ 图形验证码；表单收商户名/手机(1\d{10}校验)/支付方式/验证码 →
+    submitEnroll；有收银台 trade_no → 跳 /pay/mock/cashier/:trade_no 付开户费，无（免付）→ 成功态。
+    提交失败刷新验证码（一次性已消耗）。信息加密传输提示。
+  - router/index.ts：/enroll/:code 公开路由（name=enroll-public，懒加载）+ 标题“商户进件”。
+
+  自检自验（全绿）：
+  - go build ./... 无 error；npm run build（vue-tsc 严格）无 error；go build -o bin 产物无 error。
+  - 真跑闭环通过：captcha 下发 200；坏 code 返 1302“不存在”；建真邀请→Info 解析 agent_name=平台、open_count 打点递增；
+    坏验证码返 1302；解析 SVG 数字后正确验证码 → 建单成功（source=3/path=2/pending_pay/invite_code 绑定，
+    pay.pay_url=/pay/mock/cashier/…）；submit_count 打点+1；限流 12 连发第 11 起 429（阈值 10）。
+  - 测试数据（邀请 id=3、进件单 EN…d199）已清库、enroll config 已复位（uid 0/price 0）、临时 server 已停。
 
 ----------------------------------------------------
-七、半成品 / 未提交改动 / 阻塞
+七、下一步（新窗口从这里接着做）
+----------------------------------------------------
+  1. 退款四道拦截 + sub_mchid 硬锁定；自动退（微信驳回后）+ 手动退（代理端 refund 权限已留）。复用 channel.Refunder。
+  2. 一期沙箱：配微信服务商沙箱凭证，端到端跑通 submit→sync→finished（结算/扣名额已就绪）。
+  3. 填全套资料（paid 后第2步）：目前 material_json 还没有前端填报表单 + 敏感字段加密落库入口，
+     SubmitToWx 已就绪但缺“填料”这一步（公开页/代理端建完单后填）。代理端 AgentEnroll 详情抽屉可加“填料”入口。
+     公开页 EnrollPublic 目前只收基础信息+付费，付费成功(paid)后需引导客户进“填料”页补全套资料。
+
+----------------------------------------------------
+八、半成品 / 未提交改动 / 阻塞
 ----------------------------------------------------
   - 进件“填全套资料”环节还没做：CreateEnroll 只收基础信息+付费，material_json 需后续填料入口写入
     （敏感字段 EncryptSensitive 加密），才能 SubmitToWx。见下一步第 4 项。
@@ -190,4 +229,6 @@
   - 微信服务商真实/沙箱凭证未配置，提交微信侧未端到端验证（下一步第 3 项）。
   - wx_partner_private_key / apiv3_key 明文存 config（待优化.txt#1）；删代理未级联清钱包/流水（待优化.txt#2）。
   - 代理端退款页（refund 权限点已在清单，AgentEnroll 暂未接退款按钮）随退款批次（下一步第 2 项）一起做。
-  - 第一批+第二批改动已 git commit（cbaff1f）；本批（第三批 /agent）改动尚未 commit（用户未要求提交）。
+  - 公开页第一步只收基础信息+付费，付费成功(paid)后的“填全套资料”页尚未做（见七、第3项）。
+  - 第一批+第二批改动已 git commit（cbaff1f）；第三批 /agent 已 commit（2eb6d63）；
+    本批（第四批 /enroll 公开页）改动待 commit。

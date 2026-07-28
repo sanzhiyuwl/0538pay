@@ -161,6 +161,85 @@ func (s *EnrollService) CreateEnroll(ctx context.Context, req CreateEnrollReq) (
 	return e, resp, nil
 }
 
+// —— 客户自助公开页（source=3，免登录，靠邀请 code）——
+
+// PublicInviteInfo 公开页落地时返回的邀请信息（不含敏感字段，仅够渲染页面）。
+type PublicInviteInfo struct {
+	Code       string `json:"code"`        // 邀请码（回显）
+	AgentName  string `json:"agent_name"`  // 归属代理名（页面展示"由 XX 提供进件服务"）
+	RetailNote string `json:"retail_note"` // 开户价说明文案（读 config）
+}
+
+// ResolveInvite 公开页落地：按 code 校验邀请链接可用（启用+未失效），打点打开数，返回展示信息。
+// 校验失败（不存在/停用/已失效）返回业务错误，前端据此显示"链接已失效"。agentName 供页面展示。
+func (s *EnrollService) ResolveInvite(code string, agentName func(uint) string) (*PublicInviteInfo, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return nil, enErr("邀请链接无效")
+	}
+	v, err := s.repo.FindInviteByCode(code)
+	if err != nil {
+		return nil, enErr("邀请链接不存在或已被删除")
+	}
+	if v.Status == model.InviteStatusExpired {
+		return nil, enErr("邀请链接已失效，请联系为您服务的代理重新获取")
+	}
+	if v.Status != model.InviteStatusEnabled {
+		return nil, enErr("邀请链接已停用，请联系为您服务的代理")
+	}
+	// 打点：打开数 +1，首次打开记 first_access_at。
+	_ = s.repo.IncInviteOpen(v.ID, v.FirstAccessAt == nil)
+
+	name := ""
+	if agentName != nil {
+		name = agentName(v.AgentID)
+	}
+	return &PublicInviteInfo{
+		Code:       v.Code,
+		AgentName:  name,
+		RetailNote: "开户零售价以下单页展示为准",
+	}, nil
+}
+
+// PublicCreateEnrollReq 客户自助建单入参（source=3）。资料从公开页表单收，敏感字段前端不加密、
+// 由后端 SubMerchantService.EncryptSensitive 加密后落 material_json。第一步只收基础信息 + 付费。
+type PublicCreateEnrollReq struct {
+	Code         string // 邀请码（定位归属代理）
+	MerchantName string // 商户名称
+	ContactPhone string // 联系手机（明文，进度查询匹配）
+	Plugin       string // 支付方式
+}
+
+// PublicCreateEnroll 客户自助建进件单：校验邀请可用 → 归属绑定该邀请的代理 → source=3 走 CreateEnroll
+// （付费前置，路径固定为商户自付 EnrollPathSelf——自助客户没有代理名额）→ 打点提交数。
+// 返回进件单 + 收银台信息（前端拉起支付）。
+func (s *EnrollService) PublicCreateEnroll(ctx context.Context, req PublicCreateEnrollReq) (*model.SubMerchantEnroll, *dto.SubmitResp, error) {
+	code := strings.TrimSpace(req.Code)
+	v, err := s.repo.FindInviteByCode(code)
+	if err != nil {
+		return nil, nil, enErr("邀请链接不存在")
+	}
+	if v.Status != model.InviteStatusEnabled {
+		return nil, nil, enErr("邀请链接已失效或停用，无法提交")
+	}
+
+	e, pay, err := s.CreateEnroll(ctx, CreateEnrollReq{
+		AgentID:      v.AgentID,
+		MerchantName: req.MerchantName,
+		ContactPhone: req.ContactPhone,
+		Path:         model.EnrollPathSelf, // 自助客户走商户自付
+		Source:       model.EnrollSourceSelf,
+		InviteCode:   code,
+		Plugin:       req.Plugin,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	// 打点：提交数 +1。
+	_ = s.repo.IncInviteSubmit(v.ID)
+	return e, pay, nil
+}
+
 // FinalizeEnrollPay 进件开户费收款成功后的放行钩子（收单回调 tid=6 入账后调用）。
 // 读订单 param 里的进件单号 → 把该单 pending_pay 翻 paid（放行第2步填全套资料/提交微信）。
 // 幂等：仅 pending_pay→paid 翻一次；param 非进件订单或单不存在则静默跳过（不阻断收款入账）。

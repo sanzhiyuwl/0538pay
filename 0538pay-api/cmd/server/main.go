@@ -280,6 +280,7 @@ func main() {
 		Role:      handler.NewRoleHandler(roleSvc),
 		Console:   handler.NewConsoleHandler(agentSvc, enrollSvc),
 		Agent:     handler.NewAgentHandler(agentSvc, enrollSvc),
+		EnrollPublic: handler.NewEnrollPublicHandler(enrollSvc, agentSvc, captchaSvc),
 	}
 
 	// 4. 定时任务（阶段E）：通知重试 + 对账 + 超时关单 + 自动结算 + 分账 + 风控。
