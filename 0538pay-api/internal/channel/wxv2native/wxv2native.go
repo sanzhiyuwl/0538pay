@@ -53,6 +53,25 @@ func (Channel) Refund(ctx context.Context, cfg channel.Config, req channel.Refun
 	return wxv2base.Refund(ctx, cfg, req)
 }
 
+// Transfer 企业付款（实现 channel.Transferer，对齐 epay wxpay transfer；与 V3 wxnative 对称）。
+// Extra["type"]=="bank" 走到银行卡（Extra["bank_code"]/["bank_abbr"] 由主链据卡号解析后传入）；
+// 否则到零钱（Account=收款用户 openid）。真实打款待商户证书凭证。
+func (Channel) Transfer(ctx context.Context, cfg channel.Config, req channel.TransferReq) (channel.TransferResp, error) {
+	if req.Extra != nil && req.Extra["type"] == "bank" {
+		bankCode := req.Extra["bank_code"]
+		if bankCode == "" {
+			bankCode = wxv2base.BankCode(req.Extra["bank_abbr"])
+		}
+		return wxv2base.TransferToBank(ctx, cfg, req, bankCode)
+	}
+	return wxv2base.Transfer(ctx, cfg, req)
+}
+
+// TransferQuery 查询企业付款状态（对齐 epay wxpay transfer_query）。
+func (Channel) TransferQuery(ctx context.Context, cfg channel.Config, outBizNo string) (channel.TransferResp, error) {
+	return wxv2base.TransferQuery(ctx, cfg, outBizNo)
+}
+
 func (Channel) Inputs() []channel.FieldInput { return wxv2base.Inputs() }
 
 func (Channel) Products() []channel.ProductType {

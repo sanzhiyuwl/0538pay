@@ -13,7 +13,7 @@ type Descriptor struct {
 	ShowName string   `json:"showname"` // 完整中文名，如「微信支付 · Native 扫码（APIv3）」
 	Brand    string   `json:"brand"`    // 品牌族，用于前端分组，如「微信支付」「支付宝」
 	Protocol string   `json:"protocol"` // 协议/版本，如「APIv3」「APIv2」「V1(MD5)」
-	Form     string   `json:"form"`     // 支付形态，如「Native 扫码」「JSAPI」「H5」
+	Form     string   `json:"form"`     // 支付产品，如「Native 扫码」「JSAPI」「H5」
 	Methods  []string `json:"methods"`  // 支持的支付方式（alipay/wxpay/qqpay/bank），对齐 epay pre_plugin.types，前端按选定支付方式过滤插件候选
 }
 

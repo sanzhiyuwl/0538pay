@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -170,6 +171,33 @@ func TestDecryptAESGCM(t *testing.T) {
 	// 密钥长度不对
 	if _, err := DecryptAESGCM("shortkey", nonce, ad, cipherB64); err == nil {
 		t.Fatal("32 字节以外的密钥应报错")
+	}
+}
+
+// TestEncryptOAEP 验证 EncryptOAEP(SHA-1) 加密后能用对应私钥 OAEP-SHA1 解回原文，
+// 对齐 epay V3 rsaEncrypt(OPENSSL_PKCS1_OAEP_PADDING) 用于商家转账实名加密。
+func TestEncryptOAEP(t *testing.T) {
+	_, pubPEM, priv := genKeyPEM(t)
+	plain := "张三"
+	cipherB64, err := EncryptOAEP(plain, pubPEM)
+	if err != nil {
+		t.Fatalf("OAEP 加密失败: %v", err)
+	}
+	ct, err := base64.StdEncoding.DecodeString(cipherB64)
+	if err != nil {
+		t.Fatalf("密文非合法 base64: %v", err)
+	}
+	got, err := rsa.DecryptOAEP(sha1.New(), rand.Reader, priv, ct, nil)
+	if err != nil {
+		t.Fatalf("OAEP 解密失败: %v", err)
+	}
+	if string(got) != plain {
+		t.Fatalf("解密结果不符：期望 %q 实际 %q", plain, string(got))
+	}
+	// 每次加密应产生不同密文（OAEP 随机填充）。
+	c2, _ := EncryptOAEP(plain, pubPEM)
+	if c2 == cipherB64 {
+		t.Fatal("OAEP 两次加密不应产生相同密文")
 	}
 }
 

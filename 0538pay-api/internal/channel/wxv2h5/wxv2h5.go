@@ -24,10 +24,16 @@ func (Channel) Create(ctx context.Context, cfg channel.Config, req channel.Creat
 		return channel.CreateResp{}, err
 	}
 	params["trade_type"] = "MWEB"
-	// scene_info 为 JSON 串（对齐 epay h5：json_encode(['h5_info'=>['type'=>'Wap',...]])）。
-	sceneInfo, _ := json.Marshal(map[string]interface{}{
-		"h5_info": map[string]string{"type": "Wap"},
-	})
+	// scene_info 为 JSON 串（对齐 epay h5：json_encode(['h5_info'=>['type'=>'Wap','wap_url'=>siteurl,'wap_name'=>sitename]])）。
+	// wap_url 取回跳地址的站点根（部分风控严格的商户号要求非空，否则下单被拒）；wap_name 取站点名。
+	h5Info := map[string]string{"type": "Wap"}
+	if wapURL := siteRoot(req.ReturnURL); wapURL != "" {
+		h5Info["wap_url"] = wapURL
+	}
+	if name := req.SiteName; name != "" {
+		h5Info["wap_name"] = name
+	}
+	sceneInfo, _ := json.Marshal(map[string]interface{}{"h5_info": h5Info})
 	params["scene_info"] = string(sceneInfo)
 	result, err := wxv2base.UnifiedOrder(ctx, cfg, params)
 	if err != nil {
@@ -56,6 +62,18 @@ func (Channel) Notify(_ context.Context, cfg channel.Config, raw map[string]stri
 
 func (Channel) Refund(ctx context.Context, cfg channel.Config, req channel.RefundReq) (channel.RefundResp, error) {
 	return wxv2base.Refund(ctx, cfg, req)
+}
+
+// siteRoot 从完整 URL 取站点根（scheme://host/），用作 scene_info.wap_url。解析失败或空返回空串。
+func siteRoot(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host + "/"
 }
 
 func (Channel) Inputs() []channel.FieldInput { return wxv2base.Inputs() }

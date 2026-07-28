@@ -1,0 +1,143 @@
+====================================================
+代理进件平台 · 开发进度（交接点，新窗口开工先读）
+====================================================
+建档：2026-07-28
+说明：本文件只记【代理进件线】的进度与交接，不写 epay 精仿线（那条看 docs/开发进度总览.txt）。
+      每次完工代理进件功能都要回写这里：当前做到哪 / 下一步做什么 / 有无半成品或阻塞。
+
+----------------------------------------------------
+一、总体状态快照
+----------------------------------------------------
+阶段：★第一批打地基 + 第二批 submerchant 提交/查状态 + 付费前置建单闭环 完成（2026-07-28 更新）★
+规划文档：docs-代理进件/00-代理进件平台总体规划.txt（纲领）
+          docs-代理进件/01-代理控制台改造与进件一期设计.txt（一期详细设计）
+关键决策：全部拍定（见 00/01 文档「已定」区），要点——
+  - 三端：平台控制台 /console（管所有代理）、独立代理端 /agent（只看自己名下）、
+    客户自助公开页 /enroll/:code（免登录 PC+H5）。
+  - SaaS 多租户出租不做，/console 改造为代理控制台，旧 5 页 + console.ts 归档到 src/_archive/。
+  - 付费前置：进件第一步创建单即收费，付款成功才放行填全套资料；待支付 30 分钟超时关单。
+  - 链接有效期 24h 锚定「终态事件」（关单/驳回/退款完成后才起算，审核中不倒计时）。
+  - 资金：路径一先进平台账、成功后全额分代理；路径二成功后分账（平台一份/代理一份）。价格后台可配。
+  - 退款：自动退（微信驳回自动原路退）+ 手动退（代理凭单号在 /agent 退，四道拦截校验）；
+    ★已拿到 sub_mchid 硬锁定不可退（代理端+平台端一律）。
+  - 一期真跑先用微信沙箱。
+
+----------------------------------------------------
+二、第一批「打地基」已完成清单（2026-07-28）
+----------------------------------------------------
+后端（0538pay-api）：
+
+  1. 数据表 + model/repo（AutoMigrate 六张，internal/model/db.go 已登记）：
+     - pay_agent（Agent，permissions 逗号 key 串，替代 can_enroll/can_acquire）
+     - pay_agent_quota（AgentQuotaWallet，钱包按 AgentID 主键）
+     - pay_agent_quota_log（AgentQuotaLog，type=purchase/consume/refund，前后余额留痕）
+     - pay_submch_enroll（SubMerchantEnroll，EnrollNo 唯一，MaterialJSON 敏感料加密，
+       WxSubMchID 非空=硬锁定，Status 状态机 pending_pay/paid/submitted/finished/rejected/closed/refunded）
+     - pay_enroll_invite（EnrollInvite，Code 唯一，ExpireAt nil=不倒计时，OpenCount/SubmitCount）
+     - pay_enroll_settle_log（EnrollSettleLog，AgentAmount/PlatformAmount/Path/PayOrderNo）
+     ★ 未建 pay_enroll_pricing 表：计价规则改放 pay_config 的 enroll 分组（复用 C8 ConfigService，
+       后台可配不硬编码）。规划文档里的 pay_enroll_pricing 以此实现替代。
+     repository：agent_repo.go（ChangeQuota 行锁事务，余额不足回 ErrInsufficientBalance；Create 同事务建空钱包）、
+                 enroll_repo.go（EnrollQuery/进件单 CRUD/邀请 CRUD/ExpireDueInvites/结算流水）。
+
+  2. 系统设置·微信服务商凭证单例（internal/service/config.go）：
+     configDefaults + configGroups 新增两组——
+     - wx_partner：sp_mchid / sp_appid / serial_no / private_key / public_key / public_key_id /
+       apiv3_key / sandbox（默认 "1"）。全平台唯一一套，与「微信服务商模式收单」共用，统一在系统设置维护。
+     - enroll：wholesale_price / retail_price / platform_share / agent_share / fail_refund /
+       path1_charge / pay_timeout / link_expire（进件计价规则）。
+
+  3. 代理权限体系（internal/service/agent.go）：
+     权限点常量 enroll/acquire/quota/invite/refund/settlement；AgentPermissionCatalog 是权限点唯一权威源；
+     NormalizePermissions/ParsePermissions/HasPermission 辅助；GET /api/console/agent-permissions 返回清单。
+     权限（能不能用）与 agent_id 数据隔离（只看自己名下）正交。加新功能只追加一行 key，骨架不改。
+
+  4. submerchant 进件 service 骨架（internal/service/submerchant.go）：
+     从 ConfigService wx_partner 组读凭证；Configured()/EncryptSensitive(RSA-OAEP)/doRequest（自发 HTTP，
+     带 Wechatpay-Serial 头 + BuildAuthorization + VerifySignature）/SubmitApplyment（POST applyment4sub）/
+     QueryApplymentByBusinessCode/ByID。★方案 A：自发请求复用 pkg/wxpayv3 原语，不改 wxbase.DoRequest，
+     对现有收单渠道零回归（进件需要 Wechatpay-Serial 头而 DoRequest 没有）。
+     注：main.go 目前 `_ = service.NewSubMerchantService(configSvc)`（已构造未接线到 handler，下批接提交/查状态流程时接入）。
+
+  5. handler/console.go + router：ConsoleHandler(agent, enroll)，
+     /api/console/* 全组走 middleware.Auth(d.JWT, "admin")（admin 与 console 共用 admin_token）+ AdminOpLog。
+     端点：agent-permissions、agents CRUD、agent 钱包/名额调整/流水、enrolls 列表+详情、
+     invites CRUD、settlements 列表。failConsole 分 AgentError(1301)/EnrollError(1302)/generic(1300)。
+
+前端（admin-web）：
+
+  6. /console 改造为代理控制台：
+     - 旧 SaaS 5 页 + mock + console.ts(旧) 归档到 src/_archive/saas-console/（tsconfig.app.json exclude 不编译）。
+     - src/lib/api/console.ts 新建（Agent/Quota/Enroll/Invite/Settlement 全类型 + 全端点函数）。
+     - nav.ts / router/index.ts / ConsoleLayout.vue 文案与路由换成代理进件六页。
+     - 六页 views/console/：ConsoleAgents（代理 CRUD + 权限勾选抽屉按分组）、ConsoleQuota（名额流水+售卖/调整）、
+       ConsoleEnroll（进件单列表+详情抽屉状态机）、ConsoleInvites（邀请 CRUD+复制链接）、
+       ConsoleSettlement（只读结算流水）、ConsoleSettings（进件计价 config 表单）。
+
+自检自验（全绿）：
+  - go build ./... 无 error；npm run build（vue-tsc 严格）无 error。
+  - 起前后端真跑：admin 登录（admin/admin888）→ 全部 console 端点 HTTP 200 数据正确；无 token 401；
+    建测试代理→售 10 名额（钱包 +10 + 流水一条）→建邀请→空进件/结算列表→config 分组读取，均通过。
+  - 测试数据已清、临时 server 已停。
+
+----------------------------------------------------
+三、第二批（进行中）已完成：submerchant 提交/查状态接线（2026-07-28）
+----------------------------------------------------
+  - enroll.go 注入 SubMerchantService + AgentRepo（main.go SetSubMerchant / SetAgentRepo，
+    不再是 `_ =` 丢弃）。
+  - SubmitToWx(id)：前置校验 status∈{paid,rejected} + material_json 非空 + 凭证已配；
+    business_code 首次按 "EN"+进件单号生成、驳回重提复用原编号；injectBusinessCode 把编号注入请求体
+    （已有则以我方编号覆盖防伪造）；调 SubmitApplyment → 回填 wx_applyment_id/business_code、
+    status→submitted、wx_state=AUDITING、记 submit_time。
+  - SyncWxState(id)：仅 submitted 可查；QueryApplymentByBusinessCode → applyWxState 映射：
+      FINISHED+有 sub_mchid → status=finished、记 finish_time、wx_sub_mchid 落库(=硬锁)，
+        幂等触发 settleOnFinish（路径一 consume 扣代理1名额+全额过账给代理；路径二按 config 比例分账）；
+      REJECTED → status=rejected + 记 reject_reason；
+      其余(审核中/待账户验证/待签约/开通权限中) → 保持 submitted 仅刷 wx_state。
+  - handler：POST /api/console/enrolls/:id/submit、/sync；前端 ConsoleEnroll 详情抽屉加“提交微信/查状态/重新提交”按钮
+    （按 status 显隐），console.ts 加 submitEnroll/syncEnroll。
+  - 自检：go build ./... + npm run build 全绿；enroll_test.go 三个单测过（business_code 注入/覆盖/非法JSON/id转串）；
+    真跑：admin 登录→submit/sync 路由 200、无 token 401、返回 1302 业务错误（凭证未配/单不存在）符合预期。
+
+----------------------------------------------------
+四、第二批（续）已完成：付费前置建单 + 超时关单 + 链接过期 cron（2026-07-28）
+----------------------------------------------------
+  - CreateEnroll(ctx, req)（enroll.go）：建 pay_submch_enroll(pending_pay，金额=enroll_retail_price)
+    → 下 tid=6 开户费内部收款单（复用 PayService.CreateInternalOrder，param 挂 enroll_no）
+    → 返回收银台信息（trade_no/pay_url/qrcode/money）给前端拉起支付；回填 pay_order_no。
+    · 路径一 + enroll_path1_charge=0（客户免付）或零售价≤0 → 建单直接 status=paid，跳过收款。
+    · 未配 enroll_pay_uid（收款商户）/无支付方式 → 明确报错拦截；下单失败回滚进件单为 closed（不留脏 pending_pay）。
+  - tid=6 收款回调放行（pay_notify.go settle switch 新增 case 6）：入收款商户余额 + 调 enrollPayHook。
+  - FinalizeEnrollPay(param)（enroll.go）：tid=6 收款成功钩子，读 param 里 enroll_no → pending_pay→paid
+    放行填料。幂等（仅翻一次）；非进件订单/单不存在静默跳过不阻断入账。
+    main.go：paySvc.SetEnrollPayHook(enrollSvc.FinalizeEnrollPay) + enrollSvc.SetPayService(paySvc)。
+  - 超时关单 + 链接过期 cron：CloseTimeoutPending（读 enroll_pay_timeout 分钟，pending_pay 超时→closed，
+    终态事件调 anchorInviteExpire 给来源邀请链接锚定 now+enroll_link_expire 小时）；
+    ExpireDueInvites 已挂 scheduler.runCleanup（每小时随超时关单一起跑）。main.go：sch.SetEnrollService(enrollSvc)。
+  - 新增 config：enroll_pay_uid（进件开户费收款商户 uid，进 enroll 组）。
+  - 前端：ConsoleEnroll 加“建进件单”抽屉（商户名/手机/归属代理/资金路径/收款方式），createEnroll API；
+    建单成功弹收银台链接/免费放行提示。
+  - 自检：go build ./... + npm run build 全绿；enroll_test.go 5 单测过 + service 全量测试无回归；
+    真跑闭环通过：建单(pending_pay)→tid=6 收款单→mock 回调 TRADE_SUCCESS→FinalizeEnrollPay→paid（真查确认）；
+    免付路径建单直接 paid；未配收款商户报错拦截；测试残留(进件单/tid6订单)已清库、config 已复位、server 已停。
+
+----------------------------------------------------
+五、下一步（新窗口从这里接着做）
+----------------------------------------------------
+  1. 独立代理端 /agent：AgentLayout + JWT scope "agent" + 六页（只看自己名下，按 permissions 动态渲染菜单）。
+     代理登录服务（复用 AgentService.Repo bcrypt 校验）+ 代理端建单/进件单/名额/邀请/结算/退款页。
+  2. 客户自助公开页 /enroll/:code：免登录 PC+H5，图形验证码 + 限流 + 敏感字段加密提交（source=3，走 CreateEnroll）。
+  3. 退款四道拦截 + sub_mchid 硬锁定；自动退（微信驳回后）+ 手动退（代理端）。复用 channel.Refunder。
+  4. 一期沙箱：配微信服务商沙箱凭证，端到端跑通 submit→sync→finished（结算/扣名额已就绪）。
+  5. 填全套资料（paid 后第2步）：目前 material_json 还没有前端填报表单 + 敏感字段加密落库入口，
+     SubmitToWx 已就绪但缺“填料”这一步（公开页/代理端建完单后填）。
+
+----------------------------------------------------
+六、半成品 / 未提交改动 / 阻塞
+----------------------------------------------------
+  - 进件“填全套资料”环节还没做：CreateEnroll 只收基础信息+付费，material_json 需后续填料入口写入
+    （敏感字段 EncryptSensitive 加密），才能 SubmitToWx。见下一步第 5 项。
+  - settleOnFinish 路径一扣名额用 `_ =` 忽略余额不足（进件已成不回滚）——名额冻结→消耗→释放三态待做（待优化.txt#3）。
+  - 微信服务商真实/沙箱凭证未配置，提交微信侧未端到端验证（下一步第 4 项）。
+  - wx_partner_private_key / apiv3_key 明文存 config（待优化.txt#1）；删代理未级联清钱包/流水（待优化.txt#2）。
+  - 以上改动尚未 git commit（用户未要求提交）。

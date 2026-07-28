@@ -12,7 +12,7 @@ const route = useRoute()
 const mobileOpen = ref(false)
 
 const currentTitle = computed(
-  () => consoleLeaves.find((i) => i.to === route.path)?.title ?? '租户管理',
+  () => consoleLeaves.find((i) => i.to === route.path)?.title ?? '代理管理',
 )
 </script>
 
@@ -34,8 +34,8 @@ const currentTitle = computed(
           <Server class="size-[18px]" />
         </div>
         <div class="leading-tight">
-          <div class="text-[15px] font-bold tracking-tight">SaaS 控制台</div>
-          <div class="text-[11px] text-muted-foreground">子站点 · 多租户管理</div>
+          <div class="text-[15px] font-bold tracking-tight">代理控制台</div>
+          <div class="text-[11px] text-muted-foreground">进件代理 · 佣金管理</div>
         </div>
       </div>
 
@@ -67,7 +67,7 @@ const currentTitle = computed(
 
       <!-- 底部说明 -->
       <div class="border-t border-sidebar-border px-4 py-3 text-[11px] leading-relaxed text-muted-foreground">
-        控制台为平台方视角，管理对外出租的子站点租户。
+        控制台为平台方视角，管理进件代理与特约商户进件。
       </div>
     </aside>
 
@@ -87,7 +87,7 @@ const currentTitle = computed(
 
         <!-- 面包屑 -->
         <div class="flex items-center gap-1.5 text-sm">
-          <span class="text-muted-foreground">SaaS 控制台</span>
+          <span class="text-muted-foreground">代理控制台</span>
           <span class="text-muted-foreground/50">/</span>
           <span class="font-medium">{{ currentTitle }}</span>
         </div>

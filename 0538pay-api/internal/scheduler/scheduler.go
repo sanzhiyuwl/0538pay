@@ -24,6 +24,7 @@ type Scheduler struct {
 	regcodes *repository.RegCodeRepo  // 过期验证码清理（可空，B-7）
 	blacks   *repository.BlacklistRepo // 过期黑名单清理（可空，B-7）
 	channels *repository.ChannelRepo   // 单日限额 daystatus 每日重置（可空）
+	enroll   *service.EnrollService    // 代理进件超时关单 + 邀请链接过期（可空）
 	cancel   context.CancelFunc
 	done     chan struct{}
 
@@ -77,6 +78,9 @@ func (s *Scheduler) SetMaintenanceRepos(rc *repository.RegCodeRepo, bl *reposito
 
 // SetChannelRepo 注入通道仓储（单日限额 daystatus 每日重置，对齐 epay cron.php:152）。
 func (s *Scheduler) SetChannelRepo(c *repository.ChannelRepo) { s.channels = c }
+
+// SetEnrollService 注入代理进件服务（超时关单 + 邀请链接过期，随超时关单任务一起跑）。nil 则不跑。
+func (s *Scheduler) SetEnrollService(e *service.EnrollService) { s.enroll = e }
 
 // Start 启动后台任务协程。非阻塞。
 func (s *Scheduler) Start() {
@@ -269,6 +273,15 @@ func (s *Scheduler) runCleanup() {
 					log.Printf("[scheduler] 单日限额每日重置：解除 %d 个通道暂停", n)
 				}
 			}
+		}
+	}
+	// 代理进件：超时未付关单（终态事件锚定链接 24h）+ 到期邀请链接置 expired。
+	if s.enroll != nil {
+		if cn, err := s.enroll.CloseTimeoutPending(); err == nil && cn > 0 {
+			log.Printf("[scheduler] 进件超时关单 %d 单", cn)
+		}
+		if en, err := s.enroll.ExpireDueInvites(); err == nil && en > 0 {
+			log.Printf("[scheduler] 进件邀请链接过期 %d 条", en)
 		}
 	}
 }

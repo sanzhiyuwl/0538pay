@@ -9,11 +9,8 @@ import {
   Settings,
   Server,
   ShieldCheck,
-  LayoutGrid,
-  Package,
   Receipt,
   BarChart3,
-  ScrollText,
   UserCog,
   ListOrdered,
   QrCode,
@@ -162,8 +159,8 @@ export const navMenu: NavNode[] = [
   },
 ]
 
-/** 控制台入口（SaaS 独立后台）——单独固定在主后台侧栏最底部，不参与菜单流式排列 */
-export const consoleEntry: NavNode = { title: '控制台', icon: Server, to: '/console', badge: 'SaaS' }
+/** 代理控制台入口——单独固定在主后台侧栏最底部，不参与菜单流式排列 */
+export const consoleEntry: NavNode = { title: '代理控制台', icon: Server, to: '/console', badge: '代理' }
 
 /** 扁平化所有可路由的叶子（供路由/面包屑用）。含控制台入口 */
 export const allLeaves: NavLeaf[] = [
@@ -172,15 +169,16 @@ export const allLeaves: NavLeaf[] = [
 ]
 
 /**
- * 控制台（SaaS 独立后台）专属导航。一级平铺，独立于主后台 navMenu。
- * 租户管理已实现，其余为规划中（见 docs/saas开发规划.txt），暂用占位页。
+ * 代理控制台专属导航（平台运营视角，管所有代理进件）。一级平铺，独立于主后台 navMenu。
+ * 自研扩展（epay 无），见 docs-代理进件/。SaaS 出租方向已于 2026-07-28 停做，旧 5 页归档到 _archive。
  */
 export const consoleNav: NavNode[] = [
-  { title: '租户管理', icon: LayoutGrid, to: '/console' },
-  { title: '租户套餐', icon: Package, to: '/console/plans' },
-  { title: '租户计费', icon: Receipt, to: '/console/billing' },
-  { title: '分站总览', icon: BarChart3, to: '/console/overview' },
-  { title: '操作审计', icon: ScrollText, to: '/console/logs' },
+  { title: '代理管理', icon: Users, to: '/console' },
+  { title: '名额管理', icon: Wallet, to: '/console/quota' },
+  { title: '进件申请', icon: ListOrdered, to: '/console/enroll' },
+  { title: '邀请链接', icon: QrCode, to: '/console/invites' },
+  { title: '佣金结算', icon: Receipt, to: '/console/settlement' },
+  { title: '进件设置', icon: Settings, to: '/console/settings' },
 ]
 
 /** 控制台可路由叶子 */

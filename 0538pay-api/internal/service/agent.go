@@ -1,0 +1,218 @@
+package service
+
+import (
+	"strings"
+
+	"github.com/epvia/api/internal/model"
+	"github.com/epvia/api/internal/repository"
+	"github.com/shopspring/decimal"
+	"golang.org/x/crypto/bcrypt"
+)
+
+// —— 代理权限体系（2026-07-28，可扩展权限点）——
+//
+// 核心诉求：代理能用哪些功能由平台逐项开通的权限决定——权限开通啥代理就有啥。
+// 新增功能只需在 AgentPermissionCatalog 追加一行权限点 key，平台勾选即生效，代理端骨架不改。
+// 代理持有的权限存 pay_agent.permissions（逗号分隔 key 串）；权限（能不能用）与
+// agent_id 数据隔离（只看自己名下）正交，两者都要有，不可互相替代。
+
+// 权限点 key 常量。
+const (
+	PermEnroll     = "enroll"     // 进件代理：发起/管理特约商户进件（原 can_enroll）
+	PermAcquire    = "acquire"    // 收单代理：收单分润（占位，暂不启用；原 can_acquire）
+	PermQuota      = "quota"      // 名额钱包：买名额/用名额
+	PermInvite     = "invite"     // 邀请链接：生成/管理进件邀请码与二维码
+	PermRefund     = "refund"     // 手动退款：代理自助对自己名下单发起退款
+	PermSettlement = "settlement" // 佣金结算：查看佣金/提现
+)
+
+// AgentPermission 权限点元数据（供平台勾选、前端数据驱动渲染）。
+type AgentPermission struct {
+	Key   string `json:"key"`   // 权限点 key
+	Name  string `json:"name"`  // 中文名
+	Group string `json:"group"` // 分组
+	Desc  string `json:"desc"`  // 说明
+}
+
+// AgentPermissionCatalog 权限点清单（单一数据源、可扩展）。
+// ★ 将来加新功能 = 在此清单追加一行；GET /api/console/agent-permissions 返回它供平台勾选。
+var AgentPermissionCatalog = []AgentPermission{
+	{Key: PermEnroll, Name: "进件代理", Group: "进件", Desc: "发起/管理特约商户进件"},
+	{Key: PermQuota, Name: "名额钱包", Group: "进件", Desc: "购买名额 / 消耗名额"},
+	{Key: PermInvite, Name: "邀请链接", Group: "进件", Desc: "生成/管理进件邀请码与二维码"},
+	{Key: PermRefund, Name: "手动退款", Group: "进件", Desc: "对自己名下单发起原路退款"},
+	{Key: PermSettlement, Name: "佣金结算", Group: "进件", Desc: "查看佣金 / 提现"},
+	{Key: PermAcquire, Name: "收单代理", Group: "收单", Desc: "收单分润（占位，暂不启用）"},
+}
+
+// validPermKeys 权限点合法 key 集合（校验用）。
+var validPermKeys = func() map[string]bool {
+	m := make(map[string]bool, len(AgentPermissionCatalog))
+	for _, p := range AgentPermissionCatalog {
+		m[p.Key] = true
+	}
+	return m
+}()
+
+// NormalizePermissions 清洗权限点集合：去空白、去重、剔除非法 key，输出稳定的逗号分隔串。
+func NormalizePermissions(keys []string) string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, k := range keys {
+		k = strings.TrimSpace(k)
+		if k == "" || seen[k] || !validPermKeys[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, k)
+	}
+	return strings.Join(out, ",")
+}
+
+// ParsePermissions 把 permissions 串解析为 key 集合。
+func ParsePermissions(s string) map[string]bool {
+	m := make(map[string]bool)
+	for _, k := range strings.Split(s, ",") {
+		k = strings.TrimSpace(k)
+		if k != "" {
+			m[k] = true
+		}
+	}
+	return m
+}
+
+// HasPermission 判断权限串是否含某权限点。
+func HasPermission(permissions, key string) bool {
+	return ParsePermissions(permissions)[key]
+}
+
+// AgentService 代理业务编排：代理 CRUD、权限、名额钱包/流水。
+// 平台端 /console 管所有代理，代理端 /agent 只碰自己——共用本 service，入参强制带 agent_id 隔离。
+type AgentService struct {
+	repo *repository.AgentRepo
+}
+
+func NewAgentService(repo *repository.AgentRepo) *AgentService {
+	return &AgentService{repo: repo}
+}
+
+// Repo 暴露底层 repo，供同域其它 service（如登录/进件）复用查询。
+func (s *AgentService) Repo() *repository.AgentRepo { return s.repo }
+
+// Permissions 返回权限点清单（供平台勾选）。
+func (s *AgentService) Permissions() []AgentPermission { return AgentPermissionCatalog }
+
+// AgentError 携带业务提示，handler 统一返回错误码。
+type AgentError struct{ Msg string }
+
+func (e *AgentError) Error() string { return e.Msg }
+
+func agErr(msg string) *AgentError { return &AgentError{Msg: msg} }
+
+// List 分页查询代理。
+func (s *AgentService) List(keyword string, status *int8, page, pageSize int) ([]model.Agent, int64, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	return s.repo.List(keyword, status, page, pageSize)
+}
+
+// Get 取单个代理。
+func (s *AgentService) Get(id uint) (*model.Agent, error) { return s.repo.FindByID(id) }
+
+// Create 新建代理。account 唯一、密码 bcrypt、权限点清洗后落库。
+func (s *AgentService) Create(name, account, password, contact, remark string, permKeys []string) (*model.Agent, error) {
+	name = strings.TrimSpace(name)
+	account = strings.TrimSpace(account)
+	if name == "" || account == "" {
+		return nil, agErr("代理名称和登录账号不能为空")
+	}
+	if password == "" {
+		return nil, agErr("请设置登录密码")
+	}
+	if _, err := s.repo.FindByAccount(account); err == nil {
+		return nil, agErr("登录账号已存在")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, err
+	}
+	a := &model.Agent{
+		Name: name, Account: account, Password: string(hash),
+		Contact: contact, Status: 1, Permissions: NormalizePermissions(permKeys), Remark: remark,
+	}
+	if err := s.repo.Create(a); err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+// Update 更新代理资料/权限/状态。password 非空则一并改密。
+func (s *AgentService) Update(id uint, name, contact, remark string, status *int8, permKeys []string, password string) error {
+	if _, err := s.repo.FindByID(id); err != nil {
+		return agErr("代理不存在")
+	}
+	fields := map[string]any{
+		"name":        strings.TrimSpace(name),
+		"contact":     contact,
+		"remark":      remark,
+		"permissions": NormalizePermissions(permKeys),
+	}
+	if status != nil {
+		fields["status"] = *status
+	}
+	if err := s.repo.Update(id, fields); err != nil {
+		return err
+	}
+	if password != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		return s.repo.UpdatePassword(id, string(hash))
+	}
+	return nil
+}
+
+// SetStatus 启用/停用代理。
+func (s *AgentService) SetStatus(id uint, status int8) error {
+	return s.repo.Update(id, map[string]any{"status": status})
+}
+
+// Delete 删除代理。
+func (s *AgentService) Delete(id uint) error { return s.repo.Delete(id) }
+
+// Wallet 取代理名额钱包。
+func (s *AgentService) Wallet(agentID uint) (*model.AgentQuotaWallet, error) {
+	return s.repo.Wallet(agentID)
+}
+
+// AdjustQuota 平台侧手动调整代理名额（售卖名额/纠错），走流水。
+// change>0 增发，change<0 扣减；amount 为对应金额（售卖批发款）。
+func (s *AgentService) AdjustQuota(agentID uint, change int, amount decimal.Decimal, remark string) error {
+	if change == 0 {
+		return agErr("变动数量不能为 0")
+	}
+	if _, err := s.repo.FindByID(agentID); err != nil {
+		return agErr("代理不存在")
+	}
+	typ := "purchase"
+	if change < 0 {
+		typ = "consume"
+	}
+	return s.repo.ChangeQuota(agentID, typ, change, amount, "", remark)
+}
+
+// QuotaLogs 名额流水（agentID 为空看全部）。
+func (s *AgentService) QuotaLogs(agentID *uint, page, pageSize int) ([]model.AgentQuotaLog, int64, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	return s.repo.QuotaLogs(agentID, page, pageSize)
+}

@@ -18,6 +18,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -71,6 +72,22 @@ func ParsePublicKey(pemStr string) (*rsa.PublicKey, error) {
 		return nil, errors.New("公钥不是 RSA 类型")
 	}
 	return rk, nil
+}
+
+// EncryptOAEP 用微信支付平台公钥做 RSA-OAEP(SHA-1) 加密后 Base64（对齐 epay V3 BaseService::rsaEncrypt
+// openssl_public_encrypt(..., OPENSSL_PKCS1_OAEP_PADDING)），用于商家转账实名 user_name 等敏感信息加密。
+// pubPEM 支持平台公钥 PEM 或平台证书 PEM（ParsePublicKey 已兼容取证书公钥）。
+func EncryptOAEP(plain, pubPEM string) (string, error) {
+	pub, err := ParsePublicKey(pubPEM)
+	if err != nil {
+		return "", err
+	}
+	// OPENSSL_PKCS1_OAEP_PADDING 默认 MGF1+SHA-1。
+	cipherText, err := rsa.EncryptOAEP(sha1.New(), rand.Reader, pub, []byte(plain), nil)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(cipherText), nil
 }
 
 // signMessage 用私钥对消息做 SHA256withRSA 签名，返回 Base64。

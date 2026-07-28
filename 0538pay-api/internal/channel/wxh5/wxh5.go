@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 
 	"github.com/epvia/api/internal/channel"
 	"github.com/epvia/api/internal/channel/wxbase"
@@ -26,9 +27,18 @@ func (Channel) Create(ctx context.Context, cfg channel.Config, req channel.Creat
 	if clientIP == "" {
 		clientIP = "127.0.0.1"
 	}
+	// h5_info 补 app_name/app_url（对齐 epay wxpayn h5Pay scene_info：微信要求 H5 场景报备应用名与网址，
+	// 部分风控严格的商户号缺省会被拒单）。app_url 取回跳地址的站点根，app_name 取站点名。
+	h5Info := map[string]string{"type": "Wap"}
+	if appURL := siteRoot(req.ReturnURL); appURL != "" {
+		h5Info["app_url"] = appURL
+	}
+	if req.SiteName != "" {
+		h5Info["app_name"] = req.SiteName
+	}
 	body["scene_info"] = map[string]interface{}{
 		"payer_client_ip": clientIP,
-		"h5_info":         map[string]string{"type": "Wap"},
+		"h5_info":         h5Info,
 	}
 	respBody, err := wxbase.Prepay(ctx, cfg, "h5", body)
 	if err != nil {
@@ -59,6 +69,18 @@ func (Channel) Notify(_ context.Context, cfg channel.Config, raw map[string]stri
 
 func (Channel) Refund(ctx context.Context, cfg channel.Config, req channel.RefundReq) (channel.RefundResp, error) {
 	return wxbase.Refund(ctx, cfg, req)
+}
+
+// siteRoot 从完整 URL 取站点根（scheme://host/），用作 scene_info.h5_info.app_url。解析失败或空返回空串。
+func siteRoot(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host + "/"
 }
 
 // Inputs 声明配置字段（复用微信共用字段，元数据驱动后台密钥表单）。

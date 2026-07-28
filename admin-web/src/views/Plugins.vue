@@ -25,19 +25,42 @@ const router = useRouter()
 const installed = ref<PluginMeta[]>([])
 const installedLoading = ref(false)
 
-// 品牌视觉：主色 text 类 + 淡底 tint 类（图标由 BrandLogo 组件按品牌名渲染官方矢量/回退）。未登记回退通用灰。
-const brandStyle: Record<string, { accent: string; tint: string }> = {
-  微信支付: { accent: 'text-[#07c160]', tint: 'bg-[#07c160]/10' },
-  支付宝: { accent: 'text-[#1677ff]', tint: 'bg-[#1677ff]/10' },
-  彩虹易支付: { accent: 'text-primary', tint: 'bg-primary/10' },
-  富友支付: { accent: 'text-[#e6a23c]', tint: 'bg-[#e6a23c]/10' },
-  V免签: { accent: 'text-[#8957e5]', tint: 'bg-[#8957e5]/10' },
+// 品牌视觉：主色 text 类（BrandLogo 渲染的官方矢量/回退用它上色）+ 纯色值（图标淡底块用
+// color-mix 精确淡色，协议徽章、统计强调用）。未登记回退通用灰。
+const brandStyle: Record<string, { accent: string; color: string }> = {
+  微信支付: { accent: 'text-[#07c160]', color: '#07c160' },
+  支付宝: { accent: 'text-[#1677ff]', color: '#1677ff' },
+  彩虹易支付: { accent: 'text-primary', color: 'var(--primary)' },
+  富友支付: { accent: 'text-[#e6a23c]', color: '#e6a23c' },
+  V免签: { accent: 'text-[#8957e5]', color: '#8957e5' },
 }
 function brandAccent(brand: string): string {
   return brandStyle[brand]?.accent || 'text-muted-foreground'
 }
-function brandTint(brand: string): string {
-  return brandStyle[brand]?.tint || 'bg-muted/60'
+function brandColor(brand: string): string {
+  return brandStyle[brand]?.color || 'var(--muted-foreground)'
+}
+// 图标淡底块背景：品牌色与白 12% 混（对齐甲方向 color-mix，非童趣纯 tint）。
+function brandTintStyle(brand: string): string {
+  return `color-mix(in oklch, ${brandColor(brand)} 12%, white)`
+}
+// 协议徽章样式：淡底 + 同色字 + 更浅同色描边，对齐全站 Badge 的 Element UI 语言，
+// 替代旧的「实心色块 + 白字」贴标签感（生硬）。
+function brandChipStyle(brand: string): Record<string, string> {
+  const c = brandColor(brand)
+  return {
+    color: c,
+    background: `color-mix(in oklch, ${c} 9%, white)`,
+    borderColor: `color-mix(in oklch, ${c} 26%, white)`,
+  }
+}
+// 卡片顶部协议标签行：把 groups 的协议名拼成 "APIv3 · APIv2"。
+function protocolLine(card: BrandCard): string {
+  return card.groups.map((g) => g.protocol).join(' · ')
+}
+// 增值能力数（退款 + 代付各计一项，用于仪表盘统计栏）。
+function valueCount(card: BrandCard): number {
+  return (card.refund ? 1 : 0) + (card.transfer ? 1 : 0)
 }
 
 // 按品牌族聚合：16 个形态级渠道其实只对应少数几个上游品牌。
@@ -195,12 +218,37 @@ const stats = computed(() => calcPluginStats(plugins))
 const kw = ref('')
 const filtered = computed(() => {
   const v = kw.value.trim().toLowerCase()
-  if (!v) return plugins
-  return plugins.filter(
-    (p) => p.name.toLowerCase().includes(v) || p.showname.toLowerCase().includes(v),
-  )
+  const list = v
+    ? plugins.filter(
+        (p) => p.name.toLowerCase().includes(v) || p.showname.toLowerCase().includes(v),
+      )
+    : plugins.slice()
+  // 已实现的置顶（对齐用户预期：一眼看到本站已支持的），组内按插件名字母序稳定排列。
+  return list.sort((a, b) => {
+    const ia = isImplemented(a.name) ? 0 : 1
+    const ib = isImplemented(b.name) ? 0 : 1
+    if (ia !== ib) return ia - ib
+    return a.name.localeCompare(b.name)
+  })
 })
 const installedKeys = computed(() => new Set(installed.value.map((p) => p.key)))
+
+// epay 插件名 → 我方渠道 key 映射。
+// epay 按「商户模式」分插件（wxpay=APIv2 直连 / wxpayn=APIv3 直连 / wxpaynp=V3服务商 / wxpaysl=V2服务商），
+// 我方按「支付形态」拆渠道且服务商为 config 覆盖层（同一套 key 直连/服务商通用）。
+// 故 epay 一个插件名对应我方一组 key；只要该组任一形态已内置即视为「已实现」。
+const epayNameToKeys: Record<string, string[]> = {
+  wxpay: ['wxv2native', 'wxv2jsapi', 'wxv2h5', 'wxv2app', 'wxv2micro'], // 微信 APIv2 直连
+  wxpaysl: ['wxv2native', 'wxv2jsapi', 'wxv2h5', 'wxv2app', 'wxv2micro'], // 微信 APIv2 服务商（config 覆盖）
+  wxpayn: ['wxnative', 'wxjsapi', 'wxh5', 'wxapp'], // 微信 APIv3 直连
+  wxpaynp: ['wxnative', 'wxjsapi', 'wxh5', 'wxapp'], // 微信 APIv3 服务商（config 覆盖）
+}
+// 判断某 epay 插件名是否已实现：直接同名 key 命中，或映射组中任一 key 已内置。
+function isImplemented(name: string): boolean {
+  if (installedKeys.value.has(name)) return true
+  const mapped = epayNameToKeys[name]
+  return !!mapped && mapped.some((k) => installedKeys.value.has(k))
+}
 </script>
 
 <template>
@@ -208,7 +256,7 @@ const installedKeys = computed(() => new Set(installed.value.map((p) => p.key)))
     <!-- 上栏：本站已实现插件 —— 品牌能力卡片墙 -->
     <Panel
       title="已实现支付插件"
-      :subtitle="`本站编译期内置、可用于收单的支付渠道 —— 共 ${summary.channels} 个形态，归属 ${summary.brands} 个支付品牌`"
+      :subtitle="`本站编译期内置、可用于收单的支付渠道 —— 共 ${summary.channels} 个支付产品，归属 ${summary.brands} 个支付品牌`"
     >
       <template #actions>
         <Button
@@ -232,7 +280,7 @@ const installedKeys = computed(() => new Set(installed.value.map((p) => p.key)))
         <div class="mb-3 flex flex-wrap items-center gap-x-8 gap-y-3 bg-muted/40 px-5 py-3.5">
           <div class="flex items-baseline gap-2">
             <span class="text-2xl font-semibold tabular-nums leading-none">{{ summary.channels }}</span>
-            <span class="text-xs text-muted-foreground">支付形态</span>
+            <span class="text-xs text-muted-foreground">支付产品</span>
           </div>
           <span class="h-6 w-px bg-border/60"></span>
           <div class="flex items-baseline gap-2">
@@ -259,26 +307,26 @@ const installedKeys = computed(() => new Set(installed.value.map((p) => p.key)))
         <!-- 卡片按 320~420px 自适应排布 + items-start 按内容自然高度（不强制同行等高，避免内容少的卡撑空白）-->
         <div
           v-else
-          class="grid items-start gap-4"
-          style="grid-template-columns: repeat(auto-fill, minmax(320px, 420px))"
+          class="grid items-stretch gap-3.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
         >
-          <!-- 每个支付品牌一张能力卡（柔边圆角 + hover 微投影）-->
+          <!-- 每个支付品牌一张能力卡（仪表盘感：图标淡底块 + 统计栏大数字 + 协议徽章分行 + 状态点卡脚；直角无圆弧，同行等高）-->
           <div
             v-for="card in brandCards"
             :key="card.brand"
-            class="group flex flex-col overflow-hidden rounded-lg border border-border/60 bg-card transition-shadow hover:shadow-md hover:shadow-black/[0.04]"
+            class="group flex h-full flex-col overflow-hidden border border-border/60 bg-card transition-shadow hover:shadow-[0_6px_20px_-8px] hover:shadow-black/[0.12]"
           >
-            <!-- 卡头：品牌淡底图标 + 名 + 能力标签 -->
-            <div class="flex items-center gap-3 px-4 pt-4">
+            <!-- 卡头：品牌淡底图标块 + 名/协议行 + 能力标签，底部细分隔线 -->
+            <div class="relative flex items-center gap-2.5 px-3.5 pb-3 pt-3.5 after:absolute after:inset-x-3.5 after:bottom-0 after:h-px after:bg-border/60">
               <span
-                class="flex size-10 shrink-0 items-center justify-center rounded-lg p-2"
-                :class="[brandTint(card.brand), brandAccent(card.brand)]"
+                class="flex size-9 shrink-0 items-center justify-center p-2"
+                :class="brandAccent(card.brand)"
+                :style="{ background: brandTintStyle(card.brand) }"
               >
                 <BrandLogo :brand="card.brand" />
               </span>
               <div class="min-w-0 flex-1">
-                <div class="truncate text-sm font-semibold leading-tight">{{ card.brand }}</div>
-                <div class="mt-0.5 text-[11px] text-muted-foreground">{{ card.items.length }} 个支付形态</div>
+                <div class="truncate text-sm font-semibold leading-tight tracking-tight">{{ card.brand }}</div>
+                <div class="mt-0.5 truncate text-[11px] text-muted-foreground">{{ protocolLine(card) }}</div>
               </div>
               <div class="flex shrink-0 flex-col items-end gap-1">
                 <Badge v-if="card.refund" variant="success">可退款</Badge>
@@ -286,16 +334,35 @@ const installedKeys = computed(() => new Set(installed.value.map((p) => p.key)))
               </div>
             </div>
 
-            <!-- 按协议分区：协议名做小胶囊标签 + 该协议下形态 chip（无边框柔胶囊）-->
-            <div class="space-y-2.5 px-4 py-3.5">
+            <!-- 统计栏：三格大数字（形态 / 协议 / 增值能力），分栏竖线，等宽数字 -->
+            <div class="flex px-3.5 py-3">
+              <div class="flex flex-1 flex-col gap-0.5">
+                <span class="text-xl font-bold leading-none tabular-nums tracking-tight">{{ card.items.length }}</span>
+                <span class="text-[11px] text-muted-foreground">支付产品</span>
+              </div>
+              <div class="flex flex-1 flex-col gap-0.5 border-l border-border/60 pl-3">
+                <span class="text-xl font-bold leading-none tabular-nums tracking-tight">{{ card.groups.length }}</span>
+                <span class="text-[11px] text-muted-foreground">协议版本</span>
+              </div>
+              <div class="flex flex-1 flex-col gap-0.5 border-l border-border/60 pl-3">
+                <span class="text-xl font-bold leading-none tabular-nums tracking-tight text-success">{{ valueCount(card) }}</span>
+                <span class="text-[11px] text-muted-foreground">增值能力</span>
+              </div>
+            </div>
+
+            <!-- 按协议分区：协议名做实心品牌色徽章打头 + 该协议下形态 chip -->
+            <div class="space-y-2 px-3.5 pb-3">
               <div v-for="g in card.groups" :key="g.protocol" class="flex flex-wrap items-center gap-1.5">
-                <span class="rounded bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-muted-foreground">
+                <span
+                  class="inline-flex shrink-0 items-center border px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-4 tracking-wide"
+                  :style="brandChipStyle(card.brand)"
+                >
                   {{ g.protocol }}
                 </span>
                 <span
                   v-for="p in g.items"
                   :key="p.key"
-                  class="inline-flex items-center rounded-md bg-muted/40 px-2 py-1 text-[12.5px] text-foreground/80 transition-colors group-hover:bg-muted/60"
+                  class="inline-flex items-center bg-muted/50 px-1.5 py-0.5 text-[12px] text-foreground/80 transition-colors group-hover:bg-muted/70"
                   :title="p.key"
                 >
                   {{ p.form || p.showname }}
@@ -303,12 +370,13 @@ const installedKeys = computed(() => new Set(installed.value.map((p) => p.key)))
               </div>
             </div>
 
-            <!-- 卡脚：动态表单标记 + 去配置（浅灰底与卡身区分，不用硬分割线）-->
-            <div class="mt-auto flex items-center gap-2 bg-muted/30 px-4 py-2.5">
+            <!-- 卡脚：绿色状态点 + 动态表单标记 + 去配置（顶部细分隔线，单层平面）-->
+            <div class="mt-auto flex items-center gap-2 border-t border-border/60 px-3.5 py-2">
               <span
                 v-if="card.configurable"
-                class="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+                class="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
               >
+                <span class="size-1.5 rounded-full bg-success" aria-hidden="true"></span>
                 <Settings2 class="size-3" />动态密钥表单
               </span>
               <Button variant="outline" size="sm" class="ml-auto shrink-0" @click="goConfigure(card)">
@@ -349,7 +417,7 @@ const installedKeys = computed(() => new Set(installed.value.map((p) => p.key)))
             <input v-model="kw" placeholder="搜索插件名称 / 描述" class="field-input w-56 !pl-9" />
           </div>
         </div>
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto px-6 pb-2">
           <table class="tbl w-full table-fixed">
             <thead>
               <tr>
@@ -364,8 +432,8 @@ const installedKeys = computed(() => new Set(installed.value.map((p) => p.key)))
               <tr v-for="p in filtered" :key="p.name">
                 <td>
                   <div class="flex items-center gap-1.5">
-                    <span class="font-mono text-[13px] font-medium">{{ p.name }}</span>
-                    <Badge v-if="installedKeys.has(p.name)" variant="success">已实现</Badge>
+                    <span class="min-w-[4.5rem] shrink-0 font-mono text-[13px] font-medium">{{ p.name }}</span>
+                    <Badge v-if="isImplemented(p.name)" variant="success" class="shrink-0">已实现</Badge>
                   </div>
                 </td>
                 <td>{{ p.showname }}</td>
@@ -406,7 +474,7 @@ const installedKeys = computed(() => new Set(installed.value.map((p) => p.key)))
     </Panel>
 
     <!-- 功能设置抽屉：按插件启用/禁用（后端持久化，禁用后收单选通道跳过该插件）-->
-    <Drawer v-model="settingsOpen" title="插件功能设置" subtitle="停用后收单选通道将跳过该支付形态，收银台也不再列出" width="max-w-xl">
+    <Drawer v-model="settingsOpen" title="插件功能设置" subtitle="停用后收单选通道将跳过该支付产品，收银台也不再列出" width="max-w-xl">
       <div v-if="!installed.length" class="py-10 text-center dim">暂无已注册插件</div>
       <div v-else class="space-y-4">
         <div v-for="grp in settingBrands" :key="grp.brand">
@@ -420,8 +488,8 @@ const installedKeys = computed(() => new Set(installed.value.map((p) => p.key)))
               :class="expanded.has(grp.brand) ? '' : '-rotate-90'"
             />
             <span
-              class="flex size-6 shrink-0 items-center justify-center rounded p-1"
-              :class="[brandTint(grp.brand), brandAccent(grp.brand)]"
+              class="flex size-5 shrink-0 items-center justify-center"
+              :class="brandAccent(grp.brand)"
             >
               <BrandLogo :brand="grp.brand" />
             </span>

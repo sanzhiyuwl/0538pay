@@ -136,6 +136,31 @@ func TestReplyXML(t *testing.T) {
 	}
 }
 
+// TestBankCode 银行简码 → 微信 bank_code 映射（对齐 epay bankcode.json）。
+func TestBankCode(t *testing.T) {
+	if BankCode("ICBC") != "1002" || BankCode("CMB") != "1001" || BankCode("BOC") != "1026" {
+		t.Fatal("银行编码映射不对")
+	}
+	if BankCode("icbc") != "1002" {
+		t.Fatal("银行简码应大小写不敏感")
+	}
+	if BankCode("NOTEXIST") != "" {
+		t.Fatal("未知银行应返回空串")
+	}
+}
+
+// TestBizErrorMessage 业务错误码格式化。
+func TestBizErrorMessage(t *testing.T) {
+	e := &BizError{ErrCode: "USERPAYING", ErrCodeDes: "用户支付中"}
+	if e.Error() != "USERPAYING 用户支付中" {
+		t.Fatalf("错误信息不对: %s", e.Error())
+	}
+	e2 := &BizError{ErrCode: "SYSTEMERROR"}
+	if e2.Error() != "SYSTEMERROR" {
+		t.Fatalf("无描述时应只回错误码: %s", e2.Error())
+	}
+}
+
 // TestBuildAppParams V2 APP 拉起参数：字段齐全 + sign 为自洽 MD5（对齐 getAppParameters）。
 func TestBuildAppParams(t *testing.T) {
 	cfg := channel.Config{AppID: "wxapp1", MchID: "160", Key: "01234567890123456789012345678901"}

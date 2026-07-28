@@ -52,6 +52,7 @@ type Deps struct {
 	OpLog          *handler.OpLogHandler
 	OpLogSvc       *service.OpLogService
 	Role           *handler.RoleHandler
+	Console        *handler.ConsoleHandler
 }
 
 // Setup 注册所有路由。
@@ -434,5 +435,37 @@ func Setup(r *gin.Engine, d Deps) {
 		paypage.POST("/submit", d.Paypage.Submit)
 	}
 
-	// console 分组后续补
+	// 代理控制台（平台运营视角，管所有代理进件；自研扩展，epay 无）。
+	// 前端 admin 与 console 共用 admin_token，故走 admin scope 鉴权。
+	console := api.Group("/console")
+	console.Use(middleware.Auth(d.JWT, "admin"))
+	console.Use(middleware.AdminOpLog(d.OpLogSvc))
+	{
+		// 权限点清单（供平台勾选）
+		console.GET("/agent-permissions", d.Console.Permissions)
+		// 代理管理
+		console.GET("/agents", d.Console.ListAgents)
+		console.POST("/agents", d.Console.CreateAgent)
+		console.GET("/agents/:id", d.Console.GetAgent)
+		console.PUT("/agents/:id", d.Console.UpdateAgent)
+		console.PUT("/agents/:id/status", d.Console.SetAgentStatus)
+		console.DELETE("/agents/:id", d.Console.DeleteAgent)
+		// 名额管理
+		console.GET("/agents/:id/quota", d.Console.AgentWallet)
+		console.POST("/agents/:id/quota", d.Console.AdjustQuota)
+		console.GET("/quota-logs", d.Console.QuotaLogs)
+		// 进件申请
+		console.GET("/enrolls", d.Console.ListEnrolls)
+		console.POST("/enrolls", d.Console.CreateEnroll)
+		console.GET("/enrolls/:id", d.Console.GetEnroll)
+		console.POST("/enrolls/:id/submit", d.Console.SubmitEnroll)
+		console.POST("/enrolls/:id/sync", d.Console.SyncEnroll)
+		// 邀请链接
+		console.GET("/enroll-invites", d.Console.ListInvites)
+		console.POST("/enroll-invites", d.Console.CreateInvite)
+		console.PUT("/enroll-invites/:id/status", d.Console.SetInviteStatus)
+		console.DELETE("/enroll-invites/:id", d.Console.DeleteInvite)
+		// 佣金结算
+		console.GET("/enroll-settlements", d.Console.ListSettlements)
+	}
 }

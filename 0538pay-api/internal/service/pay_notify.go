@@ -161,6 +161,21 @@ func (s *PayService) settle(ctx context.Context, tradeNo string) error {
 			return err
 		}
 		return nil // 保证金充值无需商户异步通知
+	case 6: // 代理进件开户费：入收款商户余额 + 回调放行进件单（pending_pay→paid）。
+		addMoney := order.GetMoney
+		if addMoney.LessThanOrEqual(decimal.Zero) {
+			addMoney = order.Money
+		}
+		if err := s.accounts.ChangeUserMoney(order.UID, addMoney, true, "进件开户费", order.TradeNo); err != nil {
+			return err
+		}
+		// 放行进件单填料（读订单 param 里的进件单号）。放行失败不回滚入账（钱已收到）。
+		if s.enrollPayHook != nil {
+			if err := s.enrollPayHook(order.Param); err != nil {
+				return err
+			}
+		}
+		return nil // 进件开户费无需商户异步通知
 	}
 
 	// 回调入账方向按通道模式分派（对齐 epay functions.php:612-618）：

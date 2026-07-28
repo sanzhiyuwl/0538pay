@@ -15,9 +15,13 @@ import (
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -171,6 +175,34 @@ func DecryptRefundNotify(reqInfoB64, apiKey string) ([]byte, error) {
 		block.Decrypt(plain[i:i+bs], ciphertext[i:i+bs])
 	}
 	return pkcs7Unpad(plain, bs)
+}
+
+// RSAEncryptOAEP 用微信 RSA 公钥做 OAEP 加密后 Base64（对齐 epay TransferService::encryptData
+// openssl_public_encrypt(..., OPENSSL_PKCS1_OAEP_PADDING)），用于企业付款到银行卡加密卡号/姓名。
+// pubPEM 支持 PKCS#1（BEGIN RSA PUBLIC KEY）或 PKIX/SPKI（BEGIN PUBLIC KEY）两种 PEM。
+func RSAEncryptOAEP(plain, pubPEM string) (string, error) {
+	block, _ := pem.Decode([]byte(strings.TrimSpace(pubPEM)))
+	if block == nil {
+		return "", errors.New("RSA 公钥 PEM 解析失败")
+	}
+	var pub *rsa.PublicKey
+	if key, err := x509.ParsePKIXPublicKey(block.Bytes); err == nil {
+		rp, ok := key.(*rsa.PublicKey)
+		if !ok {
+			return "", errors.New("公钥不是 RSA 类型")
+		}
+		pub = rp
+	} else if rp, err2 := x509.ParsePKCS1PublicKey(block.Bytes); err2 == nil {
+		pub = rp
+	} else {
+		return "", fmt.Errorf("RSA 公钥解析失败: %v", err)
+	}
+	// OPENSSL_PKCS1_OAEP_PADDING 默认 MGF1+SHA-1。
+	cipher, err := rsa.EncryptOAEP(sha1.New(), rand.Reader, pub, []byte(plain), nil)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(cipher), nil
 }
 
 // isNumeric 判断字符串是否为纯十进制数字（用于 array2Xml 决定是否 CDATA 包裹）。

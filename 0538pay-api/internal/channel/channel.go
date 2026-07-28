@@ -58,6 +58,7 @@ type CreateReq struct {
 	SubOpenID string // JSAPI 场景买家 openid
 	SubAppID  string // 微信 JSAPI 场景公众号/小程序 appid
 	AuthCode  string // 付款码支付的 auth_code（付款码前缀判定支付方式）
+	SiteName  string // 站点名称（H5 scene_info.wap_name 用，对齐 epay conf.sitename）
 	// ProfitSharing 标记本单需分账（L-7，对齐 epay wxpayn/adapay 下单时 $order['profits']>0 → settle_info.profit_sharing）。
 	// 由收单主链据 order.Profits>0 置位；支持分账的渠道下单时据此带渠道分账标记（把资金冻结在渠道待后续分账），
 	// 不支持则忽略（走本地余额层分账，对齐 K-5 未接渠道时的降级）。

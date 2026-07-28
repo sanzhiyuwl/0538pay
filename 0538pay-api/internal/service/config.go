@@ -168,6 +168,27 @@ var configDefaults = map[string]string{
 	"wework_paykfid":    "0", // 指定客服账号ID（0=多客服账号轮询）
 	"wework_contact":    "",  // 人工客服链接（选填，追加在支付消息后）
 	"wework_remark":     "",  // 支付消息尾部附加内容（选填，支持 [qq] 变量）
+	// —— 代理进件平台（自研扩展，epay 无）——
+	// 微信服务商凭证单例区 wx_partner：进件永远是"平台以服务商身份"调微信，全局唯一一套，
+	// 与将来"微信服务商模式收单"共用同一份 sp_mchid，单一数据源，绝不配两遍。
+	"wx_partner_sp_mchid":    "", // 服务商商户号 sp_mchid
+	"wx_partner_sp_appid":    "", // 服务商 appid（可选）
+	"wx_partner_serial_no":   "", // 商户证书序列号
+	"wx_partner_private_key": "", // 商户 API 私钥 PEM
+	"wx_partner_public_key":  "", // 平台证书/微信支付公钥 PEM（验签+敏感字段加密）
+	"wx_partner_public_key_id": "", // 平台公钥/证书序列号（发请求 Wechatpay-Serial 头用）
+	"wx_partner_apiv3_key":   "", // APIv3 密钥（回调 AES-GCM 解密用）
+	"wx_partner_sandbox":     "1", // 一期真跑先走沙箱：1沙箱/0生产
+	// 进件计价规则 enroll：名额批发价/开户零售价/路径二分成，全部后台可配，程序不硬编码金额。
+	"enroll_wholesale_price": "100", // 名额批发价（代理预购，路径一）
+	"enroll_retail_price":    "200", // 开户零售价（商户付的开户费）
+	"enroll_platform_share":  "100", // 路径二平台分成
+	"enroll_agent_share":     "100", // 路径二代理分成
+	"enroll_fail_refund":     "1",   // 进件失败/驳回是否退商户 1退0不退
+	"enroll_path1_charge":    "1",   // 路径一客户是否仍付开户费 1付0免（默认付）
+	"enroll_pay_timeout":     "30",  // 待支付超时关单分钟数
+	"enroll_link_expire":     "24",  // 终态事件后邀请链接有效期(小时)
+	"enroll_pay_uid":         "0",   // 进件开户费收款商户 uid（平台收款方，收开户零售价，对齐 reg_pay_uid 思路）
 }
 
 // configGroups 各系统设置分组包含的键（白名单，前端按 group 读写）。
@@ -232,6 +253,18 @@ var configGroups = map[string][]string{
 		"auto_check_notify", "check_notify_count",
 		"auto_check_sucrate", "check_sucrate_second", "check_sucrate_count", "check_sucrate_value",
 		"auto_check_channel", "check_channel_second", "check_channel_failcount", "check_channel_ids",
+	},
+	// 微信服务商凭证单例区（代理进件用，系统设置·支付设置下）
+	"wx_partner": {
+		"wx_partner_sp_mchid", "wx_partner_sp_appid", "wx_partner_serial_no",
+		"wx_partner_private_key", "wx_partner_public_key", "wx_partner_public_key_id",
+		"wx_partner_apiv3_key", "wx_partner_sandbox",
+	},
+	// 进件计价规则（代理控制台·进件设置）
+	"enroll": {
+		"enroll_wholesale_price", "enroll_retail_price", "enroll_platform_share", "enroll_agent_share",
+		"enroll_fail_refund", "enroll_path1_charge", "enroll_pay_timeout", "enroll_link_expire",
+		"enroll_pay_uid",
 	},
 }
 

@@ -27,10 +27,10 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-const (
-	APIHost     = "https://api.mch.weixin.qq.com"
-	httpTimeout = 15 * time.Second
-)
+// APIHost 微信支付 V2 网关基址（var 而非 const，便于单测用 httptest 替换）。
+var APIHost = "https://api.mch.weixin.qq.com"
+
+const httpTimeout = 15 * time.Second
 
 // 回调保留键（复用 channel 通用常量）。
 const (
@@ -127,7 +127,9 @@ func Execute(ctx context.Context, cfg channel.Config, url string, params map[str
 		return nil, fmt.Errorf("微信 V2 通信失败: %s", result["return_msg"])
 	}
 	if result["result_code"] != "SUCCESS" {
-		return nil, fmt.Errorf("微信 V2 业务失败: %s %s", result["err_code"], result["err_code_des"])
+		// 返回结构化业务错误（含 err_code），供付款码轮询/撤单据 USERPAYING/SYSTEMERROR 判定
+		// （对齐 epay WeChatPayException::getErrCode）。
+		return nil, &BizError{ErrCode: result["err_code"], ErrCodeDes: result["err_code_des"], Raw: result}
 	}
 	// 验应答签（对齐 BaseService::execute：有 sign 则校验，防伪造）。
 	if _, ok := result["sign"]; ok && !wxpayv2.CheckSign(result, cfg.Key) {
@@ -170,13 +172,41 @@ func BaseOrderParams(cfg channel.Config, req channel.CreateReq) (map[string]stri
 	}, nil
 }
 
+// BizError 微信 V2 业务错误（result_code!=SUCCESS，含 err_code），对齐 epay WeChatPayException。
+// 付款码支付据 err_code=USERPAYING/SYSTEMERROR 走轮询查单 + 撤单容错。
+type BizError struct {
+	ErrCode    string            // 业务错误码（USERPAYING/SYSTEMERROR/ORDERPAID…）
+	ErrCodeDes string            // 错误码描述
+	Raw        map[string]string // 原始应答
+}
+
+func (e *BizError) Error() string {
+	if e.ErrCodeDes != "" {
+		return e.ErrCode + " " + e.ErrCodeDes
+	}
+	return e.ErrCode
+}
+
 // QueryPaid 主动查单 /pay/orderquery，trade_state=SUCCESS 判已付（对齐 orderQuery）。
 func QueryPaid(ctx context.Context, cfg channel.Config, tradeNo string) (bool, error) {
-	result, err := Execute(ctx, cfg, APIHost+"/pay/orderquery", map[string]string{"out_trade_no": tradeNo}, false)
+	result, err := QueryOrder(ctx, cfg, tradeNo)
 	if err != nil {
 		return false, err
 	}
 	return result["trade_state"] == "SUCCESS", nil
+}
+
+// QueryOrder 主动查单 /pay/orderquery，返回完整应答（trade_state/transaction_id/openid/total_fee…）。
+// 付款码轮询用（对齐 epay orderQuery 返回全量结果供 processNotify）。
+func QueryOrder(ctx context.Context, cfg channel.Config, tradeNo string) (map[string]string, error) {
+	return Execute(ctx, cfg, APIHost+"/pay/orderquery", map[string]string{"out_trade_no": tradeNo}, false)
+}
+
+// Reverse 撤销订单 /secapi/pay/reverse（需商户证书 mTLS，对齐 epay PaymentService::reverse）。
+// 付款码轮询超时后撤单，避免掉单（用户后续再扫无法重复扣款）。
+func Reverse(ctx context.Context, cfg channel.Config, tradeNo string) error {
+	_, err := Execute(ctx, cfg, APIHost+"/secapi/pay/reverse", map[string]string{"out_trade_no": tradeNo}, true)
+	return err
 }
 
 // ParseNotify 支付结果回调解析（对齐 PaymentService::notify）：解析 XML → 验签 → 判 return_code。
@@ -296,6 +326,211 @@ func BuildAppParams(cfg channel.Config, prepayID string) (map[string]string, err
 	}
 	params["sign"] = wxpayv2.MakeSign(params, cfg.Key)
 	return params, nil
+}
+
+// ---- 企业付款（V2 mmpaymkttransfers/mmpaysptrans，对齐 epay wechatpay-sdk TransferService）----
+//
+// V2 企业付款的公共参数与统一下单不同：仅 nonce_str（到零钱额外带 mch_appid/mchid，到银行卡带 mch_id），
+// 均需商户证书 mTLS，且响应不带 sign（execCert 不验应答签）。故不复用 PublicParams/Execute。
+
+// Transfer 企业付款到零钱 /mmpaymkttransfers/promotion/transfers（对齐 TransferService::transfer）。
+// req.Account 为收款用户 openid；req.Name 非空则强制实名校验（check_name=FORCE_CHECK）。
+func Transfer(ctx context.Context, cfg channel.Config, req channel.TransferReq) (channel.TransferResp, error) {
+	if cfg.AppID == "" || cfg.MchID == "" || cfg.Key == "" {
+		return channel.TransferResp{}, fmt.Errorf("企业付款缺少 appid/mch_id/apikey")
+	}
+	if req.Account == "" {
+		return channel.TransferResp{}, fmt.Errorf("企业付款到零钱缺少收款用户 openid")
+	}
+	nonce, err := wxpayv2.NonceStr(32)
+	if err != nil {
+		return channel.TransferResp{}, err
+	}
+	params := map[string]string{
+		"mch_appid":        cfg.AppID,
+		"mchid":            cfg.MchID,
+		"nonce_str":        nonce,
+		"partner_trade_no": req.OutBizNo,
+		"openid":           req.Account,
+		"amount":           YuanToFenStr(req.Money),
+		"desc":             defaultStr(req.Remark, "企业付款"),
+	}
+	if req.Name != "" {
+		params["check_name"] = "FORCE_CHECK"
+		params["re_user_name"] = req.Name
+	}
+	result, err := execCert(ctx, cfg, APIHost+"/mmpaymkttransfers/promotion/transfers", params)
+	if err != nil {
+		return channel.TransferResp{}, err
+	}
+	// 到零钱成功即视为付款成功（同步返回 payment_no/payment_time）。
+	return channel.TransferResp{
+		TransferNo: result["payment_no"],
+		Status:     1,
+		Message:    result["payment_time"],
+	}, nil
+}
+
+// TransferToBank 企业付款到银行卡 /mmpaysptrans/pay_bank（对齐 TransferService::transferToBank）。
+// 卡号/姓名用微信 RSA 公钥 OAEP 加密；bank_code 由银行卡号推导。
+// RSA 公钥取 cfg.Extra["wx_pubkey"]（PEM），为空则报错提示先获取（对齐 epay publickey_path 文件缓存）。
+func TransferToBank(ctx context.Context, cfg channel.Config, req channel.TransferReq, bankCode string) (channel.TransferResp, error) {
+	if cfg.MchID == "" || cfg.Key == "" {
+		return channel.TransferResp{}, fmt.Errorf("企业付款到银行卡缺少 mch_id/apikey")
+	}
+	pubPEM := cfg.ExtraOr("wx_pubkey", "")
+	if pubPEM == "" {
+		return channel.TransferResp{}, fmt.Errorf("企业付款到银行卡缺少 RSA 加密公钥（wx_pubkey），请先在微信商户平台获取")
+	}
+	encBankNo, err := wxpayv2.RSAEncryptOAEP(req.Account, pubPEM)
+	if err != nil {
+		return channel.TransferResp{}, fmt.Errorf("银行卡号加密失败: %w", err)
+	}
+	encName, err := wxpayv2.RSAEncryptOAEP(req.Name, pubPEM)
+	if err != nil {
+		return channel.TransferResp{}, fmt.Errorf("收款人姓名加密失败: %w", err)
+	}
+	nonce, err := wxpayv2.NonceStr(32)
+	if err != nil {
+		return channel.TransferResp{}, err
+	}
+	params := map[string]string{
+		"mch_id":           cfg.MchID,
+		"nonce_str":        nonce,
+		"partner_trade_no": req.OutBizNo,
+		"enc_bank_no":      encBankNo,
+		"enc_true_name":    encName,
+		"bank_code":        bankCode,
+		"amount":           YuanToFenStr(req.Money),
+		"desc":             defaultStr(req.Remark, "企业付款"),
+	}
+	result, err := execCert(ctx, cfg, APIHost+"/mmpaysptrans/pay_bank", params)
+	if err != nil {
+		return channel.TransferResp{}, err
+	}
+	// 到银行卡受理成功但到账异步，返回处理中（对齐 epay：需 queryBank 查最终状态）。
+	return channel.TransferResp{
+		TransferNo: result["payment_no"],
+		Status:     0,
+		Message:    result["cmms_amt"],
+	}, nil
+}
+
+// TransferQuery 查询企业付款到零钱状态 /mmpaymkttransfers/gettransferinfo（对齐 transferQuery）。
+func TransferQuery(ctx context.Context, cfg channel.Config, outBizNo string) (channel.TransferResp, error) {
+	if cfg.AppID == "" || cfg.MchID == "" {
+		return channel.TransferResp{}, fmt.Errorf("企业付款查询缺少 appid/mch_id")
+	}
+	nonce, err := wxpayv2.NonceStr(32)
+	if err != nil {
+		return channel.TransferResp{}, err
+	}
+	params := map[string]string{
+		"mch_appid":        cfg.AppID,
+		"mchid":            cfg.MchID,
+		"nonce_str":        nonce,
+		"partner_trade_no": outBizNo,
+	}
+	result, err := execCert(ctx, cfg, APIHost+"/mmpaymkttransfers/gettransferinfo", params)
+	if err != nil {
+		return channel.TransferResp{}, err
+	}
+	return channel.TransferResp{
+		TransferNo: result["detail_id"],
+		Status:     transferBankStatus(result["status"]),
+		Message:    result["reason"],
+	}, nil
+}
+
+// QueryBank 查询企业付款到银行卡状态 /mmpaysptrans/query_bank（对齐 queryBank）。
+func QueryBank(ctx context.Context, cfg channel.Config, outBizNo string) (channel.TransferResp, error) {
+	if cfg.MchID == "" {
+		return channel.TransferResp{}, fmt.Errorf("企业付款到银行卡查询缺少 mch_id")
+	}
+	nonce, err := wxpayv2.NonceStr(32)
+	if err != nil {
+		return channel.TransferResp{}, err
+	}
+	params := map[string]string{
+		"mch_id":           cfg.MchID,
+		"nonce_str":        nonce,
+		"partner_trade_no": outBizNo,
+	}
+	result, err := execCert(ctx, cfg, APIHost+"/mmpaysptrans/query_bank", params)
+	if err != nil {
+		return channel.TransferResp{}, err
+	}
+	return channel.TransferResp{
+		TransferNo: result["payment_no"],
+		Status:     transferBankStatus(result["status"]),
+		Message:    result["reason"],
+	}, nil
+}
+
+// bankCodeMap 银行英文简码 → 微信企业付款到银行卡 bank_code（对齐 epay wxpay/inc/bankcode.json）。
+var bankCodeMap = map[string]string{
+	"ICBC": "1002", "ABC": "1005", "CCB": "1003", "BOC": "1026", "COMM": "1020",
+	"CMB": "1001", "PSBC": "1066", "CMBC": "1006", "SPABANK": "1010", "CITIC": "1021",
+	"SPDB": "1004", "CIB": "1009", "CEB": "1022", "GDB": "1027", "HXBANK": "1025",
+	"NBBANK": "1056", "BJBANK": "4836", "SHBANK": "1024", "NJCB": "1054", "RHCZBANK": "4755",
+	"CSCB": "4216", "ZJTLCB": "4051", "ZYB": "4753", "IBK": "4761", "SDEB": "4036",
+	"HSBK": "4752", "CZCCB": "4756", "DTCBANK": "4767", "HNRCU": "4115", "NXRCU": "4150",
+	"SXRCU": "4156", "ARCU": "4166", "GSRCU": "4157", "TRCB": "4153", "GXRCU": "4113",
+	"SXRCCU": "4108", "SRCB": "4076", "NBYZ": "4052", "ZJNX": "4764", "JSRCU": "4217",
+	"JZRCBANK": "4072", "ZGCBANK": "4769", "DBS": "4778", "ZZYH": "4766", "UBCHN": "4758",
+	"NYSYBANK": "4763",
+}
+
+// BankCode 按银行英文简码取微信 bank_code（对齐 epay getBankCode）；未知返回空串。
+// 调用方（transfer 主链）据卡号 BIN 解析出银行简码后传入。
+func BankCode(bankAbbr string) string { return bankCodeMap[strings.ToUpper(bankAbbr)] }
+
+// transferBankStatus 微信付款状态 → 统一 status（0处理中/1成功/2失败，对齐 epay transfer_query）。
+func transferBankStatus(status string) int8 {
+	switch status {
+	case "SUCCESS":
+		return 1
+	case "FAILED", "BANK_FAIL", "CLOSED":
+		return 2
+	default: // PROCESSING/WAITING 等
+		return 0
+	}
+}
+
+// execCert V2 企业付款专用请求：merge nonce_str 已由调用方带入，签名后 mTLS POST，
+// 判 return_code/result_code=SUCCESS（企业付款响应无 sign，不验应答签，对齐 SDK execute 分支）。
+func execCert(ctx context.Context, cfg channel.Config, url string, params map[string]string) (map[string]string, error) {
+	params["sign"] = wxpayv2.MakeSign(params, cfg.Key)
+	reqXML := wxpayv2.MapToXML(params)
+	client, err := httpClient(cfg, true)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(reqXML))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "text/xml")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("微信 V2 企业付款请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	result, err := wxpayv2.XMLToMap(string(respBody))
+	if err != nil {
+		return nil, fmt.Errorf("微信 V2 企业付款应答解析失败: %w (原文 %s)", err, string(respBody))
+	}
+	if result["return_code"] != "SUCCESS" {
+		return nil, fmt.Errorf("微信 V2 企业付款通信失败: %s", result["return_msg"])
+	}
+	if result["result_code"] != "SUCCESS" {
+		return nil, &BizError{ErrCode: result["err_code"], ErrCodeDes: result["err_code_des"], Raw: result}
+	}
+	return result, nil
 }
 
 // MicroPay 付款码支付 /pay/micropay（对齐 PaymentService::microPay）。同步返回支付结果（无异步回调）。

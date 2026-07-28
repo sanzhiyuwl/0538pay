@@ -72,6 +72,13 @@ func AutoMigrate(db *gorm.DB) error {
 		&Article{},
 		&OperationLog{},
 		&Role{},
+		// 代理进件平台（自研扩展，epay 无）
+		&Agent{},
+		&AgentQuotaWallet{},
+		&AgentQuotaLog{},
+		&SubMerchantEnroll{},
+		&EnrollInvite{},
+		&EnrollSettleLog{},
 	); err != nil {
 		return err
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"regexp"
 	"strconv"
@@ -55,6 +56,7 @@ type PayService struct {
 	subchannels *repository.SubChannelRepo // 子通道（可空；SetSubChannelRepo 注入。B1-34 下单/退款子通道占位覆盖用）
 	weixins     *repository.WeixinRepo     // 微信公众号（可空；SetWeixinRepo 注入。JSAPI 收银台网页授权换 openid 用）
 	regPayHook func(param string) error   // B1-51 付费注册 tid=1 回调建号钩子（可空；SetRegPayHook 注入，避免与 reg 服务循环依赖）
+	enrollPayHook func(param string) error // 代理进件 tid=6 开户费收款成功放行钩子（可空；SetEnrollPayHook 注入，避免与 enroll 服务循环依赖）
 }
 
 // SetWeixinRepo 注入微信公众号仓储（JSAPI 收银台网页授权：据通道绑定公众号 appwxmp 取 appid/appsecret 换 openid）。
@@ -64,6 +66,10 @@ func (s *PayService) SetWeixinRepo(r *repository.WeixinRepo) { s.weixins = r }
 // SetRegPayHook 注入付费注册回调建号钩子（B1-51）。tid=1 注册费订单支付成功后调用，参数为订单 param（注册信息 JSON）。
 // nil 则 tid=1 订单支付后不建号（向后兼容 reg_pay=0）。
 func (s *PayService) SetRegPayHook(f func(param string) error) { s.regPayHook = f }
+
+// SetEnrollPayHook 注入代理进件开户费收款放行钩子。tid=6 开户费订单支付成功后调用，参数为订单 param（含进件单号）。
+// nil 则 tid=6 订单支付后不放行（向后兼容未启用进件平台）。
+func (s *PayService) SetEnrollPayHook(f func(param string) error) { s.enrollPayHook = f }
 
 // SetNoticeService 注入对外通知中枢（K-1）。支付成功后发 order 场景通知（微信/邮件/短信）。
 // nil 则不发对外通知（不影响商户异步回调 do_notify）。
@@ -1428,6 +1434,10 @@ func (s *PayService) dispatch(ctx context.Context, o *model.Order, payType strin
 		// settle_info.profit_sharing（对齐 epay wxpayn/adapay）；不支持的渠道忽略，走本地余额层分账。
 		ProfitSharing: o.Profits > 0,
 	}
+	// 站点名（H5 scene_info.wap_name 用，对齐 epay conf.sitename）。
+	if s.cfg != nil {
+		req.SiteName = s.cfg.Str("sitename")
+	}
 	// apptype 透传（对齐 epay getSubmitInfo 返回 apptype → 插件按 in_array($apptype) 分派 JSAPI/H5/扫码）。
 	// 优先取 scene 里选通道时定的 apptype；否则读所选通道的 apptype（Fill/Query 复用路径）。
 	if at := s.resolveApptype(o, scene...); at != "" {
@@ -1442,6 +1452,11 @@ func (s *PayService) dispatch(ctx context.Context, o *model.Order, payType strin
 	cr, err := ch.Create(ctx, cfg, req)
 	if err != nil {
 		return nil, payErr("渠道下单失败：" + err.Error())
+	}
+	// 付款码(scan)同步支付：渠道已拿到支付成功结果（无异步回调），需在此走幂等改单+入账+通知
+	//（对齐 epay wxpay scanpay 成功后 processNotify）。据渠道回传 paid=1 判定。
+	if string(cr.PayType) == "scan" {
+		s.settleScanPaid(ctx, o, cr.RawHTML)
 	}
 	// 回填收银台渲染信息（二维码/支付链接），供 GET /pay/order/:trade_no 展示。
 	// 优先存 QRCode，其次 PayURL；失败不阻断下单（仅影响收银台展示，可重新下单）。
@@ -1459,6 +1474,32 @@ func (s *PayService) dispatch(ctx context.Context, o *model.Order, payType strin
 		RawHTML:    cr.RawHTML,
 		Money:      money.String(o.Money),
 	}, nil
+}
+
+// settleScanPaid 付款码同步支付成功后的入账闭环（对齐 epay wxpay scanpay 内 processNotify）。
+// 付款码无异步回调，支付结果在下单同步返回，故这里直接走与回调一致的幂等改单+入账+通知。
+// rawHTML 为渠道回传的 JSON（含 paid/transaction_id/openid）；paid≠1 时不入账（如未拿到同步结果）。
+func (s *PayService) settleScanPaid(ctx context.Context, o *model.Order, rawHTML string) {
+	var payload struct {
+		Paid          string `json:"paid"`
+		TransactionID string `json:"transaction_id"`
+		OpenID        string `json:"openid"`
+	}
+	if json.Unmarshal([]byte(rawHTML), &payload) != nil || payload.Paid != "1" {
+		return
+	}
+	// 幂等改单：仅未终态→已付翻转一次（与异步回调同一条件 UPDATE，防并发重复入账）。
+	flipped, err := s.orders.MarkPaid(o.TradeNo, payload.TransactionID, payload.OpenID, time.Now())
+	if err != nil {
+		log.Printf("[pay] 付款码订单 %s 同步改单失败: %v", o.TradeNo, err)
+		return
+	}
+	if !flipped {
+		return // 已终态（如重复提交），不重复入账
+	}
+	if err := s.settle(ctx, o.TradeNo); err != nil {
+		log.Printf("[pay] 付款码订单 %s 同步入账失败: %v", o.TradeNo, err)
+	}
 }
 
 // resolveOrderName 计算发给渠道的商品名（对齐 epay Plugin loadForSubmit + ordername_replace）：

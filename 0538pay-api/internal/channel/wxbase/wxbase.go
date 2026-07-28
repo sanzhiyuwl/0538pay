@@ -33,7 +33,24 @@ const (
 	KeySignature = channel.RawSignature
 	KeyTimestamp = channel.RawTimestamp
 	KeyNonce     = channel.RawNonce
+	KeySerial    = channel.RawSerial
 )
+
+// verifyNotifySerial 校验回调证书序列号（对齐微信官方「验签前先校验平台证书序列号」规范）：
+// Wechatpay-Serial 头标识本次回调由哪张平台证书/公钥签名。若商户配置了期望的平台序列号
+// （Extra["platform_serial"]），则头部序列号必须一致，否则拒绝（防证书轮换错配 / 非本商户平台证书）。
+// 未配置期望序列号时不阻断（签名验证已保证密码学真实性），仅做可选加固。
+func verifyNotifySerial(cfg channel.Config, raw map[string]string) error {
+	expected := cfg.ExtraOr("platform_serial", "")
+	if expected == "" {
+		return nil
+	}
+	got := raw[KeySerial]
+	if got != "" && !strings.EqualFold(strings.TrimSpace(got), strings.TrimSpace(expected)) {
+		return fmt.Errorf("回调证书序列号不匹配：期望 %s，实际 %s，拒绝处理", expected, got)
+	}
+	return nil
+}
 
 // YuanToFen 元→分（四舍五入）。
 func YuanToFen(yuan decimal.Decimal) int64 {
@@ -271,6 +288,9 @@ func ParseNotify(cfg channel.Config, raw map[string]string) (channel.NotifyResul
 	if cfg.PublicKey == "" {
 		return channel.NotifyResult{}, fmt.Errorf("微信通道未配置平台公钥，无法验证回调签名，拒绝处理")
 	}
+	if err := verifyNotifySerial(cfg, raw); err != nil {
+		return channel.NotifyResult{}, err
+	}
 	pub, err := wxpayv3.ParsePublicKey(cfg.PublicKey)
 	if err != nil {
 		return channel.NotifyResult{}, fmt.Errorf("解析平台公钥失败: %w", err)
@@ -415,9 +435,13 @@ func CombineQuery(ctx context.Context, cfg channel.Config, combineOutTradeNo str
 	return true, nil
 }
 
-// MchTransfer 发起商家转账到零钱（对齐 epay V3 TransferService::mchTransfer，
+// MchTransfer 发起商家转账到零钱（对齐 epay V3 TransferService::mchTransfer + wxpayn transfer_n，
 // POST /v3/fund-app/mch-transfer/transfer-bills，需商户证书签名）。
 // TransferReq.Account 为收款用户 openid；transfer_scene_id 从 Extra["transfer_scene_id"] 取（默认 1000 现金营销）。
+// 对齐 epay transfer_n（wxpayn_plugin.php:737-748）补齐：
+//   - transfer_scene_report_infos：转账场景报备信息（Extra["report_infos"] 为 JSON 数组串，微信硬要求）；
+//   - notify_url：转账结果回调地址（Extra["transfer_notify_url"]）；
+//   - user_name：金额≥30 分且有实名时用平台公钥 RSA-OAEP 加密（对齐 epay $client->rsaEncrypt）。
 func MchTransfer(ctx context.Context, cfg channel.Config, req channel.TransferReq) (channel.TransferResp, error) {
 	if cfg.AppID == "" {
 		return channel.TransferResp{}, fmt.Errorf("商家转账缺少 appid 配置")
@@ -429,16 +453,31 @@ func MchTransfer(ctx context.Context, cfg channel.Config, req channel.TransferRe
 	if remark == "" {
 		remark = "转账"
 	}
+	amountFen := YuanToFen(req.Money)
 	body := map[string]interface{}{
-		"appid":          cfg.AppID,
-		"out_bill_no":    req.OutBizNo,
-		"transfer_scene_id": cfg.ExtraOr("transfer_scene_id", "1000"),
-		"openid":         req.Account,
-		"transfer_amount": YuanToFen(req.Money),
-		"transfer_remark": remark,
+		"appid":             cfg.AppID,
+		"out_bill_no":       req.OutBizNo,
+		"transfer_scene_id": transferSceneID(cfg, req),
+		"openid":            req.Account,
+		"transfer_amount":   amountFen,
+		"transfer_remark":   remark,
 	}
-	if name := req.Name; name != "" {
-		body["user_name"] = name // 金额≥2000 或场景要求时需传实名（此处调用方已加密则放 Extra）
+	// 转账场景报备信息（对齐 epay transfer_scene_report_infos，微信要求按场景报备用途）。
+	// Extra["report_infos"] 为 JSON 数组串，如 [{"info_type":"活动名称","info_content":"..."}]。
+	if ri := reportInfos(cfg, req); ri != nil {
+		body["transfer_scene_report_infos"] = ri
+	}
+	// 转账结果回调地址（对齐 epay notify_url=pay/transfernotify/{channel_id}/）。
+	if nu := transferNotifyURL(cfg, req); nu != "" {
+		body["notify_url"] = nu
+	}
+	// 金额≥30 分且有实名 → 平台公钥 RSA-OAEP 加密实名（对齐 epay:745-747 transfer_amount>=30 && payee_real_name）。
+	if req.Name != "" && amountFen >= 30 {
+		enc, err := encryptUserName(cfg, req.Name)
+		if err != nil {
+			return channel.TransferResp{}, err
+		}
+		body["user_name"] = enc
 	}
 	b, _ := json.Marshal(body)
 	respBody, status, err := DoRequest(ctx, cfg, "POST", "/v3/fund-app/mch-transfer/transfer-bills", string(b))
@@ -462,6 +501,117 @@ func MchTransfer(ctx context.Context, cfg channel.Config, req channel.TransferRe
 		Message:    r.FailReason,
 		ProofURL:   r.PackageInfo, // 用户需在微信内点 package_info 领取
 	}, nil
+}
+
+// transferSceneID 取转账场景 ID：优先 req.Extra，其次 cfg.Extra，默认 1000（现金营销）。
+func transferSceneID(cfg channel.Config, req channel.TransferReq) string {
+	if req.Extra != nil && req.Extra["transfer_scene_id"] != "" {
+		return req.Extra["transfer_scene_id"]
+	}
+	return cfg.ExtraOr("transfer_scene_id", "1000")
+}
+
+// reportInfos 解析转账场景报备信息 JSON 数组串（优先 req.Extra，其次 cfg.Extra）。解析失败/为空返回 nil。
+func reportInfos(cfg channel.Config, req channel.TransferReq) []map[string]string {
+	raw := ""
+	if req.Extra != nil && req.Extra["report_infos"] != "" {
+		raw = req.Extra["report_infos"]
+	} else {
+		raw = cfg.ExtraOr("report_infos", "")
+	}
+	if raw == "" {
+		return nil
+	}
+	var infos []map[string]string
+	if json.Unmarshal([]byte(raw), &infos) != nil || len(infos) == 0 {
+		return nil
+	}
+	return infos
+}
+
+// transferNotifyURL 取转账结果回调地址（优先 req.Extra，其次 cfg.Extra）。
+func transferNotifyURL(cfg channel.Config, req channel.TransferReq) string {
+	if req.Extra != nil && req.Extra["transfer_notify_url"] != "" {
+		return req.Extra["transfer_notify_url"]
+	}
+	return cfg.ExtraOr("transfer_notify_url", "")
+}
+
+// encryptUserName 用平台公钥 RSA-OAEP 加密收款人实名（对齐 epay V3 rsaEncrypt）。
+// 平台公钥优先取 Extra["platform_public_key"]，其次 cfg.PublicKey。
+func encryptUserName(cfg channel.Config, name string) (string, error) {
+	pubPEM := cfg.ExtraOr("platform_public_key", cfg.PublicKey)
+	if pubPEM == "" {
+		return "", fmt.Errorf("商家转账实名加密缺少平台公钥（platform_public_key）")
+	}
+	return wxpayv3.EncryptOAEP(name, pubPEM)
+}
+
+// CancelTransfer 撤销商家转账单（对齐 epay V3 TransferService::cancelTransfer，
+// POST /v3/fund-app/mch-transfer/transfer-bills/out-bill-no/{out_bill_no}/cancel）。
+func CancelTransfer(ctx context.Context, cfg channel.Config, outBizNo string) (channel.TransferResp, error) {
+	path := "/v3/fund-app/mch-transfer/transfer-bills/out-bill-no/" + outBizNo + "/cancel"
+	respBody, status, err := DoRequest(ctx, cfg, "POST", path, "")
+	if err != nil {
+		return channel.TransferResp{}, err
+	}
+	if status < 200 || status >= 300 {
+		return channel.TransferResp{}, fmt.Errorf("撤销商家转账返回 %d: %s", status, string(respBody))
+	}
+	var r struct {
+		OutBillNo      string `json:"out_bill_no"`
+		TransferBillNo string `json:"transfer_bill_no"`
+		State          string `json:"state"`
+	}
+	_ = json.Unmarshal(respBody, &r)
+	// 撤销受理成功后状态一般为 CANCELLING/CANCELLED，统一映射为失败（转账未成功）。
+	return channel.TransferResp{
+		TransferNo: r.TransferBillNo,
+		Status:     transferState(r.State),
+	}, nil
+}
+
+// ParseTransferNotify 解析商家转账结果回调（对齐 epay wxpayn transfernotify）：
+// 复用支付回调同一套验签 + AES-256-GCM 解密，业务对象取转账单状态 state/out_bill_no/transfer_bill_no。
+// 返回 (outBizNo, transferBillNo, status, error)。status 语义同 transferState。
+func ParseTransferNotify(cfg channel.Config, raw map[string]string) (outBizNo, transferBillNo string, status int8, err error) {
+	body := raw[KeyBody]
+	if body == "" {
+		return "", "", 0, fmt.Errorf("转账回调报文为空")
+	}
+	if cfg.PublicKey == "" {
+		return "", "", 0, fmt.Errorf("微信通道未配置平台公钥，无法验证转账回调签名，拒绝处理")
+	}
+	if e := verifyNotifySerial(cfg, raw); e != nil {
+		return "", "", 0, e
+	}
+	pub, e := wxpayv3.ParsePublicKey(cfg.PublicKey)
+	if e != nil {
+		return "", "", 0, fmt.Errorf("解析平台公钥失败: %w", e)
+	}
+	if e := wxpayv3.VerifySignature(pub, raw[KeyTimestamp], raw[KeyNonce], body, raw[KeySignature]); e != nil {
+		return "", "", 0, e
+	}
+	var env notifyEnvelope
+	if e := json.Unmarshal([]byte(body), &env); e != nil {
+		return "", "", 0, fmt.Errorf("转账回调报文解析失败: %w", e)
+	}
+	if env.Resource.Ciphertext == "" {
+		return "", "", 0, fmt.Errorf("转账回调缺少密文")
+	}
+	plain, e := wxpayv3.DecryptAESGCM(cfg.Key, env.Resource.Nonce, env.Resource.AssociatedData, env.Resource.Ciphertext)
+	if e != nil {
+		return "", "", 0, e
+	}
+	var res struct {
+		OutBillNo      string `json:"out_bill_no"`
+		TransferBillNo string `json:"transfer_bill_no"`
+		State          string `json:"state"`
+	}
+	if e := json.Unmarshal(plain, &res); e != nil {
+		return "", "", 0, fmt.Errorf("转账回调业务对象解析失败: %w", e)
+	}
+	return res.OutBillNo, res.TransferBillNo, transferState(res.State), nil
 }
 
 // MchTransferQuery 查询转账单（对齐 TransferService::queryTransferByOutNo）。

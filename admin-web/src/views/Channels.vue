@@ -219,12 +219,15 @@ const typeMethod: Record<number, string> = { 1: 'alipay', 2: 'wxpay', 3: 'qqpay'
 // 按当前 type 联动插件候选：数据源为后端 /channels/plugins 真实注册渠道（单一数据源，
 // 替代旧的前端硬编码 pluginsByType）。按渠道声明的 methods 过滤出支持当前支付方式的渠道，
 // 排除测试桩 mock。label 用后端中文名 showname，按品牌+形态可辨识。
+// 插件功能设置里被禁用（enabled=false）的渠道不出现在新增候选里（对齐用户预期：关了就别再让人选）；
+// 但编辑已有通道时，若当前选中的插件恰被禁用，仍保留它以免下拉丢当前值。
 const pluginOptions = computed(() => {
   const method = typeMethod[form.type]
   return Object.values(pluginMeta.value)
     .filter((m) => m.key !== 'mock' && (m.methods || []).includes(method))
+    .filter((m) => m.enabled || m.key === form.plugin)
     .sort((a, b) => (a.brand + a.protocol + a.form).localeCompare(b.brand + b.protocol + b.form))
-    .map((m) => ({ value: m.key, label: `${m.showname} (${m.key})` }))
+    .map((m) => ({ value: m.key, label: m.enabled ? `${m.showname} (${m.key})` : `${m.showname} (${m.key})（已禁用）` }))
 })
 
 function resetForm() {
@@ -237,6 +240,7 @@ function resetForm() {
 function openCreate() {
   editingId.value = null
   resetForm()
+  loadPluginMeta() // 刷新插件启用状态，确保刚在插件功能设置里禁用的渠道不再出现在候选
   channelDrawer.value = true
 }
 

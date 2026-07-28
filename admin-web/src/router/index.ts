@@ -62,12 +62,13 @@ const Roles = () => import('@/views/Roles.vue')
 const OpLogs = () => import('@/views/OpLogs.vue')
 const MerchantOpLogs = () => import('@/views/MerchantOpLogs.vue')
 
-// —— 控制台（懒加载）——
-const Console = () => import('@/views/Console.vue')
-const ConsolePlans = () => import('@/views/ConsolePlans.vue')
-const ConsoleBilling = () => import('@/views/ConsoleBilling.vue')
-const ConsoleOverview = () => import('@/views/ConsoleOverview.vue')
-const ConsoleLogs = () => import('@/views/ConsoleLogs.vue')
+// —— 代理控制台（懒加载）——
+const ConsoleAgents = () => import('@/views/console/ConsoleAgents.vue')
+const ConsoleQuota = () => import('@/views/console/ConsoleQuota.vue')
+const ConsoleEnroll = () => import('@/views/console/ConsoleEnroll.vue')
+const ConsoleInvites = () => import('@/views/console/ConsoleInvites.vue')
+const ConsoleSettlement = () => import('@/views/console/ConsoleSettlement.vue')
+const ConsoleSettings = () => import('@/views/console/ConsoleSettings.vue')
 
 // —— 商户中心（懒加载）——
 const MerchantLogin = () => import('@/views/merchant/MerchantLogin.vue')
@@ -186,13 +187,14 @@ const realPages: Record<string, any> = {
   '/admin/docs-content': DocsContent,
 }
 
-// 控制台独立后台的正式页面（其余子页暂用占位）
+// 代理控制台正式页面（path → 组件，改 consoleNav + 此表路由自动跟着变）
 const consolePages: Record<string, any> = {
-  '/console': Console,
-  '/console/plans': ConsolePlans,
-  '/console/billing': ConsoleBilling,
-  '/console/overview': ConsoleOverview,
-  '/console/logs': ConsoleLogs,
+  '/console': ConsoleAgents,
+  '/console/quota': ConsoleQuota,
+  '/console/enroll': ConsoleEnroll,
+  '/console/invites': ConsoleInvites,
+  '/console/settlement': ConsoleSettlement,
+  '/console/settings': ConsoleSettings,
 }
 
 // 主后台子路由（父 path=/admin，children 用相对路径）。排除首页 /admin 与控制台。

@@ -3,8 +3,13 @@ package wxpayv2
 import (
 	"crypto/aes"
 	"crypto/md5"
+	crand "crypto/rand"
+	"crypto/rsa"
+	"crypto/sha1"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"testing"
 )
 
@@ -174,4 +179,45 @@ func bytesRepeat(b byte, n int) []byte {
 		out[i] = b
 	}
 	return out
+}
+
+// TestRSAEncryptOAEP 自生成 RSA 密钥对，用 RSAEncryptOAEP（对齐 epay OPENSSL_PKCS1_OAEP_PADDING）加密银行卡号，
+// 再用私钥 OAEP(SHA-1) 解密验回，确认加密原语可用（企业付款到银行卡加密卡号/姓名）。
+func TestRSAEncryptOAEP(t *testing.T) {
+	key, err := rsa.GenerateKey(crand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubPEM := string(pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: mustMarshalPKIX(t, &key.PublicKey),
+	}))
+	plain := "6222020200112233445"
+	encB64, err := RSAEncryptOAEP(plain, pubPEM)
+	if err != nil {
+		t.Fatalf("加密失败: %v", err)
+	}
+	cipher, err := base64.StdEncoding.DecodeString(encB64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec, err := rsa.DecryptOAEP(sha1.New(), crand.Reader, key, cipher, nil)
+	if err != nil {
+		t.Fatalf("解密失败: %v", err)
+	}
+	if string(dec) != plain {
+		t.Fatalf("OAEP 往返不一致: 得 %q 期望 %q", string(dec), plain)
+	}
+	// 非法 PEM 应报错
+	if _, err := RSAEncryptOAEP("x", "not-a-pem"); err == nil {
+		t.Fatal("非法公钥应报错")
+	}
+}
+
+func mustMarshalPKIX(t *testing.T, pub *rsa.PublicKey) []byte {
+	b, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

@@ -171,6 +171,14 @@ func main() {
 	opLogSvc := service.NewOpLogService(repository.NewOpLogRepo(db))
 	// 后台角色管理（RBAC 增强，我方独有）。
 	roleSvc := service.NewRoleService(repository.NewRoleRepo(db))
+	// 代理进件平台（自研扩展，epay 无）：代理域 + 进件域 + 特约商户进件（微信服务商 APIv3）。
+	agentSvc := service.NewAgentService(repository.NewAgentRepo(db))
+	enrollSvc := service.NewEnrollService(repository.NewEnrollRepo(db), configSvc)
+	submchSvc := service.NewSubMerchantService(configSvc) // 特约商户进件微信接口（提交/查状态）
+	enrollSvc.SetSubMerchant(submchSvc)                    // 注入：提交微信 + 查申请单状态
+	enrollSvc.SetAgentRepo(agentSvc.Repo())               // 注入：路径一进件成功扣名额
+	enrollSvc.SetPayService(paySvc)                        // 注入：付费前置下开户费收款单
+	paySvc.SetEnrollPayHook(enrollSvc.FinalizeEnrollPay)   // tid=6 开户费收款成功放行进件单填料
 	// 文章管理（对齐 epay article.php pre_article 行表 CRUD）。
 	articleSvc := service.NewArticleService(repository.NewArticleRepo(db))
 	// 数据清理（对齐 epay clean.php）。
@@ -188,6 +196,7 @@ func main() {
 	sch.SetRiskAuto(riskAutoSvc)  // 风控自动关停（对齐 epay cron do=check）
 	sch.SetMaintenanceRepos(regCodeRepo, blacklistRepo) // B-7 清理过期验证码/黑名单
 	sch.SetChannelRepo(channelRepo) // 单日限额 daystatus 每日重置（对齐 epay cron.php:152）
+	sch.SetEnrollService(enrollSvc) // 代理进件超时关单 + 邀请链接过期（随超时关单任务一起跑）
 	// V2 REST 接口族（mapi）：统一验签 + 回包 RSA 签名，复用 Pay/Transfer 核心。
 	refundOrderRepo := repository.NewRefundOrderRepo(db)
 	orderSvc.SetRefundRepo(refundOrderRepo)          // 后台 API 退款落 pay_refundorder（对齐 epay Order::refund api=1）
@@ -268,6 +277,7 @@ func main() {
 		OpLog:     handler.NewOpLogHandler(opLogSvc),
 		OpLogSvc:  opLogSvc,
 		Role:      handler.NewRoleHandler(roleSvc),
+		Console:   handler.NewConsoleHandler(agentSvc, enrollSvc),
 	}
 
 	// 4. 定时任务（阶段E）：通知重试 + 对账 + 超时关单 + 自动结算 + 分账 + 风控。

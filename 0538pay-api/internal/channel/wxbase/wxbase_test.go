@@ -315,3 +315,31 @@ func TestParseNotifyMissingPublicKey(t *testing.T) {
 		t.Fatal("未配置平台公钥应拒绝回调，而非放行")
 	}
 }
+
+// TestParseNotifySerialCheck 校验平台证书序列号：配了期望序列号且回调头不匹配时拒绝，匹配/未配则放行。
+func TestParseNotifySerialCheck(t *testing.T) {
+	key := "01234567890123456789012345678901"
+
+	// 未配期望序列号 → 头部有值也不阻断
+	cfg, raw := makeNotify(t, key, "20260728100", "SUCCESS", 10000)
+	raw[KeySerial] = "WHATEVER"
+	if _, err := ParseNotify(cfg, raw); err != nil {
+		t.Fatalf("未配期望序列号不应阻断: %v", err)
+	}
+
+	// 配了期望序列号，头部一致（大小写无关）→ 放行
+	cfg, raw = makeNotify(t, key, "20260728101", "SUCCESS", 10000)
+	cfg.Extra = map[string]string{"platform_serial": "ABC123"}
+	raw[KeySerial] = "abc123"
+	if _, err := ParseNotify(cfg, raw); err != nil {
+		t.Fatalf("序列号一致应放行: %v", err)
+	}
+
+	// 配了期望序列号，头部不一致 → 拒绝
+	cfg, raw = makeNotify(t, key, "20260728102", "SUCCESS", 10000)
+	cfg.Extra = map[string]string{"platform_serial": "ABC123"}
+	raw[KeySerial] = "XYZ999"
+	if _, err := ParseNotify(cfg, raw); err == nil {
+		t.Fatal("序列号不匹配应拒绝回调")
+	}
+}
