@@ -228,6 +228,21 @@ func (h *AgentHandler) SyncEnroll(c *gin.Context) {
 	resp.OK(c, e)
 }
 
+// RefundEnroll POST /api/agent/enrolls/:id/refund 代理手动退款（refund 权限 + 强隔离只退自己名下）。
+// 四道拦截 + sub_mchid 硬锁定在 service 内校验：单存在/归属自己/状态可退/未开通。
+func (h *AgentHandler) RefundEnroll(c *gin.Context) {
+	if !h.requirePerm(c, service.PermRefund) {
+		return
+	}
+	id, _ := currentAgentID(c)
+	r, err := h.enroll.RefundEnroll(c.Request.Context(), agentIDParam(c), &id)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, r)
+}
+
 // —— 邀请链接（invite 权限）——
 
 // ListInvites GET /api/agent/enroll-invites 自己名下的邀请链接。

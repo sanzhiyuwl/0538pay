@@ -1071,6 +1071,59 @@ func (s *PayService) RefundViaChannel(ctx context.Context, o *model.Order, money
 	return true, nil
 }
 
+// RefundEnrollOrder 原路全额退还一笔进件开户费收款单（tid=6，供代理进件退款复用现有退款基建）。
+// 幂等：仅当订单 status=1(已付) 时执行一次（MarkRefunded 条件 UPDATE 判重），已退/未付返回 (false,nil)。
+// 退【全额】不扣手续费：真实渠道实现 Refunder 则原路退，之后从收款商户余额扣回入账的开户费。
+// 返回 (是否本次真正执行了退款, error)。找不到单/非进件单不报错，由调用方（EnrollService）先行校验状态。
+func (s *PayService) RefundEnrollOrder(ctx context.Context, payOrderNo string) (bool, error) {
+	if strings.TrimSpace(payOrderNo) == "" {
+		return false, payErr("该进件单无收款单号，无法退款")
+	}
+	o, err := s.orders.FindByTradeNo(payOrderNo)
+	if err != nil {
+		return false, err
+	}
+	if o == nil {
+		return false, payErr("开户费收款单不存在")
+	}
+	if o.Tid != enrollPayTidConst {
+		return false, payErr("该收款单不是进件开户费单，拒绝退款")
+	}
+	if o.Status != 1 {
+		// 未付(0)：无需退款；已退(2)：幂等跳过。均返回未执行。
+		return false, nil
+	}
+	full := o.Money
+	if o.RealMoney != nil && o.RealMoney.GreaterThan(decimal.Zero) {
+		full = *o.RealMoney
+	}
+	// 真实渠道原路退款（mock 等无 Refunder 的渠道跳过，仅走余额层，对齐订单退款语义）。
+	outRefundNo := "RFEN" + o.TradeNo
+	if _, rerr := s.RefundViaChannel(ctx, o, full, outRefundNo); rerr != nil {
+		return false, payErr("渠道原路退款失败(可能待真实凭证): " + rerr.Error())
+	}
+	// 幂等改单：status=1→2。命中才扣回收款商户余额，防重复退。
+	ok, err := s.orders.MarkRefunded(o.TradeNo, full)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil // 状态已变更（并发/重复），未执行
+	}
+	// 扣回收款商户入账的开户费（tid=6 入账加的是 getmoney/money，退款按实付全额扣回）。
+	credited := o.GetMoney
+	if credited.LessThanOrEqual(decimal.Zero) {
+		credited = o.Money
+	}
+	if err := s.accounts.ChangeUserMoney(o.UID, credited, false, "进件开户费退款", o.TradeNo); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// enrollPayTidConst 进件开户费内部订单 tid（与 service/enroll.go enrollPayTid 同值，避免跨文件耦合常量）。
+const enrollPayTidConst int8 = 6
+
 // GetCashier 返回收银台中间页所需的公开订单信息（无鉴权，仅安全字段）。
 func (s *PayService) GetCashier(tradeNo string) (*dto.CashierView, error) {
 	o, err := s.orders.FindByTradeNo(tradeNo)

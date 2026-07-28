@@ -141,6 +141,18 @@ export function submitEnroll(id: number): Promise<Enroll> {
 export function syncEnroll(id: number): Promise<Enroll> {
   return request<Enroll>(`/console/enrolls/${id}/sync`, { method: 'POST' })
 }
+// 退款结果回显
+export interface RefundResult {
+  enroll_no: string
+  merchant_name: string
+  status: string
+  executed: boolean
+  msg: string
+}
+// 平台兜底退款：原路退全额开户费（四道拦截 + sub_mchid 硬锁在后端校验）
+export function refundEnroll(id: number): Promise<RefundResult> {
+  return request<RefundResult>(`/console/enrolls/${id}/refund`, { method: 'POST' })
+}
 
 // —— 邀请链接 ——
 export interface Invite {

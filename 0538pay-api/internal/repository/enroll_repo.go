@@ -85,6 +85,21 @@ func (r *EnrollRepo) UpdateEnroll(id uint, fields map[string]any) error {
 	return r.db.Model(&model.SubMerchantEnroll{}).Where("id = ?", id).Updates(fields).Error
 }
 
+// MarkEnrollRefunded 幂等退款改单：仅当当前状态在可退集合内时置 refunded，返回是否命中（true=本次真正执行）。
+// 条件 UPDATE + 影响行数判重，防同单并发/重复退款。可退集合=paid/submitted/rejected
+// （pending_pay 未收款无需退、finished 已交付硬锁、closed/refunded 已终态）。
+func (r *EnrollRepo) MarkEnrollRefunded(id uint) (bool, error) {
+	res := r.db.Model(&model.SubMerchantEnroll{}).
+		Where("id = ? AND status IN ?", id, []string{
+			model.EnrollStatusPaid, model.EnrollStatusSubmitted, model.EnrollStatusRejected,
+		}).
+		Update("status", model.EnrollStatusRefunded)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
 // —— 邀请链接 ——
 
 // ListInvites 分页查询邀请链接（AgentID 非空则按代理隔离）。

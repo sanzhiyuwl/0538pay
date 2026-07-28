@@ -9,6 +9,7 @@ import {
   createEnroll,
   submitEnroll,
   syncEnroll,
+  refundEnroll,
   type Agent,
   type Enroll,
 } from '@/lib/api/console'
@@ -138,6 +139,14 @@ async function doCreate() {
 const canSubmit = computed(() => detail.value?.status === 'paid' || detail.value?.status === 'rejected')
 // 审核中 → 可主动查微信最新状态
 const canSync = computed(() => detail.value?.status === 'submitted')
+// 已开通硬锁定：sub_mchid 非空一律不可退（最高优先级，平台端也不例外）
+const subMchLocked = computed(() => !!detail.value?.wx_sub_mchid)
+// 可退：已付待完善 / 审核中 / 已驳回，且未开通硬锁定（平台兜底退任意代理名下单）
+const canRefund = computed(
+  () =>
+    !subMchLocked.value &&
+    ['paid', 'submitted', 'rejected'].includes(detail.value?.status ?? ''),
+)
 
 async function doSubmit() {
   if (!detail.value) return
@@ -159,6 +168,21 @@ async function doSync() {
     await load()
   } catch (e) {
     alert(e instanceof ApiError ? e.message : '查询微信状态失败')
+  } finally {
+    acting.value = false
+  }
+}
+async function doRefund() {
+  if (!detail.value) return
+  if (!confirm(`确认原路退还「${detail.value.merchant_name}」的开户费全额？退款后不可撤销。`)) return
+  acting.value = true
+  try {
+    const r = await refundEnroll(detail.value.id)
+    alert(r.msg || '退款成功')
+    detail.value = await getEnroll(detail.value.id)
+    await load()
+  } catch (e) {
+    alert(e instanceof ApiError ? e.message : '退款失败')
   } finally {
     acting.value = false
   }
@@ -303,10 +327,13 @@ async function doSync() {
       </div>
       <p class="mt-4 text-xs text-muted-foreground">
         提交微信调用服务商 APIv3 进件接口（applyment4sub）；审核中可点“查状态”拉取微信最新进度。
-        退款（自动/手动）与 sub_mchid 硬锁在后续批次接入。
+        退款原路退还开户费全额（不扣手续费）；<span v-if="subMchLocked" class="text-destructive">商户已成功开通（sub_mchid 已下发），硬锁定不可退。</span>
       </p>
       <template #footer>
         <Button variant="outline" @click="drawer = false">关闭</Button>
+        <Button v-if="canRefund" :disabled="acting" variant="outline" @click="doRefund">
+          {{ acting ? '处理中…' : '退款' }}
+        </Button>
         <Button v-if="canSync" :disabled="acting" variant="outline" @click="doSync">
           {{ acting ? '查询中…' : '查状态' }}
         </Button>

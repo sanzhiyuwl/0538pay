@@ -299,6 +299,17 @@ func (h *ConsoleHandler) SyncEnroll(c *gin.Context) {
 	resp.OK(c, e)
 }
 
+// RefundEnroll POST /api/console/enrolls/:id/refund 平台兜底退款（任意代理名下单，agentID=nil）。
+// 四道拦截 + sub_mchid 硬锁定在 service 内校验；平台端也不破硬锁例外。
+func (h *ConsoleHandler) RefundEnroll(c *gin.Context) {
+	r, err := h.enroll.RefundEnroll(c.Request.Context(), consoleIDParam(c), nil)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, r)
+}
+
 // —— 邀请链接 ——
 
 // ListInvites GET /api/console/enroll-invites 邀请链接列表（平台看全部）

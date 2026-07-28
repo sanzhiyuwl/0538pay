@@ -8,7 +8,7 @@
 ----------------------------------------------------
 一、总体状态快照
 ----------------------------------------------------
-阶段：★第一批打地基 + 第二批 submerchant 提交/查状态 + 付费前置建单闭环 + 第三批独立代理端 /agent + 第四批客户自助公开页 /enroll/:code 完成（2026-07-28 更新）★
+阶段：★一批打地基 + 二批提交查状态/付费前置 + 三批代理端 /agent + 四批客户自助公开页 /enroll + 五批退款四道拦截+sub_mchid硬锁定 完成（2026-07-28 更新）★
 规划文档：docs-代理进件/00-代理进件平台总体规划.txt（纲领）
           docs-代理进件/01-代理控制台改造与进件一期设计.txt（一期详细设计）
 关键决策：全部拍定（见 00/01 文档「已定」区），要点——
@@ -212,23 +212,65 @@
   - 测试数据（邀请 id=3、进件单 EN…d199）已清库、enroll config 已复位（uid 0/price 0）、临时 server 已停。
 
 ----------------------------------------------------
-七、下一步（新窗口从这里接着做）
+七、第五批已完成：退款四道拦截 + sub_mchid 硬锁定 + 自动驳回退（2026-07-28 19:20分）
 ----------------------------------------------------
-  1. 退款四道拦截 + sub_mchid 硬锁定；自动退（微信驳回后）+ 手动退（代理端 refund 权限已留）。复用 channel.Refunder。
-  2. 一期沙箱：配微信服务商沙箱凭证，端到端跑通 submit→sync→finished（结算/扣名额已就绪）。
-  3. 填全套资料（paid 后第2步）：目前 material_json 还没有前端填报表单 + 敏感字段加密落库入口，
-     SubmitToWx 已就绪但缺“填料”这一步（公开页/代理端建完单后填）。代理端 AgentEnroll 详情抽屉可加“填料”入口。
-     公开页 EnrollPublic 目前只收基础信息+付费，付费成功(paid)后需引导客户进“填料”页补全套资料。
+  后端（0538pay-api）：
+
+  - repository/enroll_repo.go：MarkEnrollRefunded(id)——幂等退款改单，仅当状态∈{paid,submitted,rejected}
+    时置 refunded，条件 UPDATE + 影响行数判重（防并发/重复退）。
+  - service/pay.go：RefundEnrollOrder(ctx, payOrderNo)——原路全额退一笔进件开户费收款单(tid=6，
+    复用现有退款基建)。校验 tid==6（拒非进件单）+ status==1(已付)幂等；真实渠道实现 Refunder 则原路退
+    (RefundViaChannel，mock 无 Refunder 跳过走余额层)→ MarkRefunded(status=1→2)命中才扣回收款商户余额
+    (进件开户费退款，扣 getmoney/money)。返回 (是否真正执行, error)。enrollPayTidConst=6。
+  - service/enroll.go：
+    · RefundEnroll(ctx, id, agentID)——★四道拦截，任一不过即拦：
+      ① 单存在（FindEnroll 取不到拦）
+      ② 归属（agentID 非空只能退自己名下，退别人 1302）
+      ③ 状态可退（pending_pay 未收款/closed 已关单/refunded 重复退，各拦并提示对应原因）
+      ④ ★sub_mchid 硬锁定（最高优先级，先于状态判，wx_sub_mchid 非空即已交付一律拒退，平台兜底也不破例）
+      全过 → PayService.RefundEnrollOrder 原路退全额(不扣手续费) → MarkEnrollRefunded 置 refunded →
+      退款完成=终态事件 anchorInviteExpire 锚定来源邀请链接 24h。幂等：同单重复只真正退一次。
+      返回 RefundResult{EnrollNo,MerchantName,Status,Executed,Msg}。
+    · applyWxState REJECTED 分支加【自动退】：微信驳回且 enroll_fail_refund≠0，从 submitted 首次跃迁到
+      rejected 时自动调 RefundEnroll(agentID=nil) 原路退；自动退失败不阻断状态落库(rejected 已记，可手动重试)。
+  - handler：ConsoleHandler.RefundEnroll(平台兜底，agentID=nil)、AgentHandler.RefundEnroll(PermRefund 门控
+    + 强隔离 agentID=自己)。router：POST /api/console/enrolls/:id/refund、POST /api/agent/enrolls/:id/refund。
+
+  前端（admin-web）：
+
+  - lib/api/console.ts：RefundResult 类型 + refundEnroll(id)；lib/api/agent.ts：refundMyEnroll(id)(复用 RefundResult)。
+  - views/console/ConsoleEnroll.vue 详情抽屉：subMchLocked/canRefund 计算属性 + doRefund(confirm 二次确认)，
+    footer 加“退款”按钮(可退才显)，sub_mchid 非空时提示“硬锁定不可退”。
+  - views/agent/AgentEnroll.vue 详情抽屉：同上 + canRefund 额外要 agentAuth.has('refund')（无权不显按钮）。
+
+  自检自验（全绿）：
+  - go build ./... 无 error；npm run build（vue-tsc 严格）无 error；go build -o bin 产物无 error。
+  - 真跑闭环通过（平台端 + 代理端）：
+    · 拦截③：pending_pay 退→1302“尚未支付”；已 refunded 再退→1302“已退款请勿重复”。
+    · happy：付款(mock 表单回调 TRADE_SUCCESS,uid1001 余额 326→327)→退款→enroll=refunded、pay_order status=2
+      refund_money=1.0、余额 327→326（pay_record 两条：进件开户费+1 / 进件开户费退款-1，精确反转）。
+    · 拦截④硬锁：DB 置 wx_sub_mchid+finished → 退款 1302“已成功开通不支持退款”。
+    · 代理端：乙(无 refund 权限)退→1303；甲退平台单(归属拦②)→1302“不属于您”；甲(有权限)退自己名下→ok refunded。
+  - ★自动驳回退（applyWxState REJECTED→自动退）为代码路径，因微信凭证未配置无法端到端真跑，仅逻辑就绪，
+    待沙箱批次连真实驳回结果验证（见下一步第 1 项）。
+  - 测试数据（enroll 5/6/7、测试代理 4/5、相关 order/record/settle）已清库、config 已复位、余额净零、临时 server 已停。
 
 ----------------------------------------------------
-八、半成品 / 未提交改动 / 阻塞
+八、下一步（新窗口从这里接着做）
 ----------------------------------------------------
-  - 进件“填全套资料”环节还没做：CreateEnroll 只收基础信息+付费，material_json 需后续填料入口写入
-    （敏感字段 EncryptSensitive 加密），才能 SubmitToWx。见下一步第 4 项。
+  1. 一期沙箱：配微信服务商沙箱凭证，端到端跑通 submit→sync→finished（结算/扣名额已就绪），
+     并连真实驳回结果验证 applyWxState REJECTED 的【自动原路退】（代码已就绪，仅缺真跑）。
+  2. 填全套资料（paid 后第2步）：目前 material_json 还没有前端填报表单 + 敏感字段加密落库入口，
+     SubmitToWx 已就绪但缺“填料”这一步。代理端 AgentEnroll 详情抽屉 / 公开页 EnrollPublic 付费成功后
+     引导客户进“填料”页补全套资料（敏感字段 EncryptSensitive 加密落 material_json）。
+
+----------------------------------------------------
+九、半成品 / 未提交改动 / 阻塞
+----------------------------------------------------
+  - 进件“填全套资料”环节还没做：CreateEnroll/公开页只收基础信息+付费，material_json 需后续填料入口写入
+    （敏感字段 EncryptSensitive 加密），才能 SubmitToWx。见下一步第 2 项。
   - settleOnFinish 路径一扣名额用 `_ =` 忽略余额不足（进件已成不回滚）——名额冻结→消耗→释放三态待做（待优化.txt#3）。
-  - 微信服务商真实/沙箱凭证未配置，提交微信侧未端到端验证（下一步第 3 项）。
+  - 微信服务商真实/沙箱凭证未配置：提交微信侧、查状态、【自动驳回退】均未端到端真跑（下一步第 1 项）。
   - wx_partner_private_key / apiv3_key 明文存 config（待优化.txt#1）；删代理未级联清钱包/流水（待优化.txt#2）。
-  - 代理端退款页（refund 权限点已在清单，AgentEnroll 暂未接退款按钮）随退款批次（下一步第 2 项）一起做。
-  - 公开页第一步只收基础信息+付费，付费成功(paid)后的“填全套资料”页尚未做（见七、第3项）。
-  - 第一批+第二批改动已 git commit（cbaff1f）；第三批 /agent 已 commit（2eb6d63）；
-    本批（第四批 /enroll 公开页）改动待 commit。
+  - 一批二批 commit cbaff1f、三批 /agent commit 2eb6d63、四批 /enroll commit 606b0b6；
+    本批（第五批 退款）改动待 commit。

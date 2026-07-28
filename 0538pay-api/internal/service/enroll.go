@@ -498,6 +498,16 @@ func (s *EnrollService) applyWxState(e *model.SubMerchantEnroll, wxState, wxMsg,
 		if err := s.repo.UpdateEnroll(e.ID, fields); err != nil {
 			return nil, err
 		}
+		// 自动退（无需客户操作）：微信驳回且后台开启失败退款(enroll_fail_refund=1)时，
+		// 系统收到驳回结果后自动原路退还已付开户费。驳回=从 submitted 首次跃迁到 rejected 时触发一次
+		// （幂等由 RefundEnroll 内部 MarkEnrollRefunded 条件 UPDATE 保证）；退款失败不阻断状态落库
+		// （已记 rejected，代理仍可后台手动重试退款）。
+		if e.Status == model.EnrollStatusSubmitted && s.cfg.Str("enroll_fail_refund") != "0" {
+			if _, rerr := s.RefundEnroll(context.Background(), e.ID, nil); rerr != nil {
+				// 自动退失败仅记日志不阻断（rejected 已落库，可手动退）；此处静默，避免驳回同步整体失败。
+				_ = rerr
+			}
+		}
 	default:
 		// 审核中 / 待账户验证 / 待签约 / 开通权限中：保持 submitted，仅刷新 wx_state 原值。
 		if err := s.repo.UpdateEnroll(e.ID, fields); err != nil {
@@ -535,6 +545,82 @@ func (s *EnrollService) settleOnFinish(e *model.SubMerchantEnroll) error {
 		log.AgentAmount = agentShare
 	}
 	return s.repo.CreateSettleLog(log)
+}
+
+// RefundResult 退款结果（回显给前端）。
+type RefundResult struct {
+	EnrollNo     string `json:"enroll_no"`
+	MerchantName string `json:"merchant_name"`
+	Status       string `json:"status"`
+	Executed     bool   `json:"executed"` // true=本次真正退了；false=幂等跳过（此前已退）
+	Msg          string `json:"msg"`
+}
+
+// RefundEnroll 进件开户费退款（对齐 docs-代理进件/01 第四节：手动退 + 自动退共用此核心）。
+// ★四道拦截，任一不过即拦并返回明确原因，绝不盲目退：
+//  1. 单存在（按 id 取，取不到拦）。
+//  2. 归属校验：agentID 非空时只能退 agent_id=自己 的单（代理端强隔离），退别人的拦。
+//  3. 状态可退：pending_pay(未收款,无需退) / closed(已关单) / refunded(重复退) 拦并提示对应原因。
+//  4. ★已开通硬锁定（最高优先级，代理端+平台端一律，无例外）：wx_sub_mchid 非空即已交付，一律拒退。
+//
+// 校验全过 → 复用 PayService.RefundEnrollOrder 原路退全额（不扣手续费）→ status=refunded、
+// 退款完成=终态事件锚定来源邀请链接 24h。幂等：同单重复提交只真正退一次（PayService 判重）。
+func (s *EnrollService) RefundEnroll(ctx context.Context, id uint, agentID *uint) (*RefundResult, error) {
+	e, err := s.repo.FindEnroll(id)
+	if err != nil { // 拦截①：单不存在
+		return nil, enErr("进件单不存在")
+	}
+	if agentID != nil && e.AgentID != *agentID { // 拦截②：归属
+		return nil, enErr("该进件单不属于您，无法退款")
+	}
+	// 拦截④：已开通硬锁定——最高优先级，先于状态判断，平台兜底也不破此例外。
+	if strings.TrimSpace(e.WxSubMchID) != "" {
+		return nil, enErr("商户已成功开通，不支持退款")
+	}
+	// 拦截③：状态可退性。
+	switch e.Status {
+	case model.EnrollStatusFinished:
+		// 理论上 finished 必有 sub_mchid 已被④拦；这里兜底（防脏数据 finished 无 sub_mchid）。
+		return nil, enErr("商户已成功开通，不支持退款")
+	case model.EnrollStatusPendingPay:
+		return nil, enErr("该进件单尚未支付开户费，无需退款")
+	case model.EnrollStatusClosed:
+		return nil, enErr("该进件单已关单，无可退款项")
+	case model.EnrollStatusRefunded:
+		return nil, enErr("该进件单已退款，请勿重复操作")
+	case model.EnrollStatusPaid, model.EnrollStatusSubmitted, model.EnrollStatusRejected:
+		// 可退：已付待完善 / 审核中(放弃) / 已驳回。继续。
+	default:
+		return nil, enErr("当前状态不支持退款")
+	}
+	if s.pay == nil {
+		return nil, enErr("收款服务未就绪，无法退款")
+	}
+
+	// 原路退全额开户费（复用现有退款基建，不扣手续费）。渠道退款失败会返错拦截，不会误改状态。
+	executed, err := s.pay.RefundEnrollOrder(ctx, e.PayOrderNo)
+	if err != nil {
+		return nil, enErr(err.Error())
+	}
+	// 幂等改单：仅可退集合命中一次。executed=false 且订单侧也未执行 → 视为此前已退，直接回显。
+	flipped, err := s.repo.MarkEnrollRefunded(e.ID)
+	if err != nil {
+		return nil, err
+	}
+	if flipped {
+		s.anchorInviteExpire(e.InviteCode) // 退款完成=终态事件，锚定链接 24h
+	}
+	msg := "退款成功，开户费已原路退还"
+	if !flipped && !executed {
+		msg = "该进件单已退款（幂等跳过）"
+	}
+	return &RefundResult{
+		EnrollNo:     e.EnrollNo,
+		MerchantName: e.MerchantName,
+		Status:       model.EnrollStatusRefunded,
+		Executed:     flipped || executed,
+		Msg:          msg,
+	}, nil
 }
 
 // injectBusinessCode 确保进件请求体 JSON 含 business_code 字段（缺则补，已有则以我方编号为准覆盖）。

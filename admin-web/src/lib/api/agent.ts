@@ -13,6 +13,7 @@ import type {
   CreateEnrollResp,
   Invite,
   Settlement,
+  RefundResult,
 } from './console'
 
 // —— 登录 / 会话 ——
@@ -67,6 +68,10 @@ export function submitMyEnroll(id: number): Promise<Enroll> {
 }
 export function syncMyEnroll(id: number): Promise<Enroll> {
   return request<Enroll>(`/agent/enrolls/${id}/sync`, { method: 'POST' })
+}
+// 手动退款：原路退全额开户费（需 refund 权限 + 只退自己名下；四道拦截在后端校验）
+export function refundMyEnroll(id: number): Promise<RefundResult> {
+  return request<RefundResult>(`/agent/enrolls/${id}/refund`, { method: 'POST' })
 }
 
 // —— 邀请链接 ——

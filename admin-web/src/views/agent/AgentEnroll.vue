@@ -8,9 +8,13 @@ import {
   createMyEnroll,
   submitMyEnroll,
   syncMyEnroll,
+  refundMyEnroll,
 } from '@/lib/api/agent'
 import type { Enroll } from '@/lib/api/console'
 import { ApiError } from '@/lib/api/client'
+import { useAgentAuthStore } from '@/stores/agentAuth'
+
+const agentAuth = useAgentAuthStore()
 
 const enrolls = ref<Enroll[]>([])
 const total = ref(0)
@@ -82,6 +86,31 @@ async function openDetail(e: Enroll) {
 
 const canSubmit = computed(() => detail.value?.status === 'paid' || detail.value?.status === 'rejected')
 const canSync = computed(() => detail.value?.status === 'submitted')
+// 已开通硬锁定：sub_mchid 非空一律不可退（最高优先级，代理端亦然）
+const subMchLocked = computed(() => !!detail.value?.wx_sub_mchid)
+// 可退：有 refund 权限 + 未开通硬锁 + 状态在可退集合（已付待完善/审核中/已驳回）
+const canRefund = computed(
+  () =>
+    agentAuth.has('refund') &&
+    !subMchLocked.value &&
+    ['paid', 'submitted', 'rejected'].includes(detail.value?.status ?? ''),
+)
+
+async function doRefund() {
+  if (!detail.value) return
+  if (!confirm(`确认原路退还「${detail.value.merchant_name}」的开户费全额？退款后不可撤销。`)) return
+  acting.value = true
+  try {
+    const r = await refundMyEnroll(detail.value.id)
+    alert(r.msg || '退款成功')
+    detail.value = await getMyEnroll(detail.value.id)
+    await load()
+  } catch (e) {
+    alert(e instanceof ApiError ? e.message : '退款失败')
+  } finally {
+    acting.value = false
+  }
+}
 
 async function doSubmit() {
   if (!detail.value) return
@@ -251,8 +280,14 @@ async function doCreate() {
           <div class="bg-destructive/[0.06] px-3 py-2 text-destructive">{{ detail.reject_reason }}</div>
         </div>
       </div>
+      <p v-if="subMchLocked" class="mt-4 text-xs text-destructive">
+        商户已成功开通（sub_mchid 已下发），硬锁定不可退款。
+      </p>
       <template #footer>
         <Button variant="outline" @click="drawer = false">关闭</Button>
+        <Button v-if="canRefund" :disabled="acting" variant="outline" @click="doRefund">
+          {{ acting ? '处理中…' : '退款' }}
+        </Button>
         <Button v-if="canSync" :disabled="acting" variant="outline" @click="doSync">
           {{ acting ? '查询中…' : '查状态' }}
         </Button>
