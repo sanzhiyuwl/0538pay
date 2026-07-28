@@ -5,13 +5,17 @@
 
 const BASE = '/api' // 经 vite dev 代理转发到后端 :8080
 
-// 多端 token 隔离：admin/console 用 admin_token，商户中心用 merchant_token，互不覆盖。
+// 多端 token 隔离：admin/console 用 admin_token，商户中心用 merchant_token，
+// 独立代理端 /agent 用 agent_token，三端互不覆盖。
 const ADMIN_TOKEN_KEY = 'admin_token'
 const MERCHANT_TOKEN_KEY = 'merchant_token'
+const AGENT_TOKEN_KEY = 'agent_token'
 
 // 按请求路径前缀判定该用哪个端的 token。
 function tokenKeyForPath(path: string): string {
-  return path.startsWith('/merchant') ? MERCHANT_TOKEN_KEY : ADMIN_TOKEN_KEY
+  if (path.startsWith('/merchant')) return MERCHANT_TOKEN_KEY
+  if (path.startsWith('/agent')) return AGENT_TOKEN_KEY
+  return ADMIN_TOKEN_KEY
 }
 
 // —— admin/console 端 token（保持原有 API 名不变，兼容既有调用）——
@@ -36,6 +40,17 @@ export function clearMerchantToken() {
   localStorage.removeItem(MERCHANT_TOKEN_KEY)
 }
 
+// —— 独立代理端 /agent token ——
+export function getAgentToken(): string {
+  return localStorage.getItem(AGENT_TOKEN_KEY) || ''
+}
+export function setAgentToken(t: string) {
+  localStorage.setItem(AGENT_TOKEN_KEY, t)
+}
+export function clearAgentToken() {
+  localStorage.removeItem(AGENT_TOKEN_KEY)
+}
+
 /** 后端统一响应体 */
 interface ApiBody<T> {
   code: number
@@ -51,6 +66,10 @@ export function onUnauthorized(fn: () => void) {
 let merchantUnauthorizedHandler: (() => void) | null = null
 export function onMerchantUnauthorized(fn: () => void) {
   merchantUnauthorizedHandler = fn
+}
+let agentUnauthorizedHandler: (() => void) | null = null
+export function onAgentUnauthorized(fn: () => void) {
+  agentUnauthorizedHandler = fn
 }
 
 /** 业务错误：code 非 0 时抛出，携带 code 与 msg */
@@ -84,6 +103,7 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
   const { method = 'GET', query, body } = opts
   const headers: Record<string, string> = {}
   const isMerchant = path.startsWith('/merchant')
+  const isAgent = path.startsWith('/agent')
   const token = localStorage.getItem(tokenKeyForPath(path)) || ''
   if (token) headers['Authorization'] = `Bearer ${token}`
 
@@ -100,6 +120,9 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
     if (isMerchant) {
       clearMerchantToken()
       if (merchantUnauthorizedHandler) merchantUnauthorizedHandler()
+    } else if (isAgent) {
+      clearAgentToken()
+      if (agentUnauthorizedHandler) agentUnauthorizedHandler()
     } else {
       clearToken()
       if (unauthorizedHandler) unauthorizedHandler()

@@ -5,6 +5,7 @@ import (
 
 	"github.com/epvia/api/internal/model"
 	"github.com/epvia/api/internal/repository"
+	"github.com/epvia/api/pkg/jwtauth"
 	"github.com/shopspring/decimal"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -86,14 +87,65 @@ func HasPermission(permissions, key string) bool {
 	return ParsePermissions(permissions)[key]
 }
 
-// AgentService 代理业务编排：代理 CRUD、权限、名额钱包/流水。
+// AgentService 代理业务编排：代理 CRUD、权限、名额钱包/流水、代理端登录。
 // 平台端 /console 管所有代理，代理端 /agent 只碰自己——共用本 service，入参强制带 agent_id 隔离。
 type AgentService struct {
 	repo *repository.AgentRepo
+	jm   *jwtauth.Manager // 代理端登录签发 JWT（scope=agent），未注入前登录不可用
 }
 
 func NewAgentService(repo *repository.AgentRepo) *AgentService {
 	return &AgentService{repo: repo}
+}
+
+// SetJWT 注入 JWT 管理器（代理端 /agent 登录签发 scope=agent 的 token）。
+func (s *AgentService) SetJWT(jm *jwtauth.Manager) { s.jm = jm }
+
+// AgentLoginResult 代理端登录结果。
+type AgentLoginResult struct {
+	Token       string `json:"token"`
+	Name        string `json:"name"`
+	Account     string `json:"account"`
+	Permissions string `json:"permissions"`
+}
+
+// Login 代理端登录：校验账号密码（bcrypt）+ 启用状态，签发 scope=agent 的 JWT。
+// token 里的 UID 即 agent_id，代理端所有接口据此强制数据隔离（只看/只碰自己名下）。
+func (s *AgentService) Login(account, password string) (*AgentLoginResult, error) {
+	if s.jm == nil {
+		return nil, agErr("代理端登录未就绪")
+	}
+	account = strings.TrimSpace(account)
+	if account == "" || password == "" {
+		return nil, agErr("请输入登录账号和密码")
+	}
+	a, err := s.repo.FindByAccount(account)
+	if err != nil {
+		return nil, agErr("账号或密码错误")
+	}
+	if bcrypt.CompareHashAndPassword([]byte(a.Password), []byte(password)) != nil {
+		return nil, agErr("账号或密码错误")
+	}
+	if a.Status != 1 {
+		return nil, agErr("该代理账号已停用")
+	}
+	// role 存权限串，scope=agent；中间件按 scope 拦截，权限门控在 handler 逐项判断。
+	token, err := s.jm.Generate(a.ID, a.Name, a.Permissions, "agent")
+	if err != nil {
+		return nil, err
+	}
+	return &AgentLoginResult{
+		Token: token, Name: a.Name, Account: a.Account, Permissions: a.Permissions,
+	}, nil
+}
+
+// Profile 取代理自身资料（代理端顶栏/权限渲染用）。
+func (s *AgentService) Profile(agentID uint) (*model.Agent, error) {
+	a, err := s.repo.FindByID(agentID)
+	if err != nil {
+		return nil, agErr("代理不存在")
+	}
+	return a, nil
 }
 
 // Repo 暴露底层 repo，供同域其它 service（如登录/进件）复用查询。

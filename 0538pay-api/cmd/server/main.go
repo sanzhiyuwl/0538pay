@@ -179,6 +179,7 @@ func main() {
 	enrollSvc.SetAgentRepo(agentSvc.Repo())               // 注入：路径一进件成功扣名额
 	enrollSvc.SetPayService(paySvc)                        // 注入：付费前置下开户费收款单
 	paySvc.SetEnrollPayHook(enrollSvc.FinalizeEnrollPay)   // tid=6 开户费收款成功放行进件单填料
+	agentSvc.SetJWT(jm)                                    // 注入：独立代理端 /agent 登录签发 scope=agent 的 token
 	// 文章管理（对齐 epay article.php pre_article 行表 CRUD）。
 	articleSvc := service.NewArticleService(repository.NewArticleRepo(db))
 	// 数据清理（对齐 epay clean.php）。
@@ -278,6 +279,7 @@ func main() {
 		OpLogSvc:  opLogSvc,
 		Role:      handler.NewRoleHandler(roleSvc),
 		Console:   handler.NewConsoleHandler(agentSvc, enrollSvc),
+		Agent:     handler.NewAgentHandler(agentSvc, enrollSvc),
 	}
 
 	// 4. 定时任务（阶段E）：通知重试 + 对账 + 超时关单 + 自动结算 + 分账 + 风控。

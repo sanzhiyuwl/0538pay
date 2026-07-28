@@ -8,7 +8,7 @@
 ----------------------------------------------------
 一、总体状态快照
 ----------------------------------------------------
-阶段：★第一批打地基 + 第二批 submerchant 提交/查状态 + 付费前置建单闭环 完成（2026-07-28 更新）★
+阶段：★第一批打地基 + 第二批 submerchant 提交/查状态 + 付费前置建单闭环 + 第三批独立代理端 /agent 完成（2026-07-28 更新）★
 规划文档：docs-代理进件/00-代理进件平台总体规划.txt（纲领）
           docs-代理进件/01-代理控制台改造与进件一期设计.txt（一期详细设计）
 关键决策：全部拍定（见 00/01 文档「已定」区），要点——
@@ -122,22 +122,72 @@
     免付路径建单直接 paid；未配收款商户报错拦截；测试残留(进件单/tid6订单)已清库、config 已复位、server 已停。
 
 ----------------------------------------------------
-五、下一步（新窗口从这里接着做）
+五、第三批已完成：独立代理端 /agent（2026-07-28 18:35分）
 ----------------------------------------------------
-  1. 独立代理端 /agent：AgentLayout + JWT scope "agent" + 六页（只看自己名下，按 permissions 动态渲染菜单）。
-     代理登录服务（复用 AgentService.Repo bcrypt 校验）+ 代理端建单/进件单/名额/邀请/结算/退款页。
-  2. 客户自助公开页 /enroll/:code：免登录 PC+H5，图形验证码 + 限流 + 敏感字段加密提交（source=3，走 CreateEnroll）。
-  3. 退款四道拦截 + sub_mchid 硬锁定；自动退（微信驳回后）+ 手动退（代理端）。复用 channel.Refunder。
-  4. 一期沙箱：配微信服务商沙箱凭证，端到端跑通 submit→sync→finished（结算/扣名额已就绪）。
-  5. 填全套资料（paid 后第2步）：目前 material_json 还没有前端填报表单 + 敏感字段加密落库入口，
-     SubmitToWx 已就绪但缺“填料”这一步（公开页/代理端建完单后填）。
+  后端（0538pay-api）：
+
+  - AgentService 加登录能力（internal/service/agent.go）：SetJWT 注入 jwtauth.Manager；
+    Login(account,password) → bcrypt 校验 + status=1 → 签发 scope="agent" 的 JWT，
+    token 的 role 字段塞 permissions 串（中间件按 scope 拦截，权限门控在 handler 逐项判），
+    UID 即 agent_id。Profile(agentID) 取自身资料。main.go：agentSvc.SetJWT(jm)。
+
+  - 新 handler/agent.go（AgentHandler，复用 AgentService+EnrollService）：
+    · currentAgentID 从 middleware.CtxUID 取（不信任前端传参）；currentAgentPerms 从 CtxRole 取权限串。
+    · requirePerm(key) 门控：无权回 1303「无该功能权限」。
+    · 登录/会话：POST /agent/login（公开）、GET /agent/profile、GET /agent/permissions。
+    · 名额（quota 权限）：GET /agent/quota、/agent/quota-logs。
+    · 进件（enroll 权限）：GET /agent/enrolls（强制 AgentID=自己）、GET/:id（校验归属）、
+      POST（source=2 代理代填、AgentID 强制自己）、POST/:id/submit、/:id/sync。
+    · 邀请（invite 权限）：GET/POST /agent/enroll-invites、PUT/:id/status、DELETE/:id（均校验归属）。
+    · 结算（settlement 权限）：GET /agent/enroll-settlements（强制自己名下）。
+  - router：/api/agent 组，login 公开，其余 middleware.Auth(d.JWT,"agent")；Deps 加 Agent 字段；
+    main.go：Agent: handler.NewAgentHandler(agentSvc, enrollSvc)。
+
+  前端（admin-web）：
+
+  - client.ts：新增 agent_token（独立 key，与 admin/merchant 隔离）+ tokenKeyForPath 认 /agent 前缀
+    + onAgentUnauthorized 401 钩子（main.ts 注册跳 /agent/login）。
+  - lib/api/agent.ts：登录/profile/权限清单 + 名额/进件/邀请/结算全端点（复用 console.ts 类型）；
+    agentLogin 成功存 agent_token。
+  - stores/agentAuth.ts：token+name+permissions 持久化，permSet/has(key) 供菜单与按钮门控，
+    login/refresh（进入刷新权限）/logout。
+  - config/nav.ts：agentNav 五项（工作台无 perm 恒显示 / 进件 enroll / 名额 quota / 邀请 invite / 结算 settlement）
+    + agentLeaves。
+  - layouts/AgentLayout.vue：侧栏按 permissions 过滤菜单（visibleNav），顶栏显代理名+主题+退出，
+    进入 onMounted 刷新一次权限。
+  - views/agent/：AgentLogin（双栏登录页，同视觉令牌）、AgentOverview（工作台，按权限显卡片+快捷入口）、
+    AgentEnroll（进件单列表+详情抽屉 submit/sync+建单抽屉，自作用域无代理选择器）、
+    AgentQuota（只读钱包+流水，售卖由平台做）、AgentInvites（自己名下邀请 CRUD+复制链接）、
+    AgentSettlement（只读结算流水）。
+  - router/index.ts：/agent/login 公开 + /agent 套 AgentLayout（meta.requiresAgent）+ agentChildren；
+    守卫 requiresAgent 未登录跳 agent-login；标题后缀「代理端」；已登录访问登录页跳 /agent。
+
+  自检自验（全绿）：
+  - go build ./... 无 error；npm run build（vue-tsc 严格）无 error。
+  - 真跑：admin 建两测试代理（甲=enroll+quota+invite+settlement，乙=enroll+invite）→
+    · 代理登录签发 scope=agent token；无 token 访问 401；admin token 访问 agent 接口 403（scope 不符）。
+    · 权限门控：乙访问 quota/settlement 返 1303，访问 enrolls 200。
+    · 数据隔离：乙看不到甲的邀请/进件单（列表空）；乙删甲邀请返 1302、看甲进件单详情返 1302。
+    · 建单闭环：设 enroll_path1_charge=0，甲建 path=1 进件单直接 paid、agent_id=2 归属正确。
+  - 测试数据（两代理+进件单+邀请+钱包/流水）已清库、config 已复位、临时 server 已停。
 
 ----------------------------------------------------
-六、半成品 / 未提交改动 / 阻塞
+六、下一步（新窗口从这里接着做）
+----------------------------------------------------
+  1. 客户自助公开页 /enroll/:code：免登录 PC+H5，图形验证码 + 限流 + 敏感字段加密提交（source=3，走 CreateEnroll）。
+     邀请链接的 open_count/submit_count 打点、终态锚定 24h 已就绪，公开页读 code 落地。
+  2. 退款四道拦截 + sub_mchid 硬锁定；自动退（微信驳回后）+ 手动退（代理端 refund 权限已留）。复用 channel.Refunder。
+  3. 一期沙箱：配微信服务商沙箱凭证，端到端跑通 submit→sync→finished（结算/扣名额已就绪）。
+  4. 填全套资料（paid 后第2步）：目前 material_json 还没有前端填报表单 + 敏感字段加密落库入口，
+     SubmitToWx 已就绪但缺“填料”这一步（公开页/代理端建完单后填）。代理端 AgentEnroll 详情抽屉可加“填料”入口。
+
+----------------------------------------------------
+七、半成品 / 未提交改动 / 阻塞
 ----------------------------------------------------
   - 进件“填全套资料”环节还没做：CreateEnroll 只收基础信息+付费，material_json 需后续填料入口写入
-    （敏感字段 EncryptSensitive 加密），才能 SubmitToWx。见下一步第 5 项。
+    （敏感字段 EncryptSensitive 加密），才能 SubmitToWx。见下一步第 4 项。
   - settleOnFinish 路径一扣名额用 `_ =` 忽略余额不足（进件已成不回滚）——名额冻结→消耗→释放三态待做（待优化.txt#3）。
-  - 微信服务商真实/沙箱凭证未配置，提交微信侧未端到端验证（下一步第 4 项）。
+  - 微信服务商真实/沙箱凭证未配置，提交微信侧未端到端验证（下一步第 3 项）。
   - wx_partner_private_key / apiv3_key 明文存 config（待优化.txt#1）；删代理未级联清钱包/流水（待优化.txt#2）。
-  - 以上改动尚未 git commit（用户未要求提交）。
+  - 代理端退款页（refund 权限点已在清单，AgentEnroll 暂未接退款按钮）随退款批次（下一步第 2 项）一起做。
+  - 第一批+第二批改动已 git commit（cbaff1f）；本批（第三批 /agent）改动尚未 commit（用户未要求提交）。

@@ -235,3 +235,27 @@ export const merchantNav: NavNode[] = [
 export const merchantLeaves: NavLeaf[] = merchantNav.flatMap((n) =>
   n.children ? n.children : n.to ? [{ title: n.title, to: n.to }] : [],
 )
+
+/**
+ * 独立代理端（/agent）专属导航。代理自助端，只看/只碰自己名下，一级平铺。
+ * 自研扩展（epay 无），见 docs-代理进件/。每项带 perm 权限点 key（概览无 perm 恒可见），
+ * 前端按代理已开通的 permissions 动态过滤菜单——权限开通啥代理就看到啥。
+ * perm key 与后端 service.AgentPermissionCatalog 一致（enroll/quota/invite/settlement）。
+ */
+export interface AgentNavLeaf extends NavLeaf {
+  perm?: string // 需要的权限点 key；空=恒可见
+}
+export const agentNav: (NavNode & { perm?: string })[] = [
+  { title: '工作台', icon: LayoutDashboard, to: '/agent' },
+  { title: '进件申请', icon: ListOrdered, to: '/agent/enroll', perm: 'enroll' },
+  { title: '名额钱包', icon: Wallet, to: '/agent/quota', perm: 'quota' },
+  { title: '邀请链接', icon: QrCode, to: '/agent/invites', perm: 'invite' },
+  { title: '佣金结算', icon: Receipt, to: '/agent/settlement', perm: 'settlement' },
+]
+
+/** 代理端可路由叶子（供路由/面包屑用；路由不做权限过滤，无权时页面自身回退，菜单才隐藏） */
+export const agentLeaves: AgentNavLeaf[] = agentNav.map((n) => ({
+  title: n.title,
+  to: n.to!,
+  perm: n.perm,
+}))

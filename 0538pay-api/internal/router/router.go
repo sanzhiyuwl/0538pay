@@ -53,6 +53,7 @@ type Deps struct {
 	OpLogSvc       *service.OpLogService
 	Role           *handler.RoleHandler
 	Console        *handler.ConsoleHandler
+	Agent          *handler.AgentHandler
 }
 
 // Setup 注册所有路由。
@@ -467,5 +468,36 @@ func Setup(r *gin.Engine, d Deps) {
 		console.DELETE("/enroll-invites/:id", d.Console.DeleteInvite)
 		// 佣金结算
 		console.GET("/enroll-settlements", d.Console.ListSettlements)
+	}
+
+	// 独立代理端（代理只看/只碰自己名下；自研扩展，epay 无）。
+	// 登录公开签发 scope=agent 的独立 token（与 admin/merchant token 互不通用）；
+	// 其余接口走 agent scope 鉴权，agent_id 从 token 取，写操作按 permissions 门控。
+	agent := api.Group("/agent")
+	{
+		agent.POST("/login", d.Agent.Login)
+
+		authed := agent.Group("")
+		authed.Use(middleware.Auth(d.JWT, "agent"))
+		{
+			authed.GET("/profile", d.Agent.Profile)
+			authed.GET("/permissions", d.Agent.Permissions)
+			// 名额钱包
+			authed.GET("/quota", d.Agent.Wallet)
+			authed.GET("/quota-logs", d.Agent.QuotaLogs)
+			// 进件申请
+			authed.GET("/enrolls", d.Agent.ListEnrolls)
+			authed.POST("/enrolls", d.Agent.CreateEnroll)
+			authed.GET("/enrolls/:id", d.Agent.GetEnroll)
+			authed.POST("/enrolls/:id/submit", d.Agent.SubmitEnroll)
+			authed.POST("/enrolls/:id/sync", d.Agent.SyncEnroll)
+			// 邀请链接
+			authed.GET("/enroll-invites", d.Agent.ListInvites)
+			authed.POST("/enroll-invites", d.Agent.CreateInvite)
+			authed.PUT("/enroll-invites/:id/status", d.Agent.SetInviteStatus)
+			authed.DELETE("/enroll-invites/:id", d.Agent.DeleteInvite)
+			// 佣金结算
+			authed.GET("/enroll-settlements", d.Agent.ListSettlements)
+		}
 	}
 }

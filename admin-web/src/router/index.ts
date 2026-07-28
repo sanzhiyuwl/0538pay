@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 // 其余业务页一律动态 import()，按路由拆 chunk 首屏只加载入口，其余按需加载（技术债 #1）。
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import ConsoleLayout from '@/layouts/ConsoleLayout.vue'
+import AgentLayout from '@/layouts/AgentLayout.vue'
 import MerchantLayout from '@/layouts/MerchantLayout.vue'
 import SiteLayout from '@/layouts/SiteLayout.vue'
 import Login from '@/views/Login.vue'
@@ -70,6 +71,14 @@ const ConsoleInvites = () => import('@/views/console/ConsoleInvites.vue')
 const ConsoleSettlement = () => import('@/views/console/ConsoleSettlement.vue')
 const ConsoleSettings = () => import('@/views/console/ConsoleSettings.vue')
 
+// —— 独立代理端（懒加载）——
+const AgentLogin = () => import('@/views/agent/AgentLogin.vue')
+const AgentOverview = () => import('@/views/agent/AgentOverview.vue')
+const AgentEnroll = () => import('@/views/agent/AgentEnroll.vue')
+const AgentQuota = () => import('@/views/agent/AgentQuota.vue')
+const AgentInvites = () => import('@/views/agent/AgentInvites.vue')
+const AgentSettlement = () => import('@/views/agent/AgentSettlement.vue')
+
 // —— 商户中心（懒加载）——
 const MerchantLogin = () => import('@/views/merchant/MerchantLogin.vue')
 const MerchantHome = () => import('@/views/merchant/MerchantHome.vue')
@@ -105,9 +114,10 @@ const CashierMock = () => import('@/views/site/CashierMock.vue')
 const PayVerify = () => import('@/views/site/PayVerify.vue')
 const ClassicNews = () => import('@/views/site/templates/classic/ClassicNews.vue')
 const ClassicNewsList = () => import('@/views/site/templates/classic/ClassicNewsList.vue')
-import { allLeaves, consoleLeaves, merchantLeaves } from '@/config/nav'
+import { allLeaves, consoleLeaves, merchantLeaves, agentLeaves } from '@/config/nav'
 import { useAuthStore } from '@/stores/auth'
 import { useMerchantAuthStore } from '@/stores/merchantAuth'
+import { useAgentAuthStore } from '@/stores/agentAuth'
 import { useSiteStore } from '@/stores/site'
 
 // 路径 → 页面名映射：菜单叶子标题 + 少量非菜单页手工补充
@@ -115,6 +125,8 @@ const pathTitleMap: Record<string, string> = {
   ...Object.fromEntries(allLeaves.map((l) => [l.to, l.title])),
   ...Object.fromEntries(consoleLeaves.map((l) => [l.to, l.title])),
   ...Object.fromEntries(merchantLeaves.map((l) => [l.to, l.title])),
+  ...Object.fromEntries(agentLeaves.map((l) => [l.to, l.title])),
+  '/agent/login': '代理登录',
   '/admin': '平台概况',
   '/admin/style-guide': '设计规范',
   '/login': '登录',
@@ -130,6 +142,7 @@ const pathTitleMap: Record<string, string> = {
 /** 各端标题后缀 */
 function suffixFor(path: string, siteName: string): string {
   if (path.startsWith('/console')) return `${siteName} 控制台`
+  if (path.startsWith('/agent')) return `${siteName} 代理端`
   if (path.startsWith('/m')) return `${siteName} 商户中心`
   if (path.startsWith('/admin') || path === '/login') return `${siteName} 管理后台`
   return siteName
@@ -215,6 +228,23 @@ const consoleChildren = consoleLeaves.map((i) => ({
   component: consolePages[i.to] ?? Placeholder,
 }))
 
+// 独立代理端正式页面（path → 组件，改 agentNav + 此表路由自动跟着变）
+const agentPages: Record<string, any> = {
+  '/agent': AgentOverview,
+  '/agent/enroll': AgentEnroll,
+  '/agent/quota': AgentQuota,
+  '/agent/invites': AgentInvites,
+  '/agent/settlement': AgentSettlement,
+}
+
+// 代理端子路由（父 path=/agent，children 用相对路径）
+const agentChildren = agentLeaves.map((i) => ({
+  // '/agent' → ''，'/agent/enroll' → 'enroll'
+  path: i.to === '/agent' ? '' : i.to.replace('/agent/', ''),
+  name: i.to,
+  component: agentPages[i.to] ?? Placeholder,
+}))
+
 // 商户中心已实现的正式页面（其余子页暂用商户占位页）
 const merchantPages: Record<string, any> = {
   '/m': MerchantHome,
@@ -291,6 +321,15 @@ const router = createRouter({
       component: ConsoleLayout,
       children: consoleChildren,
     },
+    // 独立代理端登录页（无侧栏）
+    { path: '/agent/login', name: 'agent-login', component: AgentLogin },
+    // 独立代理端主区（套 AgentLayout，需代理登录态）
+    {
+      path: '/agent',
+      component: AgentLayout,
+      meta: { requiresAgent: true },
+      children: agentChildren,
+    },
     // 商户中心登录态独立页（无侧栏）
     { path: '/m/login', name: 'm-login', component: MerchantLogin },
     { path: '/m/reg', name: 'm-reg', component: MerchantReg },
@@ -333,6 +372,13 @@ router.beforeEach((to) => {
       return { name: 'm-login', query: { redirect: to.fullPath } }
     }
   }
+  // 独立代理端分组
+  if (to.matched.some((r) => r.meta.requiresAgent)) {
+    const ag = useAgentAuthStore()
+    if (!ag.isLoggedIn()) {
+      return { name: 'agent-login', query: { redirect: to.fullPath } }
+    }
+  }
   // 已登录时访问登录页，直接进对应端首页
   if (to.name === 'login') {
     const auth = useAuthStore()
@@ -342,6 +388,10 @@ router.beforeEach((to) => {
     const m = useMerchantAuthStore()
     if (m.isLoggedIn()) return '/m'
   }
+  if (to.name === 'agent-login') {
+    const ag = useAgentAuthStore()
+    if (ag.isLoggedIn()) return '/agent'
+  }
 })
 
 // 标题守卫：后台/控制台/商户中心/登录页按「页面名 · 端后缀」动态设标题；
@@ -349,7 +399,11 @@ router.beforeEach((to) => {
 router.afterEach((to) => {
   const path = to.path
   const isManaged =
-    path.startsWith('/admin') || path.startsWith('/console') || path.startsWith('/m') || path === '/login'
+    path.startsWith('/admin') ||
+    path.startsWith('/console') ||
+    path.startsWith('/agent') ||
+    path.startsWith('/m') ||
+    path === '/login'
   if (!isManaged) return // 官网页面交给 SEO 标题
 
   const site = useSiteStore()

@@ -4,9 +4,10 @@ import './style.css'
 import App from './App.vue'
 import router from './router'
 import { reveal } from './directives/reveal'
-import { onUnauthorized, onMerchantUnauthorized } from '@/lib/api/client'
+import { onUnauthorized, onMerchantUnauthorized, onAgentUnauthorized } from '@/lib/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { useMerchantAuthStore } from '@/stores/merchantAuth'
+import { useAgentAuthStore } from '@/stores/agentAuth'
 
 const app = createApp(App)
 app.use(createPinia()).use(router).directive('reveal', reveal)
@@ -28,6 +29,16 @@ onMerchantUnauthorized(() => {
   const current = router.currentRoute.value
   if (current.name !== 'm-login') {
     router.replace({ name: 'm-login', query: { redirect: current.fullPath } })
+  }
+})
+
+// 独立代理端 token 失效（401）：清代理登录态并跳代理登录页
+onAgentUnauthorized(() => {
+  const ag = useAgentAuthStore()
+  ag.logout()
+  const current = router.currentRoute.value
+  if (current.name !== 'agent-login') {
+    router.replace({ name: 'agent-login', query: { redirect: current.fullPath } })
   }
 })
 
