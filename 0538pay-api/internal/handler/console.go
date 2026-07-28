@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strconv"
 
+	"github.com/epvia/api/internal/dto"
 	"github.com/epvia/api/internal/repository"
 	"github.com/epvia/api/internal/service"
 	"github.com/epvia/api/pkg/resp"
@@ -308,6 +309,31 @@ func (h *ConsoleHandler) RefundEnroll(c *gin.Context) {
 		return
 	}
 	resp.OK(c, r)
+}
+
+// GetMaterial GET /api/console/enrolls/:id/material 回显填料表单（敏感字段只回是否已填）。
+func (h *ConsoleHandler) GetMaterial(c *gin.Context) {
+	v, err := h.enroll.GetMaterialView(consoleIDParam(c), nil)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, v)
+}
+
+// FillMaterial POST /api/console/enrolls/:id/material 填/改进件全套资料（敏感字段加密落 material_json）。
+func (h *ConsoleHandler) FillMaterial(c *gin.Context) {
+	var req dto.EnrollMaterialReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	e, err := h.enroll.FillMaterial(consoleIDParam(c), nil, req)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, e)
 }
 
 // —— 邀请链接 ——

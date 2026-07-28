@@ -2,6 +2,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Eye, Plus } from 'lucide-vue-next'
 import { Panel, Button, Badge, Drawer, Pagination } from '@/components/ui'
+import EnrollMaterialDrawer from '@/views/enroll/EnrollMaterialDrawer.vue'
 import {
   fetchMyEnrolls,
   getMyEnroll,
@@ -9,6 +10,8 @@ import {
   submitMyEnroll,
   syncMyEnroll,
   refundMyEnroll,
+  getMyEnrollMaterial,
+  fillMyEnrollMaterial,
 } from '@/lib/api/agent'
 import type { Enroll } from '@/lib/api/console'
 import { ApiError } from '@/lib/api/client'
@@ -95,6 +98,19 @@ const canRefund = computed(
     !subMchLocked.value &&
     ['paid', 'submitted', 'rejected'].includes(detail.value?.status ?? ''),
 )
+// 可填料：有 enroll 权限 + 状态在已付待完善 / 被驳回
+const canFill = computed(
+  () => agentAuth.has('enroll') && (detail.value?.status === 'paid' || detail.value?.status === 'rejected'),
+)
+
+// ===== 填料抽屉 =====
+const materialDrawer = ref(false)
+function openMaterial() {
+  if (detail.value) materialDrawer.value = true
+}
+async function onMaterialSaved() {
+  if (detail.value) detail.value = await getMyEnroll(detail.value.id)
+}
 
 async function doRefund() {
   if (!detail.value) return
@@ -291,11 +307,22 @@ async function doCreate() {
         <Button v-if="canSync" :disabled="acting" variant="outline" @click="doSync">
           {{ acting ? '查询中…' : '查状态' }}
         </Button>
+        <Button v-if="canFill" :disabled="acting" variant="outline" @click="openMaterial">填料</Button>
         <Button v-if="canSubmit" :disabled="acting" @click="doSubmit">
           {{ acting ? '提交中…' : detail?.status === 'rejected' ? '重新提交' : '提交微信' }}
         </Button>
       </template>
     </Drawer>
+
+    <!-- 填全套资料抽屉 -->
+    <EnrollMaterialDrawer
+      v-model="materialDrawer"
+      :enroll-id="detail?.id ?? null"
+      :merchant-name="detail?.merchant_name"
+      :fetch-fn="getMyEnrollMaterial"
+      :submit-fn="fillMyEnrollMaterial"
+      @saved="onMaterialSaved"
+    />
 
     <!-- 建单抽屉（付费前置）-->
     <Drawer v-model="createDrawer" title="建进件单" subtitle="第一步只填基础信息，建单即收开户费，付款成功后放行填全套资料">

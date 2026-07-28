@@ -476,6 +476,8 @@ func Setup(r *gin.Engine, d Deps) {
 		console.POST("/enrolls/:id/submit", d.Console.SubmitEnroll)
 		console.POST("/enrolls/:id/sync", d.Console.SyncEnroll)
 		console.POST("/enrolls/:id/refund", d.Console.RefundEnroll)
+		console.GET("/enrolls/:id/material", d.Console.GetMaterial)
+		console.POST("/enrolls/:id/material", d.Console.FillMaterial)
 		// 邀请链接
 		console.GET("/enroll-invites", d.Console.ListInvites)
 		console.POST("/enroll-invites", d.Console.CreateInvite)
@@ -507,6 +509,8 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.POST("/enrolls/:id/submit", d.Agent.SubmitEnroll)
 			authed.POST("/enrolls/:id/sync", d.Agent.SyncEnroll)
 			authed.POST("/enrolls/:id/refund", d.Agent.RefundEnroll)
+			authed.GET("/enrolls/:id/material", d.Agent.GetMaterial)
+			authed.POST("/enrolls/:id/material", d.Agent.FillMaterial)
 			// 邀请链接
 			authed.GET("/enroll-invites", d.Agent.ListInvites)
 			authed.POST("/enroll-invites", d.Agent.CreateInvite)

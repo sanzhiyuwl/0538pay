@@ -2,6 +2,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Eye, Plus } from 'lucide-vue-next'
 import { Panel, Button, Badge, Drawer, Pagination } from '@/components/ui'
+import EnrollMaterialDrawer from '@/views/enroll/EnrollMaterialDrawer.vue'
 import {
   fetchAgents,
   fetchEnrolls,
@@ -10,6 +11,8 @@ import {
   submitEnroll,
   syncEnroll,
   refundEnroll,
+  getEnrollMaterial,
+  fillEnrollMaterial,
   type Agent,
   type Enroll,
 } from '@/lib/api/console'
@@ -147,6 +150,17 @@ const canRefund = computed(
     !subMchLocked.value &&
     ['paid', 'submitted', 'rejected'].includes(detail.value?.status ?? ''),
 )
+// 可填料：已支付待完善 / 被驳回（提交微信前的完整资料录入）
+const canFill = computed(() => detail.value?.status === 'paid' || detail.value?.status === 'rejected')
+
+// ===== 填料抽屉 =====
+const materialDrawer = ref(false)
+function openMaterial() {
+  if (detail.value) materialDrawer.value = true
+}
+async function onMaterialSaved() {
+  if (detail.value) detail.value = await getEnroll(detail.value.id)
+}
 
 async function doSubmit() {
   if (!detail.value) return
@@ -337,11 +351,22 @@ async function doRefund() {
         <Button v-if="canSync" :disabled="acting" variant="outline" @click="doSync">
           {{ acting ? '查询中…' : '查状态' }}
         </Button>
+        <Button v-if="canFill" :disabled="acting" variant="outline" @click="openMaterial">填料</Button>
         <Button v-if="canSubmit" :disabled="acting" @click="doSubmit">
           {{ acting ? '提交中…' : detail?.status === 'rejected' ? '重新提交' : '提交微信' }}
         </Button>
       </template>
     </Drawer>
+
+    <!-- 填全套资料抽屉 -->
+    <EnrollMaterialDrawer
+      v-model="materialDrawer"
+      :enroll-id="detail?.id ?? null"
+      :merchant-name="detail?.merchant_name"
+      :fetch-fn="getEnrollMaterial"
+      :submit-fn="fillEnrollMaterial"
+      @saved="onMaterialSaved"
+    />
 
     <!-- 建单抽屉（付费前置）-->
     <Drawer v-model="createDrawer" title="建进件单" subtitle="第一步只填基础信息，建单即收开户费，付款成功后放行填全套资料">

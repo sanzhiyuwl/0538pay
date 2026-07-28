@@ -49,6 +49,7 @@ type SubMerchantEnroll struct {
 	SubjectType  string `gorm:"size:32" json:"subject_type"`             // 主体类型（个体/企业/事业单位等）
 	ContactPhone string `gorm:"size:20;index" json:"contact_phone"`      // 联系手机（明文，用于进度查询匹配）
 	MaterialJSON string `gorm:"column:material_json;type:text" json:"-"` // 全套资料 JSON（敏感字段已加密），提交微信前暂存
+	MaterialMeta string `gorm:"column:material_meta;type:text" json:"-"` // 非敏感字段明文快照（仅供后台回显编辑，绝不含身份证/银行账号/手机等敏感原文）
 
 	// 资金与路径
 	Path         int             `gorm:"not null;default:2" json:"path"`                     // 1 预购名额 / 2 商户自付

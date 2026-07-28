@@ -623,6 +623,184 @@ func (s *EnrollService) RefundEnroll(ctx context.Context, id uint, agentID *uint
 	}, nil
 }
 
+// —— 填全套资料（paid 后第 2 步，敏感字段加密落 material_json）——
+
+// FillMaterial 填/改进件全套资料（对齐 docs-代理进件/01：付款成功放行填全套资料）。
+// 前置：status∈{paid,rejected}（付费前置——先收钱才放行填料；被驳回可改料重填）。
+// ★敏感字段（姓名/证件号/银行账号/手机/邮箱）经 SubMerchantService.EncryptSensitive（RSA-OAEP）加密后
+// 组装进 applyment4sub 请求体存 material_json；非敏感字段明文快照存 material_meta 供后台回显编辑。
+// agentID 非空校验归属。图片类字段填微信「图片上传」返回的 media_id（一期不做上传，前端填占位）。
+func (s *EnrollService) FillMaterial(id uint, agentID *uint, req dto.EnrollMaterialReq) (*model.SubMerchantEnroll, error) {
+	e, err := s.repo.FindEnroll(id)
+	if err != nil {
+		return nil, enErr("进件单不存在")
+	}
+	if agentID != nil && e.AgentID != *agentID {
+		return nil, enErr("该进件单不属于您")
+	}
+	if e.Status != model.EnrollStatusPaid && e.Status != model.EnrollStatusRejected {
+		return nil, enErr("当前状态不可填写资料（需已支付待完善或被驳回后重填）")
+	}
+	if s.submch == nil || !s.submch.Configured() {
+		return nil, enErr("微信服务商凭证未配置，无法加密敏感资料，请先在系统设置填写")
+	}
+	// 基础必填校验（防组装出微信必拒的空体）。
+	if strings.TrimSpace(req.MerchantShortname) == "" {
+		return nil, enErr("请填写商户简称")
+	}
+	if strings.TrimSpace(req.IDCardName) == "" || strings.TrimSpace(req.IDCardNumber) == "" {
+		return nil, enErr("请填写经营者/法人身份信息")
+	}
+	if strings.TrimSpace(req.AccountName) == "" || strings.TrimSpace(req.AccountNumber) == "" {
+		return nil, enErr("请填写结算银行账户信息")
+	}
+
+	// 敏感字段逐个 RSA-OAEP 加密（空值加密返回空串，不报错）。
+	enc := func(plain string) (string, error) { return s.submch.EncryptSensitive(strings.TrimSpace(plain)) }
+	idName, err := enc(req.IDCardName)
+	if err != nil {
+		return nil, enErr("身份信息加密失败: " + err.Error())
+	}
+	idNumber, err := enc(req.IDCardNumber)
+	if err != nil {
+		return nil, enErr("身份信息加密失败: " + err.Error())
+	}
+	acctName, err := enc(req.AccountName)
+	if err != nil {
+		return nil, enErr("银行账户加密失败: " + err.Error())
+	}
+	acctNumber, err := enc(req.AccountNumber)
+	if err != nil {
+		return nil, enErr("银行账户加密失败: " + err.Error())
+	}
+	contactName, err := enc(req.ContactName)
+	if err != nil {
+		return nil, enErr("联系人信息加密失败: " + err.Error())
+	}
+	contactIDNum, err := enc(req.ContactIDNumber)
+	if err != nil {
+		return nil, enErr("联系人信息加密失败: " + err.Error())
+	}
+	mobile, err := enc(req.MobilePhone)
+	if err != nil {
+		return nil, enErr("联系人信息加密失败: " + err.Error())
+	}
+	email, err := enc(req.ContactEmail)
+	if err != nil {
+		return nil, enErr("联系人信息加密失败: " + err.Error())
+	}
+
+	subjectType := strings.TrimSpace(req.SubjectType)
+	if subjectType == "" {
+		subjectType = "SUBJECT_TYPE_INDIVIDUAL"
+	}
+	// 组装 applyment4sub 请求体（business_code 提交微信时由 SubmitToWx 注入，这里先不填）。
+	body := map[string]any{
+		"subject_info": map[string]any{
+			"subject_type": subjectType,
+			"business_license_info": map[string]any{
+				"license_number": strings.TrimSpace(req.LicenseNumber),
+				"license_copy":   strings.TrimSpace(req.LicenseCopy),
+				"merchant_name":  strings.TrimSpace(req.LegalPerson), // 执照商户名，个体户常与经营者同
+				"legal_person":   strings.TrimSpace(req.LegalPerson),
+				"license_address": strings.TrimSpace(req.LicenseAddress),
+				"period_begin":   strings.TrimSpace(req.PeriodBegin),
+				"period_end":     strings.TrimSpace(req.PeriodEnd),
+			},
+			"identity_info": map[string]any{
+				"id_holder_type": "LEGAL",
+				"id_doc_type":    "IDENTIFICATION_TYPE_IDCARD",
+				"id_card_info": map[string]any{
+					"id_card_copy":      strings.TrimSpace(req.IDCardCopy),
+					"id_card_national":  strings.TrimSpace(req.IDCardNational),
+					"id_card_name":      idName,   // 密文
+					"id_card_number":    idNumber, // 密文
+					"card_period_begin": strings.TrimSpace(req.CardPeriodBegin),
+					"card_period_end":   strings.TrimSpace(req.CardPeriodEnd),
+				},
+				"owner": true,
+			},
+		},
+		"business_info": map[string]any{
+			"merchant_shortname": strings.TrimSpace(req.MerchantShortname),
+			"service_phone":      strings.TrimSpace(req.ServicePhone),
+		},
+		"bank_account_info": map[string]any{
+			"bank_account_type": strings.TrimSpace(req.BankAccountType),
+			"account_name":      acctName,   // 密文
+			"account_bank":      strings.TrimSpace(req.AccountBank),
+			"bank_address_code": strings.TrimSpace(req.BankAddressCode),
+			"account_number":    acctNumber, // 密文
+		},
+		"contact_info": map[string]any{
+			"contact_type":      "LEGAL",
+			"contact_name":      contactName,  // 密文
+			"contact_id_number": contactIDNum, // 密文
+			"mobile_phone":      mobile,       // 密文
+			"contact_email":     email,        // 密文
+		},
+	}
+	materialJSON, err := json.Marshal(body)
+	if err != nil {
+		return nil, enErr("资料组装失败: " + err.Error())
+	}
+	// 非敏感明文快照（回显编辑用）——绝不含敏感原文。
+	meta, _ := json.Marshal(dto.EnrollMaterialView{
+		Filled:            true,
+		SubjectType:       subjectType,
+		MerchantShortname: strings.TrimSpace(req.MerchantShortname),
+		ServicePhone:      strings.TrimSpace(req.ServicePhone),
+		LicenseNumber:     strings.TrimSpace(req.LicenseNumber),
+		LicenseCopy:       strings.TrimSpace(req.LicenseCopy),
+		LegalPerson:       strings.TrimSpace(req.LegalPerson),
+		LicenseAddress:    strings.TrimSpace(req.LicenseAddress),
+		PeriodBegin:       strings.TrimSpace(req.PeriodBegin),
+		PeriodEnd:         strings.TrimSpace(req.PeriodEnd),
+		IDCardCopy:        strings.TrimSpace(req.IDCardCopy),
+		IDCardNational:    strings.TrimSpace(req.IDCardNational),
+		CardPeriodBegin:   strings.TrimSpace(req.CardPeriodBegin),
+		CardPeriodEnd:     strings.TrimSpace(req.CardPeriodEnd),
+		BankAccountType:   strings.TrimSpace(req.BankAccountType),
+		AccountBank:       strings.TrimSpace(req.AccountBank),
+		BankAddressCode:   strings.TrimSpace(req.BankAddressCode),
+		HasIDCardName:     idName != "",
+		HasIDCardNumber:   idNumber != "",
+		HasAccountName:    acctName != "",
+		HasAccountNumber:  acctNumber != "",
+		HasContactName:    contactName != "",
+		HasContactIDNumber: contactIDNum != "",
+		HasMobilePhone:    mobile != "",
+		HasContactEmail:   email != "",
+	})
+	if err := s.repo.UpdateEnroll(id, map[string]any{
+		"material_json": string(materialJSON),
+		"material_meta": string(meta),
+	}); err != nil {
+		return nil, err
+	}
+	return s.repo.FindEnroll(id)
+}
+
+// GetMaterialView 回显填料表单的非敏感字段（GET）。★敏感字段只回「是否已填」布尔，不回原文。
+// 未填过（material_meta 空）返回 Filled=false 的空视图。agentID 非空校验归属。
+func (s *EnrollService) GetMaterialView(id uint, agentID *uint) (*dto.EnrollMaterialView, error) {
+	e, err := s.repo.FindEnroll(id)
+	if err != nil {
+		return nil, enErr("进件单不存在")
+	}
+	if agentID != nil && e.AgentID != *agentID {
+		return nil, enErr("该进件单不属于您")
+	}
+	view := &dto.EnrollMaterialView{Filled: false}
+	if strings.TrimSpace(e.MaterialMeta) != "" {
+		if err := json.Unmarshal([]byte(e.MaterialMeta), view); err != nil {
+			return nil, enErr("资料回显解析失败")
+		}
+		view.Filled = true
+	}
+	return view, nil
+}
+
 // injectBusinessCode 确保进件请求体 JSON 含 business_code 字段（缺则补，已有则以我方编号为准覆盖）。
 func injectBusinessCode(materialJSON, businessCode string) (string, error) {
 	var m map[string]any

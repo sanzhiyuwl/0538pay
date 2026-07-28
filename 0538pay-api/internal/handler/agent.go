@@ -3,6 +3,7 @@ package handler
 import (
 	"strconv"
 
+	"github.com/epvia/api/internal/dto"
 	"github.com/epvia/api/internal/middleware"
 	"github.com/epvia/api/internal/repository"
 	"github.com/epvia/api/internal/service"
@@ -241,6 +242,39 @@ func (h *AgentHandler) RefundEnroll(c *gin.Context) {
 		return
 	}
 	resp.OK(c, r)
+}
+
+// GetMaterial GET /api/agent/enrolls/:id/material 回显填料表单（enroll 权限 + 归属自己）。
+func (h *AgentHandler) GetMaterial(c *gin.Context) {
+	if !h.requirePerm(c, service.PermEnroll) {
+		return
+	}
+	id, _ := currentAgentID(c)
+	v, err := h.enroll.GetMaterialView(agentIDParam(c), &id)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, v)
+}
+
+// FillMaterial POST /api/agent/enrolls/:id/material 填/改全套资料（enroll 权限 + 归属自己，敏感字段加密）。
+func (h *AgentHandler) FillMaterial(c *gin.Context) {
+	if !h.requirePerm(c, service.PermEnroll) {
+		return
+	}
+	var req dto.EnrollMaterialReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	id, _ := currentAgentID(c)
+	e, err := h.enroll.FillMaterial(agentIDParam(c), &id, req)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, e)
 }
 
 // —— 邀请链接（invite 权限）——

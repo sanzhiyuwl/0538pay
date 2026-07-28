@@ -154,6 +154,69 @@ export function refundEnroll(id: number): Promise<RefundResult> {
   return request<RefundResult>(`/console/enrolls/${id}/refund`, { method: 'POST' })
 }
 
+// —— 填全套资料（applyment4sub 核心字段；敏感字段后端 RSA-OAEP 加密，不明文落库）——
+// 提交入参：敏感字段前端明文提交，后端加密。图片类填 media_id 占位（一期不做上传）。
+export interface EnrollMaterialReq {
+  subject_type: string
+  merchant_shortname: string
+  service_phone: string
+  license_number: string
+  license_copy: string
+  legal_person: string
+  license_address: string
+  period_begin: string
+  period_end: string
+  id_card_name: string
+  id_card_number: string
+  id_card_copy: string
+  id_card_national: string
+  card_period_begin: string
+  card_period_end: string
+  bank_account_type: string
+  account_name: string
+  account_bank: string
+  bank_address_code: string
+  account_number: string
+  contact_name: string
+  contact_id_number: string
+  mobile_phone: string
+  contact_email: string
+}
+// 回显：敏感字段一律不回原文，只回 has_* 是否已填。
+export interface EnrollMaterialView {
+  filled: boolean
+  subject_type: string
+  merchant_shortname: string
+  service_phone: string
+  license_number: string
+  license_copy: string
+  legal_person: string
+  license_address: string
+  period_begin: string
+  period_end: string
+  id_card_copy: string
+  id_card_national: string
+  card_period_begin: string
+  card_period_end: string
+  bank_account_type: string
+  account_bank: string
+  bank_address_code: string
+  has_id_card_name: boolean
+  has_id_card_number: boolean
+  has_account_name: boolean
+  has_account_number: boolean
+  has_contact_name: boolean
+  has_contact_id_number: boolean
+  has_mobile_phone: boolean
+  has_contact_email: boolean
+}
+export function getEnrollMaterial(id: number): Promise<EnrollMaterialView> {
+  return request<EnrollMaterialView>(`/console/enrolls/${id}/material`)
+}
+export function fillEnrollMaterial(id: number, body: EnrollMaterialReq): Promise<Enroll> {
+  return request<Enroll>(`/console/enrolls/${id}/material`, { method: 'POST', body })
+}
+
 // —— 邀请链接 ——
 export interface Invite {
   id: number

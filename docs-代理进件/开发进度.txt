@@ -256,21 +256,67 @@
   - 测试数据（enroll 5/6/7、测试代理 4/5、相关 order/record/settle）已清库、config 已复位、余额净零、临时 server 已停。
 
 ----------------------------------------------------
-八、下一步（新窗口从这里接着做）
+八、第六批：填全套资料（paid 后第 2 步，applyment4sub 敏感字段加密落库）
 ----------------------------------------------------
-  1. 一期沙箱：配微信服务商沙箱凭证，端到端跑通 submit→sync→finished（结算/扣名额已就绪），
-     并连真实驳回结果验证 applyWxState REJECTED 的【自动原路退】（代码已就绪，仅缺真跑）。
-  2. 填全套资料（paid 后第2步）：目前 material_json 还没有前端填报表单 + 敏感字段加密落库入口，
-     SubmitToWx 已就绪但缺“填料”这一步。代理端 AgentEnroll 详情抽屉 / 公开页 EnrollPublic 付费成功后
-     引导客户进“填料”页补全套资料（敏感字段 EncryptSensitive 加密落 material_json）。
+  背景：CreateEnroll / 公开页只收基础信息 + 付费，material_json 之前是空的，SubmitToWx 无料可提。
+  本批补齐“填料”这一步——付款成功(paid)或被驳回(rejected)后录入微信进件全套资料，敏感字段加密落 material_json。
+
+  后端（0538pay-api）：
+
+  - dto/enroll.go（新增）：EnrollMaterialReq（填报入参，24 字段，对齐 applyment4sub 五大块：主体基础/营业执照/
+    经营者身份/结算银行账户/超管联系）+ EnrollMaterialView（回显；★敏感字段一律不回原文，只回 has_* 是否已填）。
+    敏感字段共 8 个：id_card_name / id_card_number / account_name / account_number / contact_name /
+    contact_id_number / mobile_phone / contact_email。图片类填 media_id 占位（一期不做图片上传）。
+  - model/enroll.go：SubMerchantEnroll 加 MaterialMeta 列（material_meta text）——非敏感字段明文快照，
+    仅供后台回显编辑，★绝不含身份证/银行账号/手机等敏感原文。
+  - service/enroll.go：
+    · FillMaterial(id, agentID, req)——校验状态∈{paid,rejected}（否则 1302）+ submch.Configured()（缺凭证 1302）
+      + 必填校验；8 个敏感字段经 SubMerchantService.EncryptSensitive（RSA-OAEP，公钥来自 wx_partner_public_key）
+      加密后组装进 applyment4sub 请求体 map（subject_info/business_info/bank_account_info/contact_info）落 material_json；
+      非敏感字段 + has_* 布尔写 material_meta。归属校验（agentID 非空只能碰自己名下）。
+    · GetMaterialView(id, agentID)——反序列化 material_meta 回显；material_meta 空则返回 filled:false 空视图。
+  - handler：Console/Agent 各加 GetMaterial(GET)、FillMaterial(POST)；agent 侧 PermEnroll 门控 + 强隔离 agentID=自己。
+  - router：GET/POST /api/console/enrolls/:id/material、GET/POST /api/agent/enrolls/:id/material。
+
+  前端（admin-web）：
+
+  - lib/api/console.ts：EnrollMaterialReq / EnrollMaterialView 类型 + getEnrollMaterial / fillEnrollMaterial；
+    lib/api/agent.ts：getMyEnrollMaterial / fillMyEnrollMaterial（复用同类型）。
+  - views/enroll/EnrollMaterialDrawer.vue（新增，console+agent 共用）：五分块表单（主体基础/营业执照/经营者身份/
+    结算银行账户/超管），敏感字段回显只显示占位“已填（如需修改请重新输入原文）”/“必填”，不回原文；
+    已填过的敏感字段留空=不改保留原密文，未填过则本次必填（前端 requireIfNew 校验）。通过 fetchFn/submitFn
+    prop 注入两端各自的 API，一套组件两端复用。
+  - ConsoleEnroll.vue / AgentEnroll.vue 详情抽屉：canFill 计算属性（paid/rejected 才显“填料”按钮；agent 端额外
+    要 agentAuth.has('enroll')），保存成功回刷详情。
+
+  自检自验（全绿）：
+  - go build ./... 无 error；npm run build（vue-tsc 严格）无 error（EnrollMaterialDrawer chunk 正常产出）；bin 产物无 error。
+  - 真跑闭环通过（平台端；用本地自签 RSA 测试公私钥临时充 wx_partner 凭证跑加密路径，测后已删）：
+    · GET(填料前)→filled:false 全空。
+    · POST 填全套(含身份证号 370100199001011234 / 银行账号 6222021234567890123 等敏感原文)→ok。
+    · GET(填料后)→filled:true，8 个 has_* 全 true，非敏感字段(简称/客服电话/执照编号/法人/地址/期限/账户类型/
+      开户行/省市码/media_id)正确回填，★敏感原文一律不回。
+    · DB 校验：material_json 3729B 不含身份证号明文(0)、不含银行账号明文(0)；material_meta 亦不含身份证号明文(0)
+      ——敏感字段确为 RSA-OAEP 密文，全程无明文落库。
+    · 负向：DB 置 pending_pay 再填→1302“当前状态不可填写资料”。
+  - 测试数据（enroll 8、临时 wx_partner 自签测试凭证）已清库，临时 RSA 密钥/SQL/server 已删停。
 
 ----------------------------------------------------
-九、半成品 / 未提交改动 / 阻塞
+九、下一步（新窗口从这里接着做）
 ----------------------------------------------------
-  - 进件“填全套资料”环节还没做：CreateEnroll/公开页只收基础信息+付费，material_json 需后续填料入口写入
-    （敏感字段 EncryptSensitive 加密），才能 SubmitToWx。见下一步第 2 项。
+  1. 一期沙箱（★已排期，待用户给凭证）：配微信服务商沙箱凭证（sp_mchid/sp_appid/serial_no/private_key/
+     apiv3_key/平台公钥），端到端跑通 submit→sync→finished（结算/扣名额/填料均已就绪），
+     并连真实驳回结果验证 applyWxState REJECTED 的【自动原路退】（代码已就绪，仅缺真跑）。
+     ★此步阻塞在用户提供沙箱凭证，本机无法自建。
+
+----------------------------------------------------
+十、半成品 / 未提交改动 / 阻塞
+----------------------------------------------------
+  - 填料的图片类字段（营业执照/身份证正反面）目前填 media_id 占位，未做“图片上传→换 media_id”接口
+    （微信 media/upload），沙箱批次一并接（待优化，可记 待优化.txt）。
   - settleOnFinish 路径一扣名额用 `_ =` 忽略余额不足（进件已成不回滚）——名额冻结→消耗→释放三态待做（待优化.txt#3）。
-  - 微信服务商真实/沙箱凭证未配置：提交微信侧、查状态、【自动驳回退】均未端到端真跑（下一步第 1 项）。
+  - 微信服务商真实/沙箱凭证未配置：提交微信侧、查状态、【自动驳回退】、填料 Configured() 门控均未连真实微信
+    端到端真跑（下一步第 1 项，阻塞在用户给凭证）。
   - wx_partner_private_key / apiv3_key 明文存 config（待优化.txt#1）；删代理未级联清钱包/流水（待优化.txt#2）。
-  - 一批二批 commit cbaff1f、三批 /agent commit 2eb6d63、四批 /enroll commit 606b0b6；
-    本批（第五批 退款）改动待 commit。
+  - 一批二批 commit cbaff1f、三批 /agent commit 2eb6d63、四批 /enroll commit 606b0b6、五批 退款 commit d9fbaf4；
+    本批（第六批 填料）改动待 commit。

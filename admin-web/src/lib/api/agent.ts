@@ -14,6 +14,8 @@ import type {
   Invite,
   Settlement,
   RefundResult,
+  EnrollMaterialReq,
+  EnrollMaterialView,
 } from './console'
 
 // —— 登录 / 会话 ——
@@ -72,6 +74,13 @@ export function syncMyEnroll(id: number): Promise<Enroll> {
 // 手动退款：原路退全额开户费（需 refund 权限 + 只退自己名下；四道拦截在后端校验）
 export function refundMyEnroll(id: number): Promise<RefundResult> {
   return request<RefundResult>(`/agent/enrolls/${id}/refund`, { method: 'POST' })
+}
+// 填全套资料（只碰自己名下；敏感字段后端加密落库）
+export function getMyEnrollMaterial(id: number): Promise<EnrollMaterialView> {
+  return request<EnrollMaterialView>(`/agent/enrolls/${id}/material`)
+}
+export function fillMyEnrollMaterial(id: number, body: EnrollMaterialReq): Promise<Enroll> {
+  return request<Enroll>(`/agent/enrolls/${id}/material`, { method: 'POST', body })
 }
 
 // —— 邀请链接 ——
