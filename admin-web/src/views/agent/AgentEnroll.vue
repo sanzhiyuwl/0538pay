@@ -23,8 +23,13 @@ import {
   getMyEnrollSettleApplication,
 } from '@/lib/api/agent'
 import type { Enroll, EnrollAuditDetail } from '@/lib/api/console'
+import { recognizeLicense, recognizeIDCard } from '@/lib/api/ocr'
 import { ApiError } from '@/lib/api/client'
 import { useAgentAuthStore } from '@/stores/agentAuth'
+
+// OCR 识别（代理端走 /agent 前缀，鉴权同 agent token）。
+const ocrLicense = (file: File) => recognizeLicense('/agent', file)
+const ocrIdcard = (file: File, side?: 'front' | 'back') => recognizeIDCard('/agent', file, side)
 
 const agentAuth = useAgentAuthStore()
 const toast = useToast()
@@ -404,6 +409,8 @@ async function doCreate() {
       :submit-fn="fillMyEnrollMaterial"
       :upload-fn="uploadMyEnrollMedia"
       :upload-video-fn="uploadMyEnrollVideo"
+      :ocr-license-fn="ocrLicense"
+      :ocr-idcard-fn="ocrIdcard"
       @saved="onMaterialSaved"
     />
 

@@ -642,11 +642,46 @@ func (h *MerchantCenterHandler) CertSubmit(c *gin.Context) {
 		resp.Fail(c, 400, "参数错误: "+err.Error())
 		return
 	}
-	if err := h.svc.CertSubmit(uid, req); err != nil {
+	res, err := h.svc.CertSubmit(uid, req, reqBaseURL(c))
+	if err != nil {
 		failMC(c, err)
 		return
 	}
-	resp.OK(c, gin.H{"ok": true})
+	resp.OK(c, res)
+}
+
+// CertQcloudCallback GET /api/pub/cert/qcloud/callback?state=<uid>&AuthToken=<token>
+// 腾讯云扫码实名核身完成后浏览器回跳（无 JWT，对齐 epay user/alipaycertok.php cert_open==4）。
+// 查核身结果，通过则置 cert=1，最后返回一张 HTML 结果页给用户看（此页在微信/浏览器内展示）。
+func (h *MerchantCenterHandler) CertQcloudCallback(c *gin.Context) {
+	uid64, _ := strconv.ParseUint(c.Query("state"), 10, 64)
+	authToken := c.Query("AuthToken")
+	if uid64 == 0 || authToken == "" {
+		c.Data(200, "text/html; charset=utf-8", certResultPage(false, "参数错误"))
+		return
+	}
+	if err := h.svc.CertQcloudCallback(uint(uid64), authToken); err != nil {
+		c.Data(200, "text/html; charset=utf-8", certResultPage(false, errMsg(err)))
+		return
+	}
+	c.Data(200, "text/html; charset=utf-8", certResultPage(true, "实名认证已通过，可返回页面继续操作"))
+}
+
+// certResultPage 渲染扫码认证结果页（成功/失败）。极简自包含 HTML，不依赖前端资源。
+func certResultPage(ok bool, msg string) []byte {
+	color, title := "#16a34a", "认证成功"
+	if !ok {
+		color, title = "#dc2626", "认证未通过"
+	}
+	html := `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">` +
+		`<meta name="viewport" content="width=device-width,initial-scale=1">` +
+		`<title>实名认证结果</title></head>` +
+		`<body style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;">` +
+		`<div style="max-width:420px;margin:80px auto;padding:32px 24px;background:#fff;border-radius:8px;text-align:center;">` +
+		`<div style="font-size:20px;font-weight:600;color:` + color + `;margin-bottom:12px;">` + title + `</div>` +
+		`<div style="font-size:14px;color:#666;line-height:1.6;">` + msg + `</div>` +
+		`</div></body></html>`
+	return []byte(html)
 }
 
 // Recharge POST /api/merchant/recharge 余额充值下单（走渠道，回调入账）

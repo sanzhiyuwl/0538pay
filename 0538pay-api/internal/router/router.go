@@ -57,6 +57,7 @@ type Deps struct {
 	Console        *handler.ConsoleHandler
 	Agent          *handler.AgentHandler
 	EnrollPublic   *handler.EnrollPublicHandler
+	OCR            *handler.OCRHandler
 }
 
 // Setup 注册所有路由。
@@ -143,6 +144,11 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.PUT("/config/:group", d.Config.SaveGroup)
 			authed.POST("/config/mail/test", d.Config.TestMail) // K-3 发送测试邮件
 			authed.PUT("/paypwd", d.Config.ChangePayPwd) // 修改管理员支付密码（对齐 epay admin_paypwd）
+			// OCR 证件识别（营业执照/身份证），后台内可用于核验/录入
+			if d.OCR != nil {
+				authed.POST("/ocr/license", d.OCR.License)
+				authed.POST("/ocr/idcard", d.OCR.IDCard)
+			}
 
 			// 用户组管理
 			authed.GET("/groups", d.Group.List)
@@ -323,6 +329,13 @@ func Setup(r *gin.Engine, d Deps) {
 		pay.GET("/notify/:trade_no", d.Pay.Notify)
 	}
 
+	// 公开回调（无 JWT）：腾讯云扫码实名核身完成后回跳（对齐 epay user/alipaycertok.php cert_open==4）。
+	// 用户扫脸完在腾讯云页面点完成 → 浏览器带 state=uid&AuthToken=xxx 回跳这里 → 查结果置 cert=1 → 返回结果页。
+	pub := api.Group("/pub")
+	{
+		pub.GET("/cert/qcloud/callback", d.MerchantCenter.CertQcloudCallback)
+	}
+
 	// V2 REST 接口族（对齐 epay api.php?s= → ApiHelper 反射分发）。
 	// 公开(无 JWT)，靠 MD5/RSA 签名鉴权 + timestamp 防重放。路径 /api/mapi/:class/:action。
 	mapi := api.Group("/mapi")
@@ -368,12 +381,16 @@ func Setup(r *gin.Engine, d Deps) {
 		merchant.POST("/register", d.MerchantAuth.Register)   // 注册（公开）
 		merchant.POST("/findpwd", d.MerchantAuth.FindPwd)     // 找回密码（公开）
 		// 快捷登录 OAuth（公开）
+		merchant.GET("/oauth/methods", d.MerchantAuth.OAuthMethods) // 开启的快捷登录方式（登录页读，决定显示哪些入口）
 		merchant.GET("/oauth/:provider/url", d.MerchantAuth.OAuthURL)
 		merchant.POST("/oauth/:provider/callback", d.MerchantAuth.OAuthCallback)
 		merchant.POST("/oauth/bind", d.MerchantAuth.OAuthBind)
 		// 短信 OTP + 极验（公开；与图形验证码并存，前端二选一）
 		merchant.POST("/sms", d.MerchantAuth.SendSms)
 		merchant.GET("/geetest", d.MerchantAuth.GeetestInit)
+		// 注册方式开关 + 邮箱验证码（公开，注册页读/发码）
+		merchant.GET("/reg/methods", d.MerchantAuth.RegMethods)
+		merchant.POST("/email-code", d.MerchantAuth.SendEmailCode)
 
 		mAuthed := merchant.Group("")
 		mAuthed.Use(middleware.Auth(d.JWT, "merchant"))
@@ -417,6 +434,11 @@ func Setup(r *gin.Engine, d Deps) {
 			mAuthed.POST("/recharge", d.MerchantCenter.Recharge)
 			mAuthed.GET("/cert", d.MerchantCenter.CertInfo)
 			mAuthed.POST("/cert", d.MerchantCenter.CertSubmit)
+			// 实名认证证件识别：上传营业执照/身份证 → OCR 回填公司名/姓名/证件号
+			if d.OCR != nil {
+				mAuthed.POST("/ocr/license", d.OCR.License)
+				mAuthed.POST("/ocr/idcard", d.OCR.IDCard)
+			}
 			// 自助流程：测试支付 / 聚合收款码 / 邀请返现 / 授权域名 / 使用说明 / 站内信
 			mAuthed.GET("/test", d.MerchantCenter.TestPayInfo)
 			mAuthed.POST("/test", d.MerchantCenter.TestPay)
@@ -482,6 +504,11 @@ func Setup(r *gin.Engine, d Deps) {
 		console.POST("/enrolls/:id/material", d.Console.FillMaterial)
 		console.POST("/enrolls/:id/media", d.Console.UploadMedia)
 		console.POST("/enrolls/:id/video", d.Console.UploadVideo)
+		// 进件填料证件识别：执照/身份证 OCR 回填
+		if d.OCR != nil {
+			console.POST("/ocr/license", d.OCR.License)
+			console.POST("/ocr/idcard", d.OCR.IDCard)
+		}
 		// 结算账户管理（进件成功后售后）
 		console.GET("/enrolls/:id/settlement", d.Console.GetSettlement)
 		console.POST("/enrolls/:id/settlement", d.Console.ModifySettlement)
@@ -540,6 +567,11 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.POST("/enrolls/:id/material", d.Agent.FillMaterial)
 			authed.POST("/enrolls/:id/media", d.Agent.UploadMedia)
 			authed.POST("/enrolls/:id/video", d.Agent.UploadVideo)
+			// 进件填料证件识别：执照/身份证 OCR 回填
+			if d.OCR != nil {
+				authed.POST("/ocr/license", d.OCR.License)
+				authed.POST("/ocr/idcard", d.OCR.IDCard)
+			}
 			// 结算账户管理（settle_account 权限）
 			authed.GET("/enrolls/:id/settlement", d.Agent.GetSettlement)
 			authed.POST("/enrolls/:id/settlement", d.Agent.ModifySettlement)

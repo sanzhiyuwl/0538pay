@@ -17,7 +17,9 @@ type MerchantAuthHandler struct {
 	captcha *service.CaptchaService     // 图形验证码（可空）
 	oauth   *service.OAuthService       // 快捷登录（可空，SetOAuthService 注入）
 	sms     *service.SmsService         // 短信 OTP（可空）
+	mail    *service.MailService        // 邮箱 OTP（可空）
 	geetest *service.GeetestService     // 极验（可空）
+	cfg     *service.ConfigService      // 读注册方式开关（可空）
 }
 
 // SetOAuthService 注入快捷登录服务（QQ/微信/支付宝 OAuth）。
@@ -54,6 +56,49 @@ func (h *MerchantAuthHandler) SendSms(c *gin.Context) {
 	resp.OK(c, gin.H{"sent": true})
 }
 
+// RegMethods GET /api/merchant/reg/methods 返回开放的注册方式与验证码模式（公开，注册页读）。
+// phone/email：手机/邮箱注册是否开放（都关=不可注册）；otp：是否启用真实短信/邮箱验证码。
+func (h *MerchantAuthHandler) RegMethods(c *gin.Context) {
+	if h.cfg == nil {
+		resp.OK(c, gin.H{"open": true, "invite_only": false, "phone": true, "email": true, "otp": false})
+		return
+	}
+	// reg_open：0关闭注册 / 1开放 / 2仅邀请。关闭时整体不可注册（前端出暂停页）。
+	regOpen := h.cfg.Int("reg_open", 1)
+	resp.OK(c, gin.H{
+		"open":        regOpen != 0,
+		"invite_only": regOpen == 2,
+		"phone":       h.cfg.Int("reg_phone", 1) == 1,
+		"email":       h.cfg.Int("reg_email", 1) == 1,
+		"otp":         h.cfg.Int("reg_otp", 0) == 1,
+	})
+}
+
+// SendEmailCode POST /api/merchant/email-code {scene,email} 发送邮箱验证码（公开，频控在 service）。
+func (h *MerchantAuthHandler) SendEmailCode(c *gin.Context) {
+	if h.mail == nil {
+		resp.Fail(c, 1101, "邮箱验证码服务未启用")
+		return
+	}
+	var req struct {
+		Scene string `json:"scene"`
+		Email string `json:"email" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	scene := req.Scene
+	if scene == "" {
+		scene = "reg"
+	}
+	if err := h.mail.SendCode(c.Request.Context(), scene, req.Email, c.ClientIP()); err != nil {
+		failFromMerchantAuthErr(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"sent": true})
+}
+
 // GeetestInit GET /api/merchant/geetest 极验初始化参数（公开）。
 func (h *MerchantAuthHandler) GeetestInit(c *gin.Context) {
 	if h.geetest == nil || !h.geetest.Enabled() {
@@ -61,6 +106,16 @@ func (h *MerchantAuthHandler) GeetestInit(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"enabled": true, "params": h.geetest.InitParams()})
+}
+
+// OAuthMethods GET /api/merchant/oauth/methods 返回开启的快捷登录方式（公开，供登录页决定显示哪些入口）。
+// 快捷登录服务未启用或全部关闭时，返回全 false，登录页则不显示"其他登录方式"。
+func (h *MerchantAuthHandler) OAuthMethods(c *gin.Context) {
+	if h.oauth == nil {
+		resp.OK(c, gin.H{"qq": false, "wx": false, "alipay": false})
+		return
+	}
+	resp.OK(c, h.oauth.EnabledMethods())
 }
 
 // OAuthURL GET /api/merchant/oauth/:provider/url?redirect=&state= 生成授权跳转 URL（公开）。
@@ -146,6 +201,12 @@ func (h *MerchantAuthHandler) OAuthUnbind(c *gin.Context) {
 
 func NewMerchantAuthHandler(svc *service.MerchantAuthService) *MerchantAuthHandler {
 	return &MerchantAuthHandler{svc: svc}
+}
+
+// SetRegMethodDeps 注入邮箱 OTP 服务 + 配置读取（注册方式开关 / 邮箱验证码）。
+func (h *MerchantAuthHandler) SetRegMethodDeps(mail *service.MailService, cfg *service.ConfigService) {
+	h.mail = mail
+	h.cfg = cfg
 }
 
 func failFromMerchantAuthErr(c *gin.Context, err error) {

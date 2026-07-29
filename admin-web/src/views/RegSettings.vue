@@ -12,6 +12,9 @@ const toast = useToast()
 // 键名对齐 epay set.php mod=reg（值一律字符串 "0"/"1"）
 const reg = reactive({
   reg_open: '1',
+  reg_phone: '1',      // 允许手机号注册
+  reg_email: '1',      // 允许邮箱注册
+  reg_otp: '0',        // 启用真实短信/邮箱验证码（0=仅图形码，1=图形码+OTP）
   user_review: '0',
   reg_input_settle: '0',
   reg_pay: '0',
@@ -20,17 +23,6 @@ const reg = reactive({
   captcha_version: '1',
   captcha_id: '',
   captcha_key: '',
-})
-
-// 保证金门槛（config group=deposit，被下单前置校验 + 实名工本费消费）
-const deposit = reactive({
-  user_deposit: '0',      // 是否启用保证金门槛 0/1
-  user_deposit_min: '0',  // 最低保证金要求（元）
-  cert_money: '0',        // 实名工本费（元，0=免费）
-})
-const depositOn = computed({
-  get: () => deposit.user_deposit === '1',
-  set: (v: boolean) => { deposit.user_deposit = v ? '1' : '0' },
 })
 
 // 布尔开关 ↔ 字符串 "0"/"1" 适配（Switch 组件只吃 boolean）
@@ -44,6 +36,9 @@ const regAudit = boolFor('user_review')
 const regInputSettle = boolFor('reg_input_settle')
 const regPay = boolFor('reg_pay')
 const loginCaptcha = boolFor('captcha_open_login')
+const regPhone = boolFor('reg_phone')
+const regEmail = boolFor('reg_email')
+const regOtp = boolFor('reg_otp')
 
 // 关闭注册时，审核/付费等注册相关项无意义
 const regClosed = computed(() => reg.reg_open === '0')
@@ -54,9 +49,7 @@ const saving = ref(false)
 async function load() {
   loading.value = true
   try {
-    const [regKv, depKv] = await Promise.all([fetchConfig('reg'), fetchConfig('deposit')])
-    Object.assign(reg, regKv)
-    Object.assign(deposit, depKv)
+    Object.assign(reg, await fetchConfig('reg'))
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '加载注册设置失败')
   } finally {
@@ -68,7 +61,7 @@ onMounted(load)
 async function save() {
   saving.value = true
   try {
-    await Promise.all([saveConfig('reg', { ...reg }), saveConfig('deposit', { ...deposit })])
+    await saveConfig('reg', { ...reg })
     toast.success('注册登录设置已保存')
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '保存失败')
@@ -86,9 +79,31 @@ async function save() {
         <div class="space-y-4">
           <h4 class="text-sm font-medium">注册设置</h4>
           <div class="set-field">
-            <label class="set-lbl">开放注册</label>
+            <label class="set-lbl">注册开关</label>
             <div class="min-w-0 flex-1">
               <Select v-model="reg.reg_open" :options="regOpenOptions" class="w-full" />
+              <p class="set-hint">关闭注册后，商户端注册页显示「暂停注册」；仅邀请注册需填写邀请码才能注册</p>
+            </div>
+          </div>
+          <div class="set-field">
+            <label class="set-lbl" :class="regClosed ? 'opacity-50' : ''">手机号注册</label>
+            <div class="min-w-0 flex-1">
+              <Switch v-model="regPhone" :disabled="regClosed" />
+              <p class="set-hint">允许商户用手机号注册；与邮箱注册至少开启一项</p>
+            </div>
+          </div>
+          <div class="set-field">
+            <label class="set-lbl" :class="regClosed ? 'opacity-50' : ''">邮箱注册</label>
+            <div class="min-w-0 flex-1">
+              <Switch v-model="regEmail" :disabled="regClosed" />
+              <p class="set-hint">允许商户用邮箱注册；两者都开时注册页由用户二选一</p>
+            </div>
+          </div>
+          <div class="set-field">
+            <label class="set-lbl" :class="regClosed ? 'opacity-50' : ''">真实验证码</label>
+            <div class="min-w-0 flex-1">
+              <Switch v-model="regOtp" :disabled="regClosed" />
+              <p class="set-hint">开启后注册需接收真实短信/邮箱验证码（需配置对应短信/邮件通道），关闭则仅用图形验证码</p>
             </div>
           </div>
           <div class="set-field">
@@ -153,33 +168,6 @@ async function save() {
           </template>
         </div>
 
-        <!-- 保证金门槛 -->
-        <div class="space-y-4 border-t border-border/60 pt-5">
-          <h4 class="text-sm font-medium">保证金与实名工本费</h4>
-          <div class="set-field">
-            <label class="set-lbl">启用保证金门槛</label>
-            <div class="min-w-0 flex-1">
-              <Switch v-model="depositOn" />
-              <p class="set-hint">开启后，商户余额低于最低保证金时拦截下单</p>
-            </div>
-          </div>
-          <div v-if="depositOn" class="set-field">
-            <label class="set-lbl">最低保证金</label>
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2">
-                <input v-model="deposit.user_deposit_min" class="field-input w-32" /><span class="text-sm text-muted-foreground">元</span>
-              </div>
-            </div>
-          </div>
-          <div class="set-field">
-            <label class="set-lbl">实名工本费</label>
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2">
-                <input v-model="deposit.cert_money" class="field-input w-32" /><span class="text-sm text-muted-foreground">元（0=免费）</span>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div class="mt-5 border-t border-border/60 pt-4">

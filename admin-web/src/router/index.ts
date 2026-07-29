@@ -43,6 +43,7 @@ const TransferSettings = () => import('@/views/TransferSettings.vue')
 const OAuthSettings = () => import('@/views/OAuthSettings.vue')
 const NoticeSettings = () => import('@/views/NoticeSettings.vue')
 const CertSettings = () => import('@/views/CertSettings.vue')
+const OCRSettings = () => import('@/views/OCRSettings.vue')
 const TemplateSettings = () => import('@/views/TemplateSettings.vue')
 const MailSettings = () => import('@/views/MailSettings.vue')
 const CronSettings = () => import('@/views/CronSettings.vue')
@@ -196,6 +197,7 @@ const realPages: Record<string, any> = {
   '/admin/oauth-settings': OAuthSettings,
   '/admin/notice-settings': NoticeSettings,
   '/admin/cert-settings': CertSettings,
+  '/admin/ocr-settings': OCRSettings,
   '/admin/template-settings': TemplateSettings,
   '/admin/mail-settings': MailSettings,
   '/admin/cron-settings': CronSettings,

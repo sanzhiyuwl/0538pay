@@ -57,6 +57,7 @@ export const certConfig = {
   cert_open: '0', // 0关 1支付宝身份验证 3支付宝实名信息 5阿里云金融级 4微信扫码 2手机三要素
   cert_channel: '0', // 支付宝通道
   cert_appcode: '', // 手机三要素 APPCODE
+  cert_phone3_url: 'https://sdmobile3.market.alicloudapi.com/mobile_three/check', // 三要素调用地址(可配,默认神度实时版)
   cert_qcloudid: '', // 腾讯云 SecretId
   cert_qcloudkey: '', // 腾讯云 SecretKey
   cert_aliyunid: '', // 阿里云 AccessKeyId
@@ -65,6 +66,7 @@ export const certConfig = {
   cert_corpopen: '0', // 企业认证开关
   cert_appcode2: '', // 企业信息校验 APPCODE
   cert_force: '0', // 商户强制认证
+  cert_money: '0', // 实名工本费(元,0=免费；对齐 epay cert_money)
 }
 export const certOpenOptions = [
   { value: '0', label: '关闭' },
@@ -81,6 +83,28 @@ export const certChannelOptions = [
 export const switchOptions = [
   { value: '0', label: '关闭' },
   { value: '1', label: '开启' },
+]
+
+// ============ ocr 文字识别（三方配置，阿里云/腾讯云双引擎）============
+export const ocrConfig = {
+  ocr_provider: '0', // 0关 1阿里云 2腾讯云
+  ocr_aliyun_id: '', // 阿里云 AccessKeyId
+  ocr_aliyun_key: '', // 阿里云 AccessKeySecret
+  ocr_tencent_id: '', // 腾讯云 SecretId
+  ocr_tencent_key: '', // 腾讯云 SecretKey
+  ocr_tencent_region: 'ap-guangzhou', // 腾讯云地域
+}
+export const ocrProviderOptions = [
+  { value: '0', label: '关闭' },
+  { value: '1', label: '阿里云 OCR' },
+  { value: '2', label: '腾讯云 OCR' },
+]
+// 腾讯云 OCR 常用地域
+export const ocrTencentRegionOptions = [
+  { value: 'ap-guangzhou', label: '华南地区（广州）' },
+  { value: 'ap-beijing', label: '华北地区（北京）' },
+  { value: 'ap-shanghai', label: '华东地区（上海）' },
+  { value: 'ap-hongkong', label: '港澳台地区（中国香港）' },
 ]
 
 // ============ template 首页模板 ============

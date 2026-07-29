@@ -81,18 +81,27 @@ const testOn = computed({
   set: (v: boolean) => { test.test_open = v ? '1' : '0' },
 })
 
+// 商户保证金门槛（config group=deposit，对齐 epay set.php mod=pay「商户支付功能设置」）。
+// 开启后商户余额低于最低保证金时拦截下单；冻结天数在提取保证金时校验近 N 天无订单。
+const deposit = reactive({ user_deposit: '0', user_deposit_min: '0', user_deposit_day: '0' })
+const depositOn = computed({
+  get: () => deposit.user_deposit === '1',
+  set: (v: boolean) => { deposit.user_deposit = v ? '1' : '0' },
+})
+
 const loading = ref(false)
 const saving = ref(false)
 
 async function load() {
   loading.value = true
   try {
-    const [payKv, onecodeKv, testKv] = await Promise.all([
-      fetchConfig('pay'), fetchConfig('onecode'), fetchConfig('test'),
+    const [payKv, onecodeKv, testKv, depositKv] = await Promise.all([
+      fetchConfig('pay'), fetchConfig('onecode'), fetchConfig('test'), fetchConfig('deposit'),
     ])
     Object.assign(form, payKv)
     Object.assign(onecode, onecodeKv)
     Object.assign(test, testKv)
+    Object.assign(deposit, depositKv)
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '加载支付设置失败')
   } finally {
@@ -108,6 +117,11 @@ async function save() {
       saveConfig('pay', { ...form }),
       saveConfig('onecode', { ...onecode }),
       saveConfig('test', { ...test }),
+      saveConfig('deposit', {
+        user_deposit: deposit.user_deposit,
+        user_deposit_min: deposit.user_deposit_min,
+        user_deposit_day: deposit.user_deposit_day,
+      }),
     ])
     toast.success('支付设置已保存')
   } catch (e) {
@@ -291,6 +305,33 @@ async function save() {
         </div>
         <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           开启后商户可在「测试支付」页下真实订单验证收单链路。测试收款商户 UID 指定款项落到哪个商户，填 0 则下到发起测试的商户本人。
+        </p>
+      </div>
+    </Panel>
+
+    <!-- 商户保证金门槛（对齐 epay mod=pay 商户支付功能设置） -->
+    <Panel title="商户保证金" subtitle="商户余额低于保证金门槛时拦截下单，提取保证金时校验冻结天数">
+      <div class="max-w-2xl space-y-3.5">
+        <div class="row-field">
+          <label class="lbl">开启保证金门槛</label>
+          <Switch v-model="depositOn" />
+        </div>
+        <template v-if="depositOn">
+          <div class="row-field">
+            <label class="lbl">最低保证金</label>
+            <div class="flex flex-1 items-center gap-2">
+              <input v-model="deposit.user_deposit_min" class="field-input w-40" /><span class="text-sm text-muted-foreground">元（留空/0=不限制最低充值）</span>
+            </div>
+          </div>
+          <div class="row-field">
+            <label class="lbl">提取冻结天数</label>
+            <div class="flex flex-1 items-center gap-2">
+              <input v-model="deposit.user_deposit_day" class="field-input w-40" /><span class="text-sm text-muted-foreground">天（0=不校验；提取时近 N 天需无订单、无投诉）</span>
+            </div>
+          </div>
+        </template>
+        <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          开启后商户需充足额保证金才能发起支付。冻结天数用于提取保证金时校验最近 N 天内无成功订单、无投诉，防止套现跑路。
         </p>
       </div>
       <div class="mt-5 border-t border-border/60 pt-4">

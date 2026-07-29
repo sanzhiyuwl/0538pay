@@ -26,7 +26,12 @@ import {
   type Enroll,
   type EnrollAuditDetail,
 } from '@/lib/api/console'
+import { recognizeLicense, recognizeIDCard } from '@/lib/api/ocr'
 import { ApiError } from '@/lib/api/client'
+
+// OCR 识别（控制台走 /console 前缀，鉴权同控制台 token）。
+const ocrLicense = (file: File) => recognizeLicense('/console', file)
+const ocrIdcard = (file: File, side?: 'front' | 'back') => recognizeIDCard('/console', file, side)
 
 const enrolls = ref<Enroll[]>([])
 const total = ref(0)
@@ -455,6 +460,8 @@ async function doRefund() {
       :submit-fn="fillEnrollMaterial"
       :upload-fn="uploadEnrollMedia"
       :upload-video-fn="uploadEnrollVideo"
+      :ocr-license-fn="ocrLicense"
+      :ocr-idcard-fn="ocrIdcard"
       @saved="onMaterialSaved"
     />
 

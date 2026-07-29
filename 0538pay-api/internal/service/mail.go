@@ -15,6 +15,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/epvia/api/internal/model"
+	"github.com/epvia/api/internal/repository"
 )
 
 // MailService 邮件发送三通道（对齐 epay includes/functions.php send_mail + lib/mail/*）。
@@ -27,10 +30,81 @@ import (
 // 与 send_mail 语义一致：配置不全返回错误（不假成功），发送成功返回 nil。
 // 承载邮箱 OTP 与 NoticeService 邮件场景（K-1 邮件通道）。
 type MailService struct {
-	cfg *ConfigService
+	cfg      *ConfigService
+	codeRepo *repository.RegCodeRepo // 邮箱验证码 OTP（可空；SetCodeRepo 注入，复用 pre_regcode 表 type=2）
 }
 
 func NewMailService(cfg *ConfigService) *MailService { return &MailService{cfg: cfg} }
+
+// SetCodeRepo 注入验证码仓储，开启邮箱验证码 OTP 能力（与短信 OTP 共用 pre_regcode 表，type=2 区分）。
+func (s *MailService) SetCodeRepo(r *repository.RegCodeRepo) { s.codeRepo = r }
+
+// SendCode 发送邮箱验证码 OTP（对齐 epay VerifyCode::send_code type=0 邮箱分支）。
+// 频控：同邮箱 60 秒间隔、单邮箱每天 ≤7、单 IP 每天 ≤11（对齐 epay 邮箱风控常量）。
+// 生成 6 位码 → 发 HTML 邮件 → 落 pre_regcode(type=2)。校验走 VerifyCode。
+func (s *MailService) SendCode(ctx context.Context, scene, email, ip string) error {
+	if s.codeRepo == nil {
+		return maErr("邮箱验证码服务未启用")
+	}
+	email = strings.TrimSpace(email)
+	if !emailRe.MatchString(email) {
+		return maErr("邮箱格式不正确")
+	}
+	now := time.Now()
+	if n, _ := s.codeRepo.CountByToSince(email, now.Add(-60*time.Second)); n > 0 {
+		return maErr("发送过于频繁，请 60 秒后再试")
+	}
+	if n, _ := s.codeRepo.CountByToSince(email, now.Add(-24*time.Hour)); n >= 7 {
+		return maErr("该邮箱今日验证码发送次数已达上限")
+	}
+	if ip != "" {
+		if n, _ := s.codeRepo.CountByIPSince(ip, now.Add(-24*time.Hour)); n >= 11 {
+			return maErr("您的操作过于频繁，请稍后再试")
+		}
+	}
+	code := randCode6()
+	site := s.cfg.Str("sitename")
+	if site == "" {
+		site = "Epvia Neo"
+	}
+	body := fmt.Sprintf("您的验证码是 <b>%s</b>，5 分钟内有效，请勿泄露。<br/><br/>来自：%s", code, site)
+	if err := s.Send(ctx, email, "注册验证码 - "+site, body); err != nil {
+		return err
+	}
+	return s.codeRepo.Create(&model.RegCode{
+		Scene: scene, Type: 2, Code: code, To: email, IP: ip, Status: 0, SendTime: now,
+	})
+}
+
+// VerifyCode 校验邮箱验证码：最新一条，判过期(1h)/已用/errcount≥5/码匹配。通过则作废。
+// 语义与 SmsService.Verify 完全一致（同表同规则，仅接收方为邮箱）。
+func (s *MailService) VerifyCode(scene, email, code string) (bool, error) {
+	if s.codeRepo == nil {
+		return false, maErr("邮箱验证码服务未启用")
+	}
+	c, err := s.codeRepo.Latest(strings.TrimSpace(email), scene)
+	if err != nil {
+		return false, err
+	}
+	if c == nil {
+		return false, maErr("请先获取验证码")
+	}
+	if c.Status > 0 {
+		return false, maErr("验证码已使用，请重新获取")
+	}
+	if time.Since(c.SendTime) > time.Hour {
+		return false, maErr("验证码已过期，请重新获取")
+	}
+	if c.ErrCount >= 5 {
+		return false, maErr("验证码错误次数过多，请重新获取")
+	}
+	if strings.TrimSpace(code) != c.Code {
+		_ = s.codeRepo.IncrErr(c.ID)
+		return false, maErr("验证码错误")
+	}
+	_ = s.codeRepo.MarkUsed(c.ID)
+	return true, nil
+}
 
 const mailHTTPTimeout = 10 * time.Second
 

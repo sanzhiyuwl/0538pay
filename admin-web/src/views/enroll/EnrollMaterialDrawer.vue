@@ -2,6 +2,7 @@
 import { ref, reactive, watch, computed, nextTick } from 'vue'
 import { Drawer, Button, Select } from '@/components/ui'
 import type { EnrollMaterialReq, EnrollMaterialView } from '@/lib/api/console'
+import type { OCRLicenseResult, OCRIDCardResult } from '@/lib/api/ocr'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 import {
@@ -136,6 +137,9 @@ const props = defineProps<{
   submitFn: (id: number, body: EnrollMaterialReq) => Promise<unknown>
   uploadFn: (id: number, file: File) => Promise<{ media_id: string }>
   uploadVideoFn: (id: number, file: File) => Promise<{ media_id: string }>
+  // OCR 识别（可选）：上传执照/身份证图后自动识别回填。未传则不识别，仅上传换 media_id。
+  ocrLicenseFn?: (file: File) => Promise<OCRLicenseResult>
+  ocrIdcardFn?: (file: File, side?: 'front' | 'back') => Promise<OCRIDCardResult>
 }>()
 const emit = defineEmits<{ 'update:modelValue': [v: boolean]; saved: [] }>()
 
@@ -439,7 +443,47 @@ const uploading = reactive<Record<string, boolean>>({
   activities_additions: false,
 })
 
+// OCR 识别中状态（按字段区分，用于按钮提示）。
+const recognizing = reactive<Record<string, boolean>>({
+  license_copy: false,
+  id_card_copy: false,
+  id_card_national: false,
+})
+
+// 执照识别回填：仅回填空字段/覆盖同类，日期归一由后端完成；识别值供人工核对后提交。
+function fillFromLicense(r: OCRLicenseResult) {
+  if (r.reg_number) form.license_number = r.reg_number
+  if (r.name) form.business_merchant_name = r.name
+  if (r.legal_person) form.legal_person = r.legal_person
+  if (r.address) form.license_address = r.address
+  if (r.valid_period_begin) form.period_begin = r.valid_period_begin
+  if (r.valid_period_end) form.period_end = r.valid_period_end
+}
+
+// 身份证人像面回填（姓名/号码/住址为敏感字段，识别后填入输入框由人核对）。
+function fillFromIDCardFront(r: OCRIDCardResult) {
+  if (r.name) {
+    form.id_card_name = r.name
+    has.idCardName = false // 识别出新值，按未填态提示需核对
+  }
+  if (r.id_number) {
+    form.id_card_number = r.id_number
+    has.idCardNumber = false
+  }
+  if (isEnterprise.value && r.address) {
+    form.id_card_address = r.address
+    has.idCardAddress = false
+  }
+}
+
+// 身份证国徽面回填（有效期）。
+function fillFromIDCardBack(r: OCRIDCardResult) {
+  if (r.valid_period_begin) form.card_period_begin = r.valid_period_begin
+  if (r.valid_period_end) form.card_period_end = r.valid_period_end
+}
+
 // 选图即上传：校验类型/大小 → uploadFn 换 media_id → 回填对应字段。
+// 若父组件传入 OCR 识别函数，则同时识别并回填结构化字段（识别失败不阻断上传）。
 async function onPickImage(field: 'license_copy' | 'id_card_copy' | 'id_card_national', e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
@@ -461,11 +505,36 @@ async function onPickImage(field: 'license_copy' | 'id_card_copy' | 'id_card_nat
     const { media_id } = await props.uploadFn(props.enrollId, file)
     form[field] = media_id
     toast.success('图片已上传')
+    // 上传成功后按字段类型尝试 OCR 识别回填（不影响已换到的 media_id）。
+    await runOCR(field, file)
   } catch (err) {
     toast.error(err instanceof ApiError ? err.message : '图片上传失败')
   } finally {
     uploading[field] = false
     input.value = '' // 允许重选同名文件
+  }
+}
+
+// 按字段调用对应 OCR 识别并回填。识别失败仅提示、不影响上传结果。
+async function runOCR(field: 'license_copy' | 'id_card_copy' | 'id_card_national', file: File) {
+  try {
+    if (field === 'license_copy' && props.ocrLicenseFn) {
+      recognizing[field] = true
+      fillFromLicense(await props.ocrLicenseFn(file))
+      toast.success('已识别营业执照并回填，请核对')
+    } else if (field === 'id_card_copy' && props.ocrIdcardFn) {
+      recognizing[field] = true
+      fillFromIDCardFront(await props.ocrIdcardFn(file, 'front'))
+      toast.success('已识别身份证并回填，请核对')
+    } else if (field === 'id_card_national' && props.ocrIdcardFn) {
+      recognizing[field] = true
+      fillFromIDCardBack(await props.ocrIdcardFn(file, 'back'))
+      toast.success('已识别身份证有效期，请核对')
+    }
+  } catch (err) {
+    toast.error(err instanceof ApiError ? err.message : 'OCR 识别失败，请手动填写')
+  } finally {
+    recognizing[field] = false
   }
 }
 
@@ -800,8 +869,8 @@ async function doSave() {
           <label class="lbl">执照照片<span class="text-destructive">*</span></label>
           <div class="flex flex-1 items-center gap-2">
             <label class="media-btn">
-              <input type="file" accept=".jpg,.jpeg,.png,.bmp" class="hidden" :disabled="uploading.license_copy" @change="onPickImage('license_copy', $event)" />
-              {{ uploading.license_copy ? '上传中…' : form.license_copy ? '重新上传' : '选择图片' }}
+              <input type="file" accept=".jpg,.jpeg,.png,.bmp" class="hidden" :disabled="uploading.license_copy || recognizing.license_copy" @change="onPickImage('license_copy', $event)" />
+              {{ uploading.license_copy ? '上传中…' : recognizing.license_copy ? '识别中…' : form.license_copy ? '重新上传' : (ocrLicenseFn ? '选择图片并识别' : '选择图片') }}
             </label>
             <span v-if="form.license_copy" class="media-ok">已上传 ✓</span>
             <span v-else class="dim text-xs">JPG/PNG/BMP，≤2M</span>
@@ -898,8 +967,8 @@ async function doSave() {
             <label class="lbl">人像面照片</label>
             <div class="flex flex-1 items-center gap-2">
               <label class="media-btn">
-                <input type="file" accept=".jpg,.jpeg,.png,.bmp" class="hidden" :disabled="uploading.id_card_copy" @change="onPickImage('id_card_copy', $event)" />
-                {{ uploading.id_card_copy ? '上传中…' : form.id_card_copy ? '重新上传' : '选择图片' }}
+                <input type="file" accept=".jpg,.jpeg,.png,.bmp" class="hidden" :disabled="uploading.id_card_copy || recognizing.id_card_copy" @change="onPickImage('id_card_copy', $event)" />
+                {{ uploading.id_card_copy ? '上传中…' : recognizing.id_card_copy ? '识别中…' : form.id_card_copy ? '重新上传' : (ocrIdcardFn ? '选择图片并识别' : '选择图片') }}
               </label>
               <span v-if="form.id_card_copy" class="media-ok">已上传 ✓</span>
               <span v-else class="dim text-xs">JPG/PNG/BMP，≤2M</span>
@@ -909,8 +978,8 @@ async function doSave() {
             <label class="lbl">国徽面照片</label>
             <div class="flex flex-1 items-center gap-2">
               <label class="media-btn">
-                <input type="file" accept=".jpg,.jpeg,.png,.bmp" class="hidden" :disabled="uploading.id_card_national" @change="onPickImage('id_card_national', $event)" />
-                {{ uploading.id_card_national ? '上传中…' : form.id_card_national ? '重新上传' : '选择图片' }}
+                <input type="file" accept=".jpg,.jpeg,.png,.bmp" class="hidden" :disabled="uploading.id_card_national || recognizing.id_card_national" @change="onPickImage('id_card_national', $event)" />
+                {{ uploading.id_card_national ? '上传中…' : recognizing.id_card_national ? '识别中…' : form.id_card_national ? '重新上传' : (ocrIdcardFn ? '选择图片并识别' : '选择图片') }}
               </label>
               <span v-if="form.id_card_national" class="media-ok">已上传 ✓</span>
               <span v-else class="dim text-xs">JPG/PNG/BMP，≤2M</span>

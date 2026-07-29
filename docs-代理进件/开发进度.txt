@@ -1089,3 +1089,29 @@
 阻塞同前：真实提交(个体户/企业/事业单位/社会组织各分支)到微信端到端需真开通 sub_mchid(★官方无沙箱,须真商户营业执照/法人身份证/银行账户,一提交即真开户);字段层面已对齐官方文档且由组装层单测锁死,常见主体+经营场景的正常提交不再有已知字段级被拒隐患。
 
 遗留(记待优化)：contact_type=SUPER 分支已做;若产品上只支持「超管=法人」可在前端隐藏该选项,当前默认 LEGAL 不影响。政府/事业单位走经办人证件的 id_holder_type(边缘场景)未做,留待后续。
+
+
+----------------------------------------------------
+十二、OCR 证件识别（阿里云+腾讯云双引擎，收单实名认证+代理进件共用）已完成（2026-07-29 19:50分）
+----------------------------------------------------
+起因：用户要在收单后端「三方配置」新增 OCR 配置，接入阿里云+腾讯云两家 OCR；实现收单侧(商户实名认证)与进件侧(填料抽屉)上传营业执照/身份证后自动识别回填。先查微信支付技能知识库确认「微信 media/upload 只换 media_id、不识别内容，OCR 须外接第三方」；再查 epay 源码，其 OCR 只有 AliyunRecognize 库 + set.php 两个配置项(ocr_aliyunid/ocr_aliyunkey)，主程序从未调用(预留能力)。用户确认：阿里云独立一套(不复用实名认证 cert_aliyun*)+ 必加腾讯云；收单侧给商户实名认证加证件识别。
+
+配置(收单后台·三方配置)：
+  - config.go 新增 ocr 分组默认值 + 白名单：ocr_provider(0关/1阿里/2腾讯)、ocr_aliyun_id/key、ocr_tencent_id/key、ocr_tencent_region(默认 ap-guangzhou)。阿里云独立于 cert_aliyun*(理由:OCR 与金融级实人认证是两个阿里云产品，可用不同子账号 AK)。
+  - 前端 OCRSettings.vue：引擎下拉 + 两家密钥(按 provider 联动显隐) + 腾讯地域下拉 + 开通说明；挂进 nav「三方配置」组(实名认证与邮箱短信之间)，路由 /admin/ocr-settings。
+
+通用识别能力(收单+进件共用)：
+  - pkg/ocr：统一 Recognizer 接口 + 归一 DTO(LicenseResult/IDCardResult)。aliyun.go 对齐 epay AliyunRecognize(RPC 风格 HMAC-SHA1 签名，图片 octet-stream 直传，2021-07-07 版 RecognizeBusinessLicense/RecognizeIdcard)；tencent.go 走 TC3-HMAC-SHA256 签名(BizLicenseOCR/IDCardOCR，图片 base64)。util.go 做日期归一(2020年1月1日→2020-01-01)与营业期限/有效期起止拆分(正则抽日期 token，兼容「2018.09.01-2038.09.01」「至长期」等)。
+  - OCRService(internal/service/ocr.go)：按 ocr_provider 选引擎；未开启/缺密钥返回业务错误(ConfigError)。Enabled() 供判断。
+  - OCRHandler(internal/handler/ocr.go)：无状态，只识别不落库。POST .../ocr/license、.../ocr/idcard(表单 side=back 识别国徽面出有效期)。挂在 4 个鉴权分组下：/admin(后台)、/merchant(商户中心)、/console(控制台进件)、/agent(代理进件)，鉴权各自分组中间件负责。
+
+回填接入：
+  - 进件抽屉 EnrollMaterialDrawer.vue：新增可选 ocrLicenseFn/ocrIdcardFn props；执照/身份证选图上传微信换 media_id 后并行调 OCR 回填(执照→license_number/business_merchant_name/legal_person/license_address/period_*；身份证人像面→id_card_name/number/address+置 has_* 为未填态提示核对；国徽面→card_period_*)。识别失败不阻断上传。ConsoleEnroll(/console)、AgentEnroll(/agent)各传对应前缀的识别函数。
+  - 商户实名认证 MerchantCertificate.vue(/merchant)：企业主体加「上传营业执照」识别公司名(certcorp)+法人(certname)；通用加「上传身份证人像面」识别姓名(certname)+证件号(certno)。识别值填入输入框由人核对后提交。
+  - 前端 lib/api/ocr.ts：recognizeLicense/recognizeIDCard(base 前缀参数化，走 upload 多部件)，供四端复用。
+
+自检自验(三关卡全绿)：
+  - go build ./... 无 error；go test ./pkg/ocr ./internal/service 全过(pkg/ocr 单测锁 normalizeDate/splitPeriod/percentEncode/阿里云签名稳定性)；npm run build(vue-tsc 严格)无 error。
+  - 真跑：server 二进制重建+启动，8 条 ocr 路由(admin/merchant/console/agent × license/idcard)全注册；无 token 401、bogus 路由 404；admin 登录后 config/ocr 读默认值正确；provider=0 调识别返「平台未开启 OCR」、provider=1 无密钥返「阿里云 OCR 未配置」、无文件返「请选择要识别的图片」、超大文件返「图片过大」——handler→service→引擎选择全链路通。测试数据/临时 server/日志已清。
+
+阻塞/遗留：真实识别效果需真阿里云/腾讯云 OCR 凭证连第三方(本机无)，签名与请求组装已按两家官方规则实现并单测锁签名；连真凭证后按实际返回字段名微调 DTO 映射即可(阿里云 2021-07-07 内层字段以实际返回为准)。护照/通行证等非身份证证件的 OCR 未做(微信进件支持但识别引擎接口不同，留待后续)。

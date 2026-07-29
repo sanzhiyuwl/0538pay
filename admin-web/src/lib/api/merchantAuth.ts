@@ -76,6 +76,27 @@ export interface MerchantRegReq {
   plugin?: string // reg_pay 付费注册选用的支付方式
   captcha_token: string
   captcha: string
+  otp_code?: string // reg_otp=1 时的真实短信/邮箱验证码
+}
+
+/** 开放的注册方式与验证码模式（注册页读，决定显示哪些 tab、是否要真实验证码） */
+export interface RegMethods {
+  open: boolean // 是否开放注册（reg_open!=0）；false=暂停注册
+  invite_only: boolean // 是否仅邀请注册（reg_open==2）
+  phone: boolean
+  email: boolean
+  otp: boolean
+}
+export function fetchRegMethods(): Promise<RegMethods> {
+  return request<RegMethods>('/merchant/reg/methods')
+}
+/** 发送手机短信验证码（公开，scene 默认 reg） */
+export function sendSmsCode(phone: string, scene = 'reg'): Promise<{ sent: boolean }> {
+  return request('/merchant/sms', { method: 'POST', body: { phone, scene } })
+}
+/** 发送邮箱验证码（公开，scene 默认 reg） */
+export function sendEmailCode(email: string, scene = 'reg'): Promise<{ sent: boolean }> {
+  return request('/merchant/email-code', { method: 'POST', body: { email, scene } })
 }
 /** 付费注册待付订单（对齐后端 SubmitResp） */
 export interface RegPaySubmit {
@@ -130,6 +151,15 @@ export interface OAuthResult {
   need_bind: boolean
   provider?: string
   openid?: string
+}
+/** 开启的快捷登录方式（登录页读，决定显示哪些入口；全关则不显示"其他登录方式"） */
+export interface OAuthMethods {
+  qq: boolean
+  wx: boolean
+  alipay: boolean
+}
+export function fetchOAuthMethods(): Promise<OAuthMethods> {
+  return request('/merchant/oauth/methods')
 }
 /** 取第三方授权跳转 URL */
 export function fetchOAuthURL(provider: string, redirect: string, state: string): Promise<{ url: string }> {

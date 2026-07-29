@@ -225,6 +225,7 @@ func main() {
 	// 邮件三通道(K-3 SMTP/Sendcloud/阿里云) + 公众号模板消息(K-2) + 短信 = NoticeService(K-1)。
 	// 接进 order/settle/login/apply/domain/regaudit/balance 业务钩子；通道未配置静默降级，不阻塞主流程。
 	mailSvc := service.NewMailService(configSvc)
+	mailSvc.SetCodeRepo(regCodeRepo) // 邮箱验证码 OTP（复用 pre_regcode 表 type=2）
 	wxmpSvc := service.NewWxmpService(repository.NewWeixinRepo(db))
 	noticeSvc := service.NewNoticeService(merchantRepo, configSvc, mailSvc, wxmpSvc, smsSvc)
 	paySvc.SetNoticeService(noticeSvc)             // order 支付成功商户通知
@@ -232,7 +233,9 @@ func main() {
 	merchantCenterSvc.SetNoticeService(noticeSvc)  // apply 提现待处理管理员通知
 	domainSvc.SetNoticeService(noticeSvc)          // domain 授权域名待审核管理员通知
 	merchantRegSvc.SetNoticeService(noticeSvc)     // regaudit 新注册待审核管理员通知
+	merchantRegSvc.SetOTPServices(smsSvc, mailSvc) // reg_otp=1 注册校验真实短信/邮箱验证码
 	merchantAuthSvc.SetNoticeService(noticeSvc)    // login 登录提醒
+	merchantAuthHandler.SetRegMethodDeps(mailSvc, configSvc) // 注册方式开关 + 邮箱验证码
 	configHandler := handler.NewConfigHandler(configSvc)
 	configHandler.SetMailService(mailSvc) // K-3 后台「发送测试邮件」
 
@@ -284,6 +287,7 @@ func main() {
 		Console:   handler.NewConsoleHandler(agentSvc, enrollSvc, submchSvc),
 		Agent:     handler.NewAgentHandler(agentSvc, enrollSvc),
 		EnrollPublic: handler.NewEnrollPublicHandler(enrollSvc, agentSvc, captchaSvc),
+		OCR:          handler.NewOCRHandler(service.NewOCRService(configSvc)),
 	}
 
 	// 4. 定时任务（阶段E）：通知重试 + 对账 + 超时关单 + 自动结算 + 分账 + 风控。

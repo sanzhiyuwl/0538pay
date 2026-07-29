@@ -27,10 +27,18 @@ type MerchantRegService struct {
 	captcha *CaptchaService
 	notice  *NoticeService // 新注册待审核管理员通知（可空；SetNoticeService 注入）
 	pay     *PayService    // 付费注册下单/回调建号（可空；SetPayService 注入。B1-51）
+	sms     *SmsService    // 手机注册真实短信 OTP 校验（可空；reg_otp=1 时启用）
+	mail    *MailService   // 邮箱注册真实邮件 OTP 校验（可空；reg_otp=1 时启用）
 }
 
 func NewMerchantRegService(repo *repository.MerchantRepo, cfg *ConfigService, invite *InviteService, captcha *CaptchaService) *MerchantRegService {
 	return &MerchantRegService{repo: repo, cfg: cfg, invite: invite, captcha: captcha}
+}
+
+// SetOTPServices 注入短信/邮件 OTP 服务（reg_otp=1 时注册校验真实验证码）。
+func (s *MerchantRegService) SetOTPServices(sms *SmsService, mail *MailService) {
+	s.sms = sms
+	s.mail = mail
 }
 
 // SetNoticeService 注入对外通知中枢（K-1）。注册需审核时发 regaudit 场景管理员通知。
@@ -126,7 +134,7 @@ func (s *MerchantRegService) Register(req dto.MerchantRegReq) (*dto.MerchantRegR
 		return nil, maErr("未开放商户申请")
 	}
 
-	// 2. 图形验证码
+	// 2. 图形验证码（人机校验，恒开）
 	if !s.captcha.Verify(req.CaptchaToken, req.Captcha) {
 		return nil, maErr("验证码错误或已过期")
 	}
@@ -139,7 +147,21 @@ func (s *MerchantRegService) Register(req dto.MerchantRegReq) (*dto.MerchantRegR
 		return nil, err
 	}
 
-	// 3. 账号格式 + 重复校验（verifytype: 0邮箱 1手机）
+	// 3. 注册方式开关校验：所选方式必须被后台开放（reg_phone/reg_email，均关=不可注册）。
+	phoneOpen := s.cfg.Int("reg_phone", 1) == 1
+	emailOpen := s.cfg.Int("reg_email", 1) == 1
+	if !phoneOpen && !emailOpen {
+		return nil, maErr("暂未开放注册")
+	}
+	if req.VerifyType == 1 && !phoneOpen {
+		return nil, maErr("未开放手机号注册")
+	}
+	if req.VerifyType != 1 && !emailOpen {
+		return nil, maErr("未开放邮箱注册")
+	}
+
+	// 4. 账号格式 + 重复校验 + 真实 OTP 校验（verifytype: 0邮箱 1手机）
+	otpOn := s.cfg.Int("reg_otp", 0) == 1
 	var email, phone string
 	if req.VerifyType == 1 {
 		if !isNumeric(account) || len(account) != 11 {
@@ -153,6 +175,15 @@ func (s *MerchantRegService) Register(req dto.MerchantRegReq) (*dto.MerchantRegR
 		if n > 0 {
 			return nil, maErr("该手机号已注册")
 		}
+		// reg_otp=1：校验真实短信验证码（scene=reg，通过后作废）。
+		if otpOn {
+			if s.sms == nil {
+				return nil, maErr("短信验证码服务未启用")
+			}
+			if ok, err := s.sms.Verify("reg", phone, req.OtpCode); !ok {
+				return nil, err
+			}
+		}
 	} else {
 		if !emailRe.MatchString(account) {
 			return nil, maErr("邮箱格式不正确")
@@ -165,9 +196,18 @@ func (s *MerchantRegService) Register(req dto.MerchantRegReq) (*dto.MerchantRegR
 		if n > 0 {
 			return nil, maErr("该邮箱已注册")
 		}
+		// reg_otp=1：校验真实邮箱验证码（scene=reg，通过后作废）。
+		if otpOn {
+			if s.mail == nil {
+				return nil, maErr("邮箱验证码服务未启用")
+			}
+			if ok, err := s.mail.VerifyCode("reg", email, req.OtpCode); !ok {
+				return nil, err
+			}
+		}
 	}
 
-	// 4. 邀请码校验（reg_open==2 强制），先校验不核销
+	// 5. 邀请码校验（reg_open==2 强制），先校验不核销
 	var inviteID uint
 	if regOpen == 2 {
 		code := strings.TrimSpace(req.Invite)

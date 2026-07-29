@@ -158,15 +158,23 @@ func (s *MerchantCenterService) CertInfo(uid uint) (*dto.CertInfo, error) {
 	if m == nil {
 		return nil, maErr("商户不存在")
 	}
+	// 认证方式文案：已认证按落库的 certmethod 显示实际方式；未认证按平台当前配置 cert_open 显示将采用的方式。
+	var method string
+	if m.Cert == 1 {
+		method = certMethodName(m.CertMethod)
+	} else {
+		method = certOpenName(s.cfg.Int("cert_open", 0))
+	}
 	info := &dto.CertInfo{
-		Cert:      m.Cert,
-		CertType:  m.CertType,
-		CertName:  maskName(m.CertName),
-		CertNo:    maskIDNo(m.CertNo),
-		CertCorp:  m.CertCorp,
-		CertMoney: certMoney.InexactFloat64(),
-		Method:    "支付宝身份验证", // 认证方式由平台配置，第三方认证待凭证
-		CorpOpen:  true,
+		Cert:       m.Cert,
+		CertType:   m.CertType,
+		CertName:   maskName(m.CertName),
+		CertNo:     maskIDNo(m.CertNo),
+		CertCorp:   m.CertCorp,
+		CertCorpNo: maskIDNo(m.CertCorpNo),
+		CertMoney:  certMoney.InexactFloat64(),
+		Method:     method,
+		CorpOpen:   s.cfg.Int("cert_corpopen", 0) == 1,
 	}
 	if m.CertTime != nil {
 		info.CertTime = m.CertTime.Format(timeLayout)
@@ -178,58 +186,136 @@ func (s *MerchantCenterService) CertInfo(uid uint) (*dto.CertInfo, error) {
 // 第三方认证（支付宝/微信/阿里云人脸+三要素）依赖外部凭证，当前无法真实核验：
 // 存入认证信息为"审核中"(cert=0)，实际通过需第三方回调置 cert=1（待凭证接入）。
 // 工本费认证成功才扣（对齐 epay），故此处不扣费。
-func (s *MerchantCenterService) CertSubmit(uid uint, req dto.CertSubmitReq) error {
+// callbackURL 为异步扫码方式（腾讯云人脸核身）的回跳地址基址（形如 https://host），由 handler 从请求推导；
+// 服务内拼成 <base>/api/pub/cert/qcloud/callback?state=<uid>。同步方式忽略该参数。
+func (s *MerchantCenterService) CertSubmit(uid uint, req dto.CertSubmitReq, callbackBase string) (*dto.CertSubmitResp, error) {
 	m, err := s.merchants.FindByUIDSafe(uid)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if m == nil {
-		return maErr("商户不存在")
+		return nil, maErr("商户不存在")
 	}
 	if m.Cert == 1 && m.CertType >= req.CertType {
-		return maErr("您已完成实名认证")
+		return nil, maErr("您已完成实名认证")
 	}
 	name := strings.TrimSpace(req.CertName)
 	no := strings.TrimSpace(req.CertNo)
 	if len([]rune(name)) < 2 {
-		return maErr("请输入真实姓名")
+		return nil, maErr("请输入真实姓名")
 	}
 	if !validIDNo(no) {
-		return maErr("身份证号格式不正确")
+		return nil, maErr("身份证号格式不正确")
 	}
-	if req.CertType == 1 && strings.TrimSpace(req.CertCorp) == "" {
-		return maErr("请填写企业名称")
+	corpName := strings.TrimSpace(req.CertCorp)
+	corpNo := strings.TrimSpace(req.CertCorpNo)
+	if req.CertType == 1 {
+		if corpName == "" {
+			return nil, maErr("请填写企业名称")
+		}
+		if corpNo == "" {
+			return nil, maErr("请填写营业执照号（统一社会信用代码）")
+		}
 	}
 	// 工本费余额校验（认证成功才扣，此处仅预检）
 	if certMoney.GreaterThan(decimal.Zero) && m.Money.LessThan(certMoney) {
-		return maErr("余额不足以支付实名认证工本费")
+		return nil, maErr("余额不足以支付实名认证工本费")
+	}
+	if s.certVerify == nil {
+		return nil, maErr("实名核验服务未启用")
+	}
+	// 企业认证：先做企业工商三要素核验（公司名+执照号+法人姓名一致），通过后再走法人个人核验
+	//（对齐 epay ajax2：certtype==1 先 check_corp_cert）。
+	if req.CertType == 1 {
+		corpOK, cerr := s.certVerify.VerifyCorp(context.Background(), corpName, corpNo, name)
+		if cerr != nil {
+			return nil, cerr
+		}
+		if !corpOK {
+			return nil, maErr("企业信息核验未通过，请核对公司名称、营业执照号与法人姓名")
+		}
 	}
 	// 先存认证信息（cert 保持 0 审核中）。
 	fields := map[string]interface{}{
-		"cert_type": req.CertType,
-		"cert_name": name,
-		"cert_no":   no,
-		"cert_corp": strings.TrimSpace(req.CertCorp),
+		"cert_type":  req.CertType,
+		"cert_name":  name,
+		"cert_no":    no,
+		"cert_corp":  corpName,
+		"certcorpno": corpNo,
 	}
 	if err := s.merchants.UpdateFields(uid, fields); err != nil {
-		return err
+		return nil, err
 	}
 
-	// 第三方核验（对齐 epay cert_open 分派）。同步方式(手机三要素)凭证到位即可真核；
-	// 异步/人脸方式返回待凭证提示。核验通过才 cert=1 + 扣工本费（对齐 epay 成功才扣）。
-	if s.certVerify == nil {
-		return maErr("实名核验服务未启用")
+	// 异步扫码方式（腾讯云人脸核身 cert_open=4）：发起拿 AuthToken + 二维码链接，落库 certtoken/certmethod=1，
+	// cert 保持 0，返回扫码链接给前端弹码；扫脸完成后腾讯云回调 QueryFaceResult 才置 cert=1（对齐 epay ajax2）。
+	if s.certVerify.IsAsyncFace() {
+		callbackURL := strings.TrimRight(callbackBase, "/") + "/api/pub/cert/qcloud/callback?state=" + strconv.FormatUint(uint64(uid), 10)
+		fi, ierr := s.certVerify.InitFace(context.Background(), name, no, callbackURL)
+		if ierr != nil {
+			return nil, ierr
+		}
+		if err := s.merchants.UpdateFields(uid, map[string]interface{}{
+			"cert":       0,
+			"certmethod": 1,
+			"certtoken":  fi.AuthToken,
+		}); err != nil {
+			return nil, err
+		}
+		return &dto.CertSubmitResp{Async: true, QrURL: fi.RedirectURL}, nil
 	}
+
+	// 同步方式（手机三要素）：凭证到位即可真核；核验通过才 cert=1 + 扣工本费（对齐 epay 成功才扣）。
 	passed, verr := s.certVerify.Verify(context.Background(), name, no, m.Phone)
 	if verr != nil {
-		return verr // 待凭证/未通过，如实上抛（cert 仍为 0，信息已暂存）
+		return nil, verr // 待凭证/未通过，如实上抛（cert 仍为 0，信息已暂存）
 	}
 	if !passed {
-		return maErr("实名核验未通过，请核对姓名与证件信息")
+		return nil, maErr("实名核验未通过，请核对姓名与证件信息")
 	}
-	// 核验通过：cert=1 + certtime，扣工本费。
+	if err := s.finishCert(uid, certOpenToMethod(s.cfg.Int("cert_open", 0))); err != nil {
+		return nil, err
+	}
+	return &dto.CertSubmitResp{Async: false}, nil
+}
+
+// certOpenToMethod 把平台认证方式 cert_open 映射为落库的 certmethod（对齐 epay show_cert_method）。
+// certmethod：0=支付宝快捷 / 1=微信快捷 / 2=手机三要素 / 3=人工审核。
+// cert_open：1,3,5→支付宝系/阿里云(快捷,0) / 2→手机三要素(2) / 4→微信扫码(1)。
+func certOpenToMethod(certOpen int) int8 {
+	switch certOpen {
+	case 2:
+		return 2 // 手机三要素
+	case 4:
+		return 1 // 微信扫码快捷
+	default:
+		return 0 // 支付宝/阿里云快捷
+	}
+}
+
+// certOpenName 平台认证方式 cert_open → 中文（未认证时展示"将采用的方式"，对齐设置页选项）。
+func certOpenName(certOpen int) string {
+	switch certOpen {
+	case 1:
+		return "支付宝身份验证"
+	case 2:
+		return "手机号三要素认证"
+	case 3:
+		return "支付宝实名信息验证"
+	case 4:
+		return "微信扫码实名认证"
+	case 5:
+		return "阿里云金融级实人认证"
+	default:
+		return "未开启实名认证"
+	}
+}
+
+// finishCert 核身通过后置 cert=1 + certtime + certmethod，并扣工本费（同步/异步回调共用，对齐 epay 成功分支）。
+// method 为落库的核验方式（0支付宝/1微信/2三要素/3人工），据实际走的核验路径传入。
+func (s *MerchantCenterService) finishCert(uid uint, method int8) error {
 	now := time.Now()
-	if err := s.merchants.UpdateFields(uid, map[string]interface{}{"cert": 1, "cert_time": now}); err != nil {
+	if err := s.merchants.UpdateFields(uid, map[string]interface{}{"cert": 1, "cert_time": now, "certmethod": method}); err != nil {
 		return err
 	}
 	if certMoney.GreaterThan(decimal.Zero) {
@@ -239,6 +325,36 @@ func (s *MerchantCenterService) CertSubmit(uid uint, req dto.CertSubmitReq) erro
 		}
 	}
 	return nil
+}
+
+// CertQcloudCallback 腾讯云扫码核身回调：校验 uid+AuthToken，查结果，通过则置 cert=1（对齐 epay alipaycertok.php cert_open==4）。
+// 幂等：已认证直接返回成功；AuthToken 与落库不符拒绝。
+func (s *MerchantCenterService) CertQcloudCallback(uid uint, authToken string) error {
+	if s.certVerify == nil {
+		return maErr("实名核验服务未启用")
+	}
+	m, err := s.merchants.FindByUIDSafe(uid)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return maErr("uid 不存在")
+	}
+	if m.Cert == 1 {
+		return nil // 幂等：已认证
+	}
+	if authToken == "" || authToken != m.CertToken {
+		return maErr("AuthToken 不正确")
+	}
+	passed, verr := s.certVerify.QueryFaceResult(context.Background(), authToken)
+	if verr != nil {
+		return verr
+	}
+	if !passed {
+		return maErr("实名核验未通过")
+	}
+	// 腾讯云扫码人脸核身 → 微信快捷认证（certmethod=1，对齐 epay）。
+	return s.finishCert(uid, 1)
 }
 
 // maskName 姓名脱敏（保留首字，其余打星）。
@@ -562,6 +678,8 @@ func (s *MerchantCenterService) Dashboard(uid uint) (*dto.MerchantDashboard, err
 		QQ:              m.QQ,
 		Status:          merchantStatusText(m),
 		GroupName:       groupName(m.GID),
+		Cert:            int(m.Cert),
+		CertType:        int(m.CertType),
 		Money:           m.Money.InexactFloat64(),
 		SettleMoney:     settled.InexactFloat64(),
 		TodayIncome:     todayIncome.InexactFloat64(),

@@ -221,6 +221,8 @@ type MerchantDashInfo struct {
 	QQ              string  `json:"qq"`
 	Status          string  `json:"status"` // normal/banned/payoff/settleoff/auditing/uncert
 	GroupName       string  `json:"groupName"`
+	Cert            int     `json:"cert"`     // 0未认证 1已实名（欢迎区实名标识）
+	CertType        int     `json:"certType"` // 0个人 1企业（已实名时区分个人/企业标识）
 	Money           float64 `json:"money"`
 	SettleMoney     float64 `json:"settleMoney"`
 	TodayIncome     float64 `json:"todayIncome"`
@@ -1121,23 +1123,34 @@ type InviteGenReq struct {
 
 // CertInfo 实名认证页信息。
 type CertInfo struct {
-	Cert      int8   `json:"cert"`       // 0未认证/审核中 1已认证
-	CertType  int8   `json:"certtype"`   // 0个人 1企业
-	CertName  string `json:"certname"`   // 脱敏姓名
-	CertNo    string `json:"certno"`     // 脱敏证件号
-	CertCorp  string `json:"certcorp"`   // 企业名
-	CertTime  string `json:"certtime"`   // 认证时间
-	CertMoney float64 `json:"certmoney"` // 工本费
-	Method    string `json:"method"`     // 认证方式说明
-	CorpOpen  bool   `json:"corpopen"`   // 是否开放企业认证
+	Cert       int8    `json:"cert"`       // 0未认证/审核中 1已认证
+	CertType   int8    `json:"certtype"`   // 0个人 1企业
+	CertName   string  `json:"certname"`   // 脱敏姓名
+	CertNo     string  `json:"certno"`     // 脱敏证件号
+	CertCorp   string  `json:"certcorp"`   // 企业名
+	CertCorpNo string  `json:"certcorpno"` // 营业执照号（企业认证，脱敏）
+	CertTime   string  `json:"certtime"`   // 认证时间
+	CertMoney  float64 `json:"certmoney"`  // 工本费
+	Method     string  `json:"method"`     // 认证方式说明
+	CorpOpen   bool    `json:"corpopen"`   // 是否开放企业认证
 }
 
 // CertSubmitReq 实名认证提交入参。
 type CertSubmitReq struct {
-	CertType int8   `json:"certtype"` // 0个人 1企业
-	CertName string `json:"certname" binding:"required"`
-	CertNo   string `json:"certno" binding:"required"`
-	CertCorp string `json:"certcorp"` // 企业名（企业认证时）
+	CertType   int8   `json:"certtype"` // 0个人 1企业
+	CertName   string `json:"certname" binding:"required"`
+	CertNo     string `json:"certno" binding:"required"`
+	CertCorp   string `json:"certcorp"`   // 企业名（企业认证时）
+	CertCorpNo string `json:"certcorpno"` // 营业执照号/统一社会信用代码（企业认证时）
+}
+
+// CertSubmitResp 实名认证提交结果。
+//   - 同步方式（手机三要素）：Async=false，提交即出结果（成功 cert=1，失败上抛 error）。
+//   - 异步扫码方式（腾讯云人脸核身 cert_open=4）：Async=true + QrURL 二维码链接，
+//     前端弹码由商户微信扫脸，再轮询 cert 状态；扫脸完成后腾讯云回调置 cert=1。
+type CertSubmitResp struct {
+	Async bool   `json:"async"`           // 是否异步扫码方式
+	QrURL string `json:"qrurl,omitempty"` // 异步方式的扫码链接（RedirectURL）
 }
 
 // RechargeReq 余额充值入参（金额 + 渠道插件）。余额本身是充值目标，故无余额支付选项。
@@ -1440,6 +1453,7 @@ type MerchantRegReq struct {
 	Plugin       string `json:"plugin"`       // reg_pay=1 付费注册时选用的支付渠道插件 key
 	CaptchaToken string `json:"captcha_token"`
 	Captcha      string `json:"captcha"`
+	OtpCode      string `json:"otp_code"`     // 真实短信/邮箱验证码（reg_otp=1 时必填，手机走短信、邮箱走邮件）
 }
 
 // MerchantRegResp 注册结果。

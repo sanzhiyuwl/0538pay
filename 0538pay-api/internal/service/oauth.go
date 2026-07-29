@@ -95,6 +95,20 @@ func (s *OAuthService) AuthorizeURL(provider, redirectURI, state string) (string
 	return "", maErr("不支持的快捷登录方式")
 }
 
+// EnabledMethods 返回当前开启的快捷登录方式（供未登录的登录页决定显示哪些入口）。
+// 开关为多值枚举（对齐 epay）：0=关闭，非零=某种开启方式
+//   - login_qq: 1 QQ互联 / 2 手机QQ扫码 / 3 彩虹聚合
+//   - login_alipay / login_wx: 1 主通道 / -1 彩虹聚合
+// 故判定"是否显示"用 != 0，而非 == 1（否则漏掉扫码/聚合等开启态）。
+// 仅暴露开关布尔，不泄露 appid/密钥。全部关闭时三者皆 false，登录页则不显示"其他登录方式"。
+func (s *OAuthService) EnabledMethods() map[string]bool {
+	return map[string]bool{
+		"qq":     s.cfg.Int("login_qq", 0) != 0,
+		"wx":     s.cfg.Int("login_wx", 0) != 0,
+		"alipay": s.cfg.Int("login_alipay", 0) != 0,
+	}
+}
+
 func normalizeProvider(p string) string {
 	if p == "weixin" {
 		return "wx"

@@ -90,6 +90,13 @@ var configDefaults = map[string]string{
 	"kfqq":     "",
 	// 注册登录 reg
 	"reg_open":         "1", // 1开/0关/2仅邀请
+	// 注册方式双开关（我方扩展 epay 单选 verifytype 为可并存双开关）：
+	//   reg_phone/reg_email 各自控制该方式是否开放；都关=不可注册，都开=注册页给用户二选一。
+	"reg_phone": "1", // 允许手机号注册
+	"reg_email": "1", // 允许邮箱注册
+	// 注册验证码是否启用真实 OTP：0=仅图形验证码(自研)，1=图形码 + 真实短信/邮箱验证码并存。
+	// 手机注册走短信 OTP(SmsService)、邮箱注册走邮件 OTP(MailService)，均需对应通道凭证。
+	"reg_otp":          "0",
 	"user_review":      "0", // 注册审核
 	"reg_input_settle": "0", // 注册后可不填结算账户
 	"reg_pay":          "0", // 注册付费
@@ -134,6 +141,10 @@ var configDefaults = map[string]string{
 	"cert_channel":  "0",
 	"cert_corpopen": "0",
 	"cert_force":    "0",
+	// 手机三要素接口调用地址可配（默认上海神度「手机三要素实时版」；换服务商改地址即可，参数名各家统一 name/idcard/mobile）
+	"cert_phone3_url": "https://sdmobile3.market.alicloudapi.com/mobile_three/check",
+	// 企业工商三要素接口调用地址可配（默认数脉；换服务商改地址即可，参数名统一 companyName/creditNo/legalPerson）
+	"cert_corp_url": "https://companythree.shumaidata.com/companythree/check",
 	// 邮箱短信 mail（枚举默认）
 	"mail_cloud": "0",
 	"sms_api":    "0",
@@ -188,6 +199,14 @@ var configDefaults = map[string]string{
 	"enroll_pay_timeout":     "30",  // 待支付超时关单分钟数
 	"enroll_link_expire":     "24",  // 终态事件后邀请链接有效期(小时)
 	"enroll_pay_uid":         "0",   // 进件开户费收款商户 uid（平台收款方，收开户零售价，对齐 reg_pay_uid 思路）
+	// —— OCR 文字识别（三方配置，对齐 epay set.php「OCR文字识别接口配置」；独立于实名认证 cert_*）——
+	// 收单侧商户实名认证与代理进件填料共用同一套识别能力。
+	"ocr_provider":       "0", // 识别引擎 0关 / 1阿里云 / 2腾讯云
+	"ocr_aliyun_id":      "",  // 阿里云 AccessKeyId（对齐 epay ocr_aliyunid，独立于 cert_aliyunid）
+	"ocr_aliyun_key":     "",  // 阿里云 AccessKeySecret
+	"ocr_tencent_id":     "",  // 腾讯云 SecretId
+	"ocr_tencent_key":    "",  // 腾讯云 SecretKey
+	"ocr_tencent_region": "ap-guangzhou", // 腾讯云地域（OCR 默认广州）
 }
 
 // configGroups 各系统设置分组包含的键（白名单，前端按 group 读写）。
@@ -212,7 +231,8 @@ var configGroups = map[string][]string{
 	"deposit": {"user_deposit_min", "cert_money", "user_deposit", "user_deposit_day"},
 	"site":    {"sitename", "kfqq", "reg_open"},
 	"reg": {
-		"reg_open", "user_review", "reg_input_settle", "reg_pay", "reg_pay_price", "reg_pay_uid",
+		"reg_open", "reg_phone", "reg_email", "reg_otp",
+		"user_review", "reg_input_settle", "reg_pay", "reg_pay_price", "reg_pay_uid",
 		"captcha_open_login", "captcha_version", "captcha_id", "captcha_key",
 	},
 	"cron":  {"cronkey"},
@@ -233,6 +253,7 @@ var configGroups = map[string][]string{
 	"cert": {
 		"cert_open", "cert_channel", "cert_appcode", "cert_qcloudid", "cert_qcloudkey",
 		"cert_aliyunid", "cert_aliyunkey", "cert_aliyunsceneid", "cert_corpopen", "cert_appcode2", "cert_force", "cert_money",
+		"cert_phone3_url", "cert_corp_url",
 	},
 	"mail": {
 		"mail_cloud", "mail_smtp", "mail_port", "mail_name", "mail_pwd",
@@ -264,6 +285,11 @@ var configGroups = map[string][]string{
 		"enroll_wholesale_price", "enroll_retail_price", "enroll_platform_share", "enroll_agent_share",
 		"enroll_fail_refund", "enroll_path1_charge", "enroll_pay_timeout", "enroll_link_expire",
 		"enroll_pay_uid",
+	},
+	// OCR 文字识别（收单后台·三方配置；收单实名认证与代理进件共用）
+	"ocr": {
+		"ocr_provider", "ocr_aliyun_id", "ocr_aliyun_key",
+		"ocr_tencent_id", "ocr_tencent_key", "ocr_tencent_region",
 	},
 }
 

@@ -11,6 +11,8 @@ export interface DashboardInfo {
   qq: string
   status: string // normal/banned/payoff/settleoff/auditing/uncert
   groupName: string
+  cert: number // 0未认证 1已实名
+  certType: number // 0个人 1企业
   money: number
   settleMoney: number
   todayIncome: number
@@ -307,6 +309,7 @@ export interface CertInfo {
   certname: string
   certno: string
   certcorp: string
+  certcorpno: string // 营业执照号（企业认证，脱敏）
   certtime: string
   certmoney: number
   method: string
@@ -315,7 +318,12 @@ export interface CertInfo {
 export function fetchCertInfo(): Promise<CertInfo> {
   return request<CertInfo>('/merchant/cert')
 }
-export function submitCert(body: { certtype: number; certname: string; certno: string; certcorp: string }): Promise<{ ok: boolean }> {
+// 异步扫码方式（腾讯云人脸核身）返回 async=true + 扫码链接 qrurl；同步方式 async=false。
+export interface CertSubmitResult {
+  async: boolean
+  qrurl?: string
+}
+export function submitCert(body: { certtype: number; certname: string; certno: string; certcorp: string; certcorpno?: string }): Promise<CertSubmitResult> {
   return request('/merchant/cert', { method: 'POST', body })
 }
 

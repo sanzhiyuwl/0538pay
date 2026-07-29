@@ -49,6 +49,14 @@ const cards = computed(() => [
 
 const statusMeta = computed(() => merchantStatusMeta[m.value?.status ?? 'normal'] ?? merchantStatusMeta.normal)
 
+// 实名认证标识：已实名区分个人/企业，未实名不显（未实名有上方开工引导承载）。
+const certBadge = computed(() => {
+  if (m.value?.cert !== 1) return null
+  return m.value.certType === 1
+    ? { text: '企业实名认证', variant: 'default' as const }
+    : { text: '个人实名认证', variant: 'success' as const }
+})
+
 // 结算趋势图
 const settleSeries = computed(() => [
   { name: '结算金额', color: '#4b7bec', data: settleTrend.value.data },
@@ -198,9 +206,12 @@ function closeAlert(key: string) {
           <div class="flex items-center gap-4">
             <img src="/images/avatar-default.png" alt="avatar" class="size-14 rounded-full object-cover" />
             <div class="min-w-0">
-              <div class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 <span class="text-base font-semibold">欢迎您，{{ m?.name }}</span>
                 <Badge :variant="statusMeta.variant">{{ statusMeta.text }}</Badge>
+                <Badge v-if="certBadge" :variant="certBadge.variant" class="gap-1">
+                  <ShieldCheck class="size-3" />{{ certBadge.text }}
+                </Badge>
               </div>
               <div class="mt-1 text-sm text-muted-foreground">商户号 {{ m?.uid }} · {{ m?.groupName }}</div>
             </div>

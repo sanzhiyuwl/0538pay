@@ -9,7 +9,7 @@ import AlipayIcon from '@/components/site/icons/AlipayIcon.vue'
 import WechatIcon from '@/components/site/icons/WechatIcon.vue'
 import QQIcon from '@/components/site/icons/QQIcon.vue'
 import { ApiError } from '@/lib/api/client'
-import { fetchOAuthURL } from '@/lib/api/merchantAuth'
+import { fetchOAuthURL, fetchOAuthMethods, type OAuthMethods } from '@/lib/api/merchantAuth'
 import { splitBrand } from '@/lib/utils'
 
 const router = useRouter()
@@ -19,11 +19,18 @@ const merchantAuth = useMerchantAuthStore()
 
 // 品牌名来自后台「网站设置 / 网站信息」，实时联动；末尾一个词高亮
 const siteStore = useSiteStore()
-onMounted(() => {
+// 快捷登录开关：后台配置哪些开启就显示哪些入口，全关则不显示"其他登录方式"。
+const oauthMethods = ref<OAuthMethods>({ qq: false, wx: false, alipay: false })
+onMounted(async () => {
   siteStore.hydrate()
   // 因闲置超时被自动退出时，跳登录页会带 reason=timeout，给一句友好提示。
   if (route.query.reason === 'timeout') {
     toast.info('因长时间未操作，已自动退出，请重新登录', 4000)
+  }
+  try {
+    oauthMethods.value = await fetchOAuthMethods()
+  } catch {
+    /* 拉取失败按全关处理，不显示快捷登录入口 */
   }
 })
 const brand = computed(() => splitBrand(siteStore.config.merchantName))
@@ -88,11 +95,13 @@ async function login() {
   }
 }
 
-const socials = [
+const allSocials = [
   { key: 'alipay', label: '支付宝', icon: AlipayIcon, color: '#1677ff' },
   { key: 'wx', label: '微信', icon: WechatIcon, color: '#07c160' },
   { key: 'qq', label: 'QQ', icon: QQIcon, color: '#12b7f5' },
-]
+] as const
+// 只显示后台开启的快捷登录方式
+const socials = computed(() => allSocials.filter((s) => oauthMethods.value[s.key]))
 
 // 快捷登录：取第三方授权 URL 后跳转；回调页(/m/oauth/:provider)处理 code 换登录态。
 async function startOAuth(provider: string, label: string) {
@@ -207,8 +216,8 @@ const highlights = [
             </div>
           </form>
 
-          <!-- 其他登录方式 -->
-          <div class="other">
+          <!-- 其他登录方式（后台开启了快捷登录才显示，全关则整块隐藏） -->
+          <div v-if="socials.length" class="other">
             <div class="sep"><span>其他登录方式</span></div>
             <div class="social-row">
               <button
@@ -232,7 +241,6 @@ const highlights = [
             <input type="checkbox" v-model="agreed" class="agree-box" />
             <span>登录即同意 <a href="#" @click.prevent>服务协议</a>、<a href="#" @click.prevent>隐私政策</a></span>
           </label>
-          <RouterLink to="/m/reg">商户注册</RouterLink>
         </div>
       </div>
     </section>
@@ -683,17 +691,6 @@ const highlights = [
 .foot span a:hover {
   opacity: 0.7;
 }
-/* 商户注册：右侧独立链接，主色 */
-.foot > a {
-  color: var(--primary);
-  font-weight: 500;
-  text-decoration: none;
-  transition: opacity 0.15s;
-}
-.foot > a:hover {
-  opacity: 0.7;
-}
-
 /* ── 响应式：窄屏收起左装饰面板 ── */
 @media (max-width: 720px) {
   .card {

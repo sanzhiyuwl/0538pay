@@ -140,6 +140,7 @@ export const navMenu: NavNode[] = [
     children: [
       { title: '快捷登录', to: '/admin/oauth-settings' },
       { title: '实名认证', to: '/admin/cert-settings' },
+      { title: 'OCR 识别', to: '/admin/ocr-settings' },
       { title: '邮箱短信', to: '/admin/mail-settings' },
     ],
   },
