@@ -391,6 +391,7 @@ func Setup(r *gin.Engine, d Deps) {
 		// 注册方式开关 + 邮箱验证码（公开，注册页读/发码）
 		merchant.GET("/reg/methods", d.MerchantAuth.RegMethods)
 		merchant.POST("/email-code", d.MerchantAuth.SendEmailCode)
+		merchant.GET("/legal", d.MerchantAuth.Legal) // 服务协议/隐私政策正文（公开，登录/注册页弹窗读）
 
 		mAuthed := merchant.Group("")
 		mAuthed.Use(middleware.Auth(d.JWT, "merchant"))

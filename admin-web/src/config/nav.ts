@@ -166,7 +166,7 @@ export const navMenu: NavNode[] = [
 ]
 
 /** 代理控制台入口——单独固定在主后台侧栏最底部，不参与菜单流式排列 */
-export const consoleEntry: NavNode = { title: '代理控制台', icon: Server, to: '/console', badge: '代理' }
+export const consoleEntry: NavNode = { title: '控制台', icon: Server, to: '/console', badge: '代理' }
 
 /** 扁平化所有可路由的叶子（供路由/面包屑用）。含控制台入口 */
 export const allLeaves: NavLeaf[] = [

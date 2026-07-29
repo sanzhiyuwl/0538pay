@@ -90,6 +90,16 @@ export interface RegMethods {
 export function fetchRegMethods(): Promise<RegMethods> {
   return request<RegMethods>('/merchant/reg/methods')
 }
+
+/** 服务协议 / 隐私政策正文（公开，登录/注册页弹窗读；后台「使用说明」页可编辑，空则前端用内置默认文案） */
+export interface LegalContent {
+  agreement: string
+  privacy: string
+  sitename: string
+}
+export function fetchLegal(): Promise<LegalContent> {
+  return request<LegalContent>('/merchant/legal')
+}
 /** 发送手机短信验证码（公开，scene 默认 reg） */
 export function sendSmsCode(phone: string, scene = 'reg'): Promise<{ sent: boolean }> {
   return request('/merchant/sms', { method: 'POST', body: { phone, scene } })

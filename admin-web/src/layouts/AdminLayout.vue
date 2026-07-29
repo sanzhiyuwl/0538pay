@@ -176,10 +176,10 @@ const currentParent = computed(
           active-class="!bg-sidebar-accent !text-sidebar-accent-foreground font-semibold"
         >
           <component :is="consoleEntry.icon" class="size-[18px] shrink-0" />
-          <span class="flex-1">{{ consoleEntry.title }}</span>
+          <span class="flex-1 truncate">{{ consoleEntry.title }}</span>
           <span
             v-if="consoleEntry.badge"
-            class="rounded bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+            class="shrink-0 rounded bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary"
             >{{ consoleEntry.badge }}</span
           >
         </RouterLink>

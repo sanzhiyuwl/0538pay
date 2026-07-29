@@ -7,6 +7,7 @@ import { useSiteStore } from '@/stores/site'
 import { splitBrand } from '@/lib/utils'
 import { fetchCaptcha, merchantRegister, fetchRegMethods, sendSmsCode, sendEmailCode, type RegMethods } from '@/lib/api/merchantAuth'
 import { ApiError } from '@/lib/api/client'
+import LegalModal from '@/components/merchant/LegalModal.vue'
 
 const router = useRouter()
 const toast = useToast()
@@ -17,6 +18,9 @@ onMounted(() => siteStore.hydrate())
 const brand = computed(() => splitBrand(siteStore.config.merchantName))
 
 const verifyType = ref<'phone' | 'email'>('phone')
+
+// 服务协议 / 隐私政策弹窗
+const legal = ref<InstanceType<typeof LegalModal> | null>(null)
 
 // 注册方式开关 + 是否需真实验证码（后台 reg_phone/reg_email/reg_otp）
 const methods = ref<RegMethods>({ open: true, invite_only: false, phone: true, email: true, otp: false })
@@ -261,7 +265,7 @@ const steps = [
 
             <label class="agree">
               <input v-model="form.agree" type="checkbox" class="agree-box" />
-              <span>我已阅读并同意 <a href="#" @click.prevent>服务协议</a> 与 <a href="#" @click.prevent>隐私政策</a></span>
+              <span>我已阅读并同意 <a href="#" @click.prevent="legal?.open('agreement')">服务协议</a> 与 <a href="#" @click.prevent="legal?.open('privacy')">隐私政策</a></span>
             </label>
 
             <button class="submit" type="submit" :disabled="!canSubmit || loading">
@@ -277,6 +281,9 @@ const steps = [
         </div>
       </div>
     </section>
+
+    <!-- 服务协议 / 隐私政策弹窗 -->
+    <LegalModal ref="legal" />
   </div>
 </template>
 

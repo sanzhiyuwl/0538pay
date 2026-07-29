@@ -160,6 +160,9 @@ var configDefaults = map[string]string{
 	"onecode": "0", // 聚合收款码全局开关 0关/1开
 	// 使用说明（我方做成后台可编辑；epay help.php 是硬编码静态页）
 	"help_content": "", // 商户使用说明正文（HTML/富文本），空则前端用内置默认文案
+	// 服务协议 / 隐私政策（我方做成后台可编辑；登录/注册页与官网读取，空则用内置默认文案）
+	"agreement_content": "", // 服务协议正文（HTML/富文本）
+	"privacy_content":   "", // 隐私政策正文（HTML/富文本）
 	// 风控自动关停 risk（对齐 epay set.php?mod=risk + cron do=check）
 	"auto_check_notify":  "0",  // 连续通知失败自动关停商户支付 0关/1开
 	"check_notify_count": "10", // 连续通知失败达该次数则关停(写 pay_risk type=2)
@@ -268,7 +271,7 @@ var configGroups = map[string][]string{
 		"test_open", "test_pay_uid",
 	},
 	"onecode": {"onecode"},
-	"help":    {"help_content"},
+	"help":    {"help_content", "agreement_content", "privacy_content"},
 	"risk": {
 		"auto_check_notify", "check_notify_count",
 		"auto_check_sucrate", "check_sucrate_second", "check_sucrate_count", "check_sucrate_value",

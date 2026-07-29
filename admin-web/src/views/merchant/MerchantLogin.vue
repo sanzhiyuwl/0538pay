@@ -11,6 +11,7 @@ import QQIcon from '@/components/site/icons/QQIcon.vue'
 import { ApiError } from '@/lib/api/client'
 import { fetchOAuthURL, fetchOAuthMethods, type OAuthMethods } from '@/lib/api/merchantAuth'
 import { splitBrand } from '@/lib/utils'
+import LegalModal from '@/components/merchant/LegalModal.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -52,6 +53,9 @@ const showKey = ref(false)
 const loading = ref(false)
 // 登录前须勾选同意服务协议/隐私政策，未勾选禁止登录
 const agreed = ref(false)
+
+// 服务协议 / 隐私政策弹窗（组件内含后台内容拉取与默认文案）
+const legal = ref<InstanceType<typeof LegalModal> | null>(null)
 
 const submitLabel = computed(() => (loading.value ? '登录中…' : '登录'))
 
@@ -239,11 +243,14 @@ const highlights = [
         <div class="foot">
           <label class="agree">
             <input type="checkbox" v-model="agreed" class="agree-box" />
-            <span>登录即同意 <a href="#" @click.prevent>服务协议</a>、<a href="#" @click.prevent>隐私政策</a></span>
+            <span>登录即同意 <a href="#" @click.prevent="legal?.open('agreement')">服务协议</a>、<a href="#" @click.prevent="legal?.open('privacy')">隐私政策</a></span>
           </label>
         </div>
       </div>
     </section>
+
+    <!-- 服务协议 / 隐私政策弹窗 -->
+    <LegalModal ref="legal" />
   </div>
 </template>
 

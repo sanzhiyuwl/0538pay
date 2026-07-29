@@ -74,6 +74,20 @@ func (h *MerchantAuthHandler) RegMethods(c *gin.Context) {
 	})
 }
 
+// Legal GET /api/merchant/legal 服务协议 / 隐私政策正文（公开，登录/注册页弹窗读取）。
+// 后台「使用说明」页可编辑；留空则前端用内置默认文案。epay 为硬编码静态页，我方做成可编辑（超出 epay）。
+func (h *MerchantAuthHandler) Legal(c *gin.Context) {
+	if h.cfg == nil {
+		resp.OK(c, gin.H{"agreement": "", "privacy": "", "sitename": ""})
+		return
+	}
+	resp.OK(c, gin.H{
+		"agreement": h.cfg.Str("agreement_content"),
+		"privacy":   h.cfg.Str("privacy_content"),
+		"sitename":  h.cfg.Str("sitename"),
+	})
+}
+
 // SendEmailCode POST /api/merchant/email-code {scene,email} 发送邮箱验证码（公开，频控在 service）。
 func (h *MerchantAuthHandler) SendEmailCode(c *gin.Context) {
 	if h.mail == nil {
