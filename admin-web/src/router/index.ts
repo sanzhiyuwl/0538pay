@@ -74,6 +74,8 @@ const ConsoleSettings = () => import('@/views/console/ConsoleSettings.vue')
 const ConsoleWxPartner = () => import('@/views/console/ConsoleWxPartner.vue')
 const ConsolePermissions = () => import('@/views/console/ConsolePermissions.vue')
 const ConsoleAgentLogs = () => import('@/views/console/ConsoleAgentLogs.vue')
+const ConsoleManageLogs = () => import('@/views/console/ConsoleManageLogs.vue')
+const ConsoleSystemLogs = () => import('@/views/console/ConsoleSystemLogs.vue')
 
 // —— 独立代理端（懒加载）——
 const AgentLogin = () => import('@/views/agent/AgentLogin.vue')
@@ -218,6 +220,8 @@ const consolePages: Record<string, any> = {
   '/console/wx-partner': ConsoleWxPartner,
   '/console/permissions': ConsolePermissions,
   '/console/agent-logs': ConsoleAgentLogs,
+  '/console/manage-logs': ConsoleManageLogs,
+  '/console/system-logs': ConsoleSystemLogs,
 }
 
 // 主后台子路由（父 path=/admin，children 用相对路径）。排除首页 /admin 与控制台。

@@ -23,6 +23,7 @@ import {
   Handshake,
   KeyRound,
   ScrollText,
+  Activity,
 } from 'lucide-vue-next'
 
 export interface NavLeaf {
@@ -200,6 +201,8 @@ export const consoleNav: NavNode[] = [
     icon: ScrollText,
     children: [
       { title: '代理操作日志', to: '/console/agent-logs', icon: ListOrdered },
+      { title: '管理日志', to: '/console/manage-logs', icon: UserCog },
+      { title: '运维日志', to: '/console/system-logs', icon: Activity },
     ],
   },
 ]

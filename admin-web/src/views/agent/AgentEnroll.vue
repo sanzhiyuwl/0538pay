@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { Eye, Plus } from 'lucide-vue-next'
 import { Panel, Button, Badge, Drawer, Pagination, Select } from '@/components/ui'
 import EnrollMaterialDrawer from '@/views/enroll/EnrollMaterialDrawer.vue'
+import EnrollSettleDrawer from '@/views/enroll/EnrollSettleDrawer.vue'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
 import {
@@ -16,8 +17,12 @@ import {
   getMyEnrollMaterial,
   fillMyEnrollMaterial,
   uploadMyEnrollMedia,
+  uploadMyEnrollVideo,
+  getMyEnrollSettlement,
+  modifyMyEnrollSettlement,
+  getMyEnrollSettleApplication,
 } from '@/lib/api/agent'
-import type { Enroll } from '@/lib/api/console'
+import type { Enroll, EnrollAuditDetail } from '@/lib/api/console'
 import { ApiError } from '@/lib/api/client'
 import { useAgentAuthStore } from '@/stores/agentAuth'
 
@@ -130,6 +135,21 @@ const canRefund = computed(
 const canFill = computed(
   () => agentAuth.has('enroll') && (detail.value?.status === 'paid' || detail.value?.status === 'rejected'),
 )
+// 可管理结算账户：有 settle_account 权限 + 已开通（finished 且 sub_mchid 非空）
+const canSettle = computed(
+  () => agentAuth.has('settle_account') && detail.value?.status === 'finished' && !!detail.value?.wx_sub_mchid,
+)
+// 驳回详情逐字段解析（audit_detail 是 JSON 数组串）
+const auditDetails = computed<EnrollAuditDetail[]>(() => {
+  const raw = detail.value?.audit_detail
+  if (!raw) return []
+  try {
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) ? arr : []
+  } catch {
+    return []
+  }
+})
 
 // ===== 填料抽屉 =====
 const materialDrawer = ref(false)
@@ -137,6 +157,15 @@ function openMaterial() {
   if (detail.value) materialDrawer.value = true
 }
 async function onMaterialSaved() {
+  if (detail.value) detail.value = await getMyEnroll(detail.value.id)
+}
+
+// ===== 结算账户抽屉 =====
+const settleDrawer = ref(false)
+function openSettle() {
+  if (detail.value) settleDrawer.value = true
+}
+async function onSettleChanged() {
   if (detail.value) detail.value = await getMyEnroll(detail.value.id)
 }
 
@@ -325,9 +354,25 @@ async function doCreate() {
         <div class="flex justify-between border-b border-border/50 py-2">
           <span class="dim">特约商户号</span><span class="tabular-nums">{{ detail.wx_sub_mchid || '未开通' }}</span>
         </div>
+        <div v-if="detail.sign_url" class="py-2">
+          <div class="dim mb-1">超管签约链接</div>
+          <div class="bg-muted/40 px-3 py-2 space-y-1.5">
+            <p class="text-xs text-muted-foreground">超级管理员用微信扫码 / 打开，关注“微信支付商家助手”完成核对信息、账户验证、签约。</p>
+            <a :href="detail.sign_url" target="_blank" class="block truncate text-xs text-primary underline">{{ detail.sign_url }}</a>
+          </div>
+        </div>
         <div v-if="detail.reject_reason" class="py-2">
           <div class="dim mb-1">驳回原因</div>
           <div class="bg-destructive/[0.06] px-3 py-2 text-destructive">{{ detail.reject_reason }}</div>
+        </div>
+        <div v-if="auditDetails.length" class="py-2">
+          <div class="dim mb-1">驳回详情（逐字段）</div>
+          <div class="space-y-1.5">
+            <div v-for="(a, i) in auditDetails" :key="i" class="bg-destructive/[0.06] px-3 py-2">
+              <div class="text-xs font-medium text-destructive">{{ a.field_name || a.field }}</div>
+              <div class="text-xs text-destructive/90">{{ a.reject_reason }}</div>
+            </div>
+          </div>
         </div>
       </div>
       <p v-if="subMchLocked" class="mt-4 text-xs text-destructive">
@@ -342,6 +387,7 @@ async function doCreate() {
           {{ acting ? '查询中…' : '查状态' }}
         </Button>
         <Button v-if="canFill" :disabled="acting" variant="outline" @click="openMaterial">填料</Button>
+        <Button v-if="canSettle" variant="outline" @click="openSettle">结算账户</Button>
         <Button v-if="canPay" @click="goPay">去支付</Button>
         <Button v-if="canSubmit" :disabled="acting" @click="doSubmit">
           {{ acting ? '提交中…' : detail?.status === 'rejected' ? '重新提交' : '提交微信' }}
@@ -357,7 +403,20 @@ async function doCreate() {
       :fetch-fn="getMyEnrollMaterial"
       :submit-fn="fillMyEnrollMaterial"
       :upload-fn="uploadMyEnrollMedia"
+      :upload-video-fn="uploadMyEnrollVideo"
       @saved="onMaterialSaved"
+    />
+
+    <!-- 结算账户管理抽屉 -->
+    <EnrollSettleDrawer
+      v-model="settleDrawer"
+      :enroll-id="detail?.id ?? null"
+      :merchant-name="detail?.merchant_name"
+      :sub-mch-id="detail?.wx_sub_mchid"
+      :get-fn="getMyEnrollSettlement"
+      :modify-fn="modifyMyEnrollSettlement"
+      :get-application-fn="getMyEnrollSettleApplication"
+      @changed="onSettleChanged"
     />
 
     <!-- 建单抽屉（付费前置）-->

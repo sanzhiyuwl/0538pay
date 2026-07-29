@@ -91,4 +91,25 @@
   - 运维日志：在关键系统节点（scheduler、SubmitToWx、pay_notify 进件回调、FreezeQuota/ReleaseFrozen）手动调 OpLogService.Record（新增 scope=system）埋点。
   - 三类可共用同一 pay_oplog 表 + 同一查询/导出/详情前端组件（ConsoleAgentLogs.vue 可参数化 scope 复用）。
 
-状态：待做
+状态：已优化（2026-07-29 17:30分）——管理日志（scope=console）+ 运维日志（scope=system）两类补齐并真跑通过，审计三类齐活。
+
+  管理日志（scope=console）：service/oplog.go 加 ScopeConsole + consoleResources（agents/quota-logs/enrolls/enroll-invites/wx-partner 五资源段）+ consoleVerb（按 method+末段派生动词/级别：删除danger/改权限warning/调整名额danger/退款danger/改结算danger/提交·同步·填料·上传normal）+ LookupConsoleAction（资源段×动词派生，未识别不记）+ ConsoleList/ConsoleExportRows/ConsoleOpActionOptions（下拉取已落库去重）。middleware/oplog.go 加 ConsoleOpLog（prefix=/api/console，复用 opLogFor）。router 给 console 组挂 console.Use(ConsoleOpLog)（走 admin token，自动埋点平台运营写操作）。
+
+  运维日志（scope=system）：service/oplog.go 加 ScopeSystem + 9 个系统事件常量（提交微信审核/进件开通成功/微信驳回进件/驳回自动退款/冻结·消耗·释放名额/邀请链接过期/超时关单）+ systemActions 映射（分类+级别）+ RecordSystem(action,target,detail)（异步吞错，operator=系统/uid=0）+ SystemList/SystemExportRows/SystemOpActionOptions。EnrollService 加 oplog 字段 + SetOpLog + sysLog/marshalSysDetail 便捷埋点，在关键节点手动埋：SubmitToWx 成功、applyWxState FINISHED（开通成功）/REJECTED（驳回，仅 submitted→rejected 首次）/CANCELED（作废释放名额）/驳回自动退款成败、settleOnFinish 消耗名额成败、CloseTimeoutPending 超时关单+释放名额。main.go enrollSvc.SetOpLog(opLogSvc) 注入。
+
+  接口：console 组加 GET /oplogs、/oplogs/options、/oplogs/export（管理日志）+ /system-oplogs、/system-oplogs/options、/system-oplogs/export（运维日志），均走 admin token。handler/oplog.go 加 6 个对应方法（复用 writeOpLogCSV，idCol 运营ID/来源）。前端 console.ts 加 fetch/options/export ×2（复用 AgentOpLog 类型 + level/result meta；抽 downloadOpLogCsv 通用下载，代理日志导出一并复用消重）；新建 ConsoleManageLogs.vue + ConsoleSystemLogs.vue（结构照 ConsoleAgentLogs，去代理下拉，管理日志按动作/级别/结果/关键字/时间筛选，运维日志按事件类型筛选）；router 注册 /console/manage-logs、/console/system-logs；nav.ts「审计日志」组加「管理日志」(UserCog)+「运维日志」(Activity)。
+
+  自检全绿：go build ./... + go vet + go test ./internal/service/(ok) + npm run build(vue-tsc 严格) 无 error。真跑（重建 server 二进制+重启拉新路由）：无 token 401；建/删邀请链接自动落 scope=console 日志（动作「新增邀请链接」enroll/normal/operator=admin/target/result=ok 全对）；管理日志动作下拉取已落库去重；运维日志事件下拉返 9 类全量；运维日志列表暂空（无真实凭证触发系统事件，埋点走 RecordSystem 与 console 同一 Record 管道，已由 console 真跑覆盖）；前端两页 dev server 200 无 Transform 报错。测试产生的 console 日志已清库、临时 server 停、token/临时文件删。
+
+
+编号：5
+
+时间：2026-07-29 19:20分
+
+标题：政府/事业单位走经办人证件的 id_holder_type 未做（进件字段边缘场景）
+
+问题：applyment4sub 的 subject_info.identity_info.id_holder_type（选填 LEGAL/SUPER）用于「主体为政府机关/事业单位，因政策保密无法提供法定代表人证件时，改上传经办人证件」的边缘场景，此时还需配套 authorize_letter_copy（授权函）。本批（第十一批字段核对）已把 contact_info 的超管经办人（contact_type=SUPER）分支做全，但 identity_info.id_holder_type 这条政府/事业专属的边缘分支未做——当前政府/事业主体默认按法定代表人证件走。
+
+建议：后续若要覆盖政府/事业单位保密场景，在 DTO 加 IDHolderType + AuthorizeLetterCopy，FillMaterial 的 identity_info 组装按 id_holder_type=SUPER 时带经办人证件 + 授权函，前端主体为政府/事业时放出该选项。属低频边缘场景，不阻塞常规个体户/企业/社会组织进件。
+
+状态：待优化

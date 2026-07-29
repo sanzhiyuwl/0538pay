@@ -16,6 +16,9 @@ import type {
   RefundResult,
   EnrollMaterialReq,
   EnrollMaterialView,
+  SettleModifyReq,
+  SettlementView,
+  SettleApplicationView,
 } from './console'
 
 // —— 登录 / 会话 ——
@@ -87,6 +90,26 @@ export function uploadMyEnrollMedia(id: number, file: File): Promise<{ media_id:
   const form = new FormData()
   form.append('file', file)
   return upload<{ media_id: string }>(`/agent/enrolls/${id}/media`, form)
+}
+/** 上传一段进件资料视频，返回微信 media_id。 */
+export function uploadMyEnrollVideo(id: number, file: File): Promise<{ media_id: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  return upload<{ media_id: string }>(`/agent/enrolls/${id}/video`, form)
+}
+
+// —— 结算账户管理（settle_account 权限 + 归属自己）——
+/** 查自己名下商户当前结算账户（掩码+验证结果）。 */
+export function getMyEnrollSettlement(id: number): Promise<SettlementView> {
+  return request<SettlementView>(`/agent/enrolls/${id}/settlement`)
+}
+/** 修改自己名下商户结算账户，返回改单号。 */
+export function modifyMyEnrollSettlement(id: number, body: SettleModifyReq): Promise<{ application_no: string }> {
+  return request<{ application_no: string }>(`/agent/enrolls/${id}/settlement`, { method: 'POST', body })
+}
+/** 查改单审核状态。 */
+export function getMyEnrollSettleApplication(id: number): Promise<SettleApplicationView> {
+  return request<SettleApplicationView>(`/agent/enrolls/${id}/settlement/application`)
 }
 
 // —— 邀请链接 ——

@@ -182,11 +182,24 @@ func (s *SubMerchantService) EncryptSensitive(plain string) (string, error) {
 }
 
 // UploadMedia 上传进件资料图片（营业执照/身份证正反面等），返回微信 media_id。
-// 接口：POST /v3/merchant/media/upload（multipart/form-data）。
+// 接口：POST /v3/merchant/media/upload（multipart/form-data）。JPG/PNG/BMP ≤2M（调用方已校验）。
+func (s *SubMerchantService) UploadMedia(ctx context.Context, filename string, data []byte) (string, error) {
+	return s.uploadMultipart(ctx, "/v3/merchant/media/upload", filename, data, "图片")
+}
+
+// UploadVideo 上传进件资料视频（部分指定行业进件时微信要求补充），返回微信 media_id。
+// 接口：POST /v3/merchant/media/video_upload（multipart/form-data）。
+// 支持 avi/wmv/mpeg/mp4/mov/mkv/flv/f4v/m4v/rmvb ≤5M（调用方已校验）。
+// ★ 与图片上传同一套 multipart+meta 签名机制，仅接口路径与体积/扩展名限制不同。
+func (s *SubMerchantService) UploadVideo(ctx context.Context, filename string, data []byte) (string, error) {
+	return s.uploadMultipart(ctx, "/v3/merchant/media/video_upload", filename, data, "视频")
+}
+
+// uploadMultipart 微信媒体文件上传通用实现（图片/视频共用）。
 // ★ 与普通 APIv3 请求的关键差异：参与签名的 body 是 meta 的 JSON 串（{"filename","sha256"}），
 //   而不是整个 multipart 请求体；Content-Type 由 multipart writer 带 boundary 生成。
-// filename 必须以 .jpg/.jpeg/.png/.bmp 结尾，data 为图片二进制（≤2M，调用方已校验）。
-func (s *SubMerchantService) UploadMedia(ctx context.Context, filename string, data []byte) (string, error) {
+// path 为接口路径；kind 仅用于错误文案（"图片"/"视频"）。
+func (s *SubMerchantService) uploadMultipart(ctx context.Context, path, filename string, data []byte, kind string) (string, error) {
 	c := s.creds()
 	if c.SpMchID == "" || c.PrivateKey == "" || c.SerialNo == "" {
 		return "", smErr("微信服务商凭证未配置，请先在系统设置填写")
@@ -199,7 +212,7 @@ func (s *SubMerchantService) UploadMedia(ctx context.Context, filename string, d
 	sum := sha256.Sum256(data)
 	meta := fmt.Sprintf(`{"filename":"%s","sha256":"%s"}`, filename, hex.EncodeToString(sum[:]))
 
-	// 组 multipart body：meta（application/json）+ file（图片二进制）。
+	// 组 multipart body：meta（application/json）+ file（文件二进制）。
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	metaHead := textproto.MIMEHeader{}
@@ -233,7 +246,7 @@ func (s *SubMerchantService) UploadMedia(ctx context.Context, filename string, d
 		SerialNo:     c.SerialNo,
 		PrivateKey:   priv,
 		Method:       http.MethodPost,
-		CanonicalURL: "/v3/merchant/media/upload",
+		CanonicalURL: path,
 		Body:         meta,
 		Timestamp:    wxpayv3.NowUnix(),
 		Nonce:        nonce,
@@ -241,7 +254,7 @@ func (s *SubMerchantService) UploadMedia(ctx context.Context, filename string, d
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.host()+"/v3/merchant/media/upload", &buf)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.host()+path, &buf)
 	if err != nil {
 		return "", err
 	}
@@ -251,9 +264,9 @@ func (s *SubMerchantService) UploadMedia(ctx context.Context, filename string, d
 	if c.PublicKeyID != "" {
 		req.Header.Set("Wechatpay-Serial", c.PublicKeyID)
 	}
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: 60 * time.Second}).Do(req)
 	if err != nil {
-		return "", fmt.Errorf("上传图片到微信失败: %w", err)
+		return "", fmt.Errorf("上传%s到微信失败: %w", kind, err)
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
@@ -261,7 +274,7 @@ func (s *SubMerchantService) UploadMedia(ctx context.Context, filename string, d
 		return "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", smErr("图片上传失败: " + wxErrMsg(respBody))
+		return "", smErr(kind + "上传失败: " + wxErrMsg(respBody))
 	}
 	var r struct {
 		MediaID string `json:"media_id"`
@@ -270,7 +283,7 @@ func (s *SubMerchantService) UploadMedia(ctx context.Context, filename string, d
 		return "", fmt.Errorf("解析上传应答失败: %w", err)
 	}
 	if r.MediaID == "" {
-		return "", smErr("图片上传应答无 media_id")
+		return "", smErr(kind + "上传应答无 media_id")
 	}
 	return r.MediaID, nil
 }
@@ -372,13 +385,21 @@ func (s *SubMerchantService) SubmitApplyment(ctx context.Context, body string) (
 	return &r, raw, nil
 }
 
+// ApplymentAuditDetail 驳回详情单项（申请单被驳回时逐字段返回）。
+type ApplymentAuditDetail struct {
+	Field        string `json:"field"`         // 字段名
+	FieldName    string `json:"field_name"`    // 字段中文名称
+	RejectReason string `json:"reject_reason"` // 驳回原因
+}
+
 // ApplymentStateResp 查询申请单状态应答（关注状态与 sub_mchid）。
 type ApplymentStateResp struct {
-	ApplymentID     int64  `json:"applyment_id"`
-	ApplymentState  string `json:"applyment_state"`      // APPLYMENT_STATE_FINISHED / REJECTED / ...
-	ApplymentStateMsg string `json:"applyment_state_msg"`
-	SubMchID        string `json:"sub_mchid"`             // 完成后返回
-	SignURL         string `json:"sign_url"`              // 待签约时返回
+	ApplymentID       int64                  `json:"applyment_id"`
+	ApplymentState    string                 `json:"applyment_state"` // APPLYMENT_STATE_FINISHED / REJECTED / ...
+	ApplymentStateMsg string                 `json:"applyment_state_msg"`
+	SubMchID          string                 `json:"sub_mchid"`     // TO_BE_SIGNED/SIGNING/FINISHED 时返回
+	SignURL           string                 `json:"sign_url"`      // 超管签约链接
+	AuditDetail       []ApplymentAuditDetail `json:"audit_detail"`  // 驳回详情，仅 REJECTED 时返回
 }
 
 // QueryApplymentByBusinessCode 按业务申请编号查申请单状态。
@@ -404,6 +425,123 @@ func (s *SubMerchantService) queryApplyment(ctx context.Context, path string) (*
 	var r ApplymentStateResp
 	if err := json.Unmarshal(raw, &r); err != nil {
 		return nil, raw, fmt.Errorf("解析进件状态应答失败: %w", err)
+	}
+	return &r, raw, nil
+}
+
+// —— 结算账户（进件成功后售后：修改/查询结算银行账户）——
+
+// ModifySettlementReq 修改结算账户入参（明文，敏感字段由 service 加密后组装）。
+type ModifySettlementReq struct {
+	AccountType   string `json:"account_type"`   // ACCOUNT_TYPE_BUSINESS 对公 / ACCOUNT_TYPE_PRIVATE 对私
+	AccountBank   string `json:"account_bank"`   // 开户银行
+	BankName      string `json:"bank_name"`      // 开户银行全称（含支行），按需
+	BankBranchID  string `json:"bank_branch_id"` // 联行号，按需
+	AccountNumber string `json:"account_number"` // ★银行账号（加密）
+	AccountName   string `json:"account_name"`   // ★开户名称（加密，按需）
+}
+
+// ModifySettlement 修改特约商户结算银行账户。
+// 接口：POST /v3/apply4sub/sub_merchants/{sub_mchid}/modify-settlement。
+// 敏感字段（account_number/account_name）在此加密；返回修改申请单号 application_no（供查改单状态）。
+func (s *SubMerchantService) ModifySettlement(ctx context.Context, subMchID string, req ModifySettlementReq) (string, []byte, error) {
+	encNumber, err := s.EncryptSensitive(req.AccountNumber)
+	if err != nil {
+		return "", nil, fmt.Errorf("加密银行账号失败: %w", err)
+	}
+	body := map[string]any{
+		"account_type":   req.AccountType,
+		"account_bank":   req.AccountBank,
+		"account_number": encNumber,
+	}
+	if strings.TrimSpace(req.BankName) != "" {
+		body["bank_name"] = req.BankName
+	}
+	if strings.TrimSpace(req.BankBranchID) != "" {
+		body["bank_branch_id"] = req.BankBranchID
+	}
+	if strings.TrimSpace(req.AccountName) != "" {
+		encName, e := s.EncryptSensitive(req.AccountName)
+		if e != nil {
+			return "", nil, fmt.Errorf("加密开户名称失败: %w", e)
+		}
+		body["account_name"] = encName
+	}
+	bs, err := json.Marshal(body)
+	if err != nil {
+		return "", nil, err
+	}
+	raw, code, err := s.doRequest(ctx, http.MethodPost, "/v3/apply4sub/sub_merchants/"+subMchID+"/modify-settlement", string(bs))
+	if err != nil {
+		return "", raw, err
+	}
+	if code < 200 || code >= 300 {
+		return "", raw, smErr("修改结算账户失败: " + wxErrMsg(raw))
+	}
+	var r struct {
+		ApplicationNo string `json:"application_no"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return "", raw, fmt.Errorf("解析修改结算账户应答失败: %w", err)
+	}
+	return r.ApplicationNo, raw, nil
+}
+
+// SettlementResp 查询结算账户应答（掩码账号 + 验证结果，非敏感）。
+type SettlementResp struct {
+	AccountType      string `json:"account_type"`
+	AccountBank      string `json:"account_bank"`
+	BankName         string `json:"bank_name"`
+	BankBranchID     string `json:"bank_branch_id"`
+	AccountNumber    string `json:"account_number"`     // 掩码显示
+	VerifyResult     string `json:"verify_result"`      // VERIFY_SUCCESS / VERIFY_FAIL / VERIFYING
+	VerifyFailReason string `json:"verify_fail_reason"` // 验证失败原因
+}
+
+// QuerySettlement 查询特约商户当前生效的结算账户（掩码账号 + 验证结果）。
+// 接口：GET /v3/apply4sub/sub_merchants/{sub_mchid}/settlement。
+func (s *SubMerchantService) QuerySettlement(ctx context.Context, subMchID string) (*SettlementResp, []byte, error) {
+	raw, code, err := s.doRequest(ctx, http.MethodGet, "/v3/apply4sub/sub_merchants/"+subMchID+"/settlement", "")
+	if err != nil {
+		return nil, raw, err
+	}
+	if code < 200 || code >= 300 {
+		return nil, raw, smErr("查询结算账户失败: " + wxErrMsg(raw))
+	}
+	var r SettlementResp
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return nil, raw, fmt.Errorf("解析结算账户应答失败: %w", err)
+	}
+	return &r, raw, nil
+}
+
+// SettlementApplicationResp 查询结算账户修改申请状态应答。
+type SettlementApplicationResp struct {
+	AccountName      string `json:"account_name"`  // 掩码
+	AccountType      string `json:"account_type"`
+	AccountBank      string `json:"account_bank"`
+	BankName         string `json:"bank_name"`
+	BankBranchID     string `json:"bank_branch_id"`
+	AccountNumber    string `json:"account_number"`     // 掩码
+	VerifyResult     string `json:"verify_result"`      // AUDIT_SUCCESS / AUDITING / AUDIT_FAIL
+	VerifyFailReason string `json:"verify_fail_reason"`
+	VerifyFinishTime string `json:"verify_finish_time"`
+}
+
+// QuerySettlementApplication 查询结算账户修改申请单的审核状态。
+// 接口：GET /v3/apply4sub/sub_merchants/{sub_mchid}/application/{application_no}。
+func (s *SubMerchantService) QuerySettlementApplication(ctx context.Context, subMchID, applicationNo string) (*SettlementApplicationResp, []byte, error) {
+	raw, code, err := s.doRequest(ctx, http.MethodGet,
+		fmt.Sprintf("/v3/apply4sub/sub_merchants/%s/application/%s", subMchID, applicationNo), "")
+	if err != nil {
+		return nil, raw, err
+	}
+	if code < 200 || code >= 300 {
+		return nil, raw, smErr("查询结算账户修改申请状态失败: " + wxErrMsg(raw))
+	}
+	var r SettlementApplicationResp
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return nil, raw, fmt.Errorf("解析结算账户修改申请状态应答失败: %w", err)
 	}
 	return &r, raw, nil
 }

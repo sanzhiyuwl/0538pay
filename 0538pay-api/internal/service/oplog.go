@@ -14,7 +14,9 @@ import (
 const (
 	ScopeMerchant = "merchant"
 	ScopeAdmin    = "admin"
-	ScopeAgent    = "agent" // 独立代理端 /agent 的写操作（进件/退款/邀请/结算等）
+	ScopeAgent    = "agent"   // 独立代理端 /agent 的写操作（进件/退款/邀请/结算等）
+	ScopeConsole  = "console" // 代理进件控制台 /console 平台运营写操作（管代理/改权限/发名额/建单/退款/改结算）
+	ScopeSystem   = "system"  // 系统运维事件（cron/提交微信/回调/名额冻结释放等，非人工触发，手动埋点）
 )
 
 // 操作级别。
@@ -216,6 +218,9 @@ var agentActions = map[string]OpActionMeta{
 	"POST /enrolls/:id/refund":    {"进件退款", OpCatFund, OpLevelDanger, "原路退还开户费"},
 	"POST /enrolls/:id/material":  {"填写进件资料", OpCatEnroll, OpLevelNormal, "填写/更新进件资料"},
 	"POST /enrolls/:id/media":     {"上传进件图片", OpCatEnroll, OpLevelNormal, "上传进件媒体文件"},
+	"POST /enrolls/:id/video":     {"上传进件视频", OpCatEnroll, OpLevelNormal, "上传进件媒体视频"},
+	// —— 结算账户管理（改银行卡=资金方向，标 danger）——
+	"POST /enrolls/:id/settlement": {"修改结算账户", OpCatFund, OpLevelDanger, "修改特约商户结算银行账户"},
 	// —— 邀请链接 ——
 	"POST /enroll-invites":             {"生成邀请链接", OpCatEnroll, OpLevelNormal, "生成进件邀请码"},
 	"PUT /enroll-invites/:id/status":   {"启停邀请链接", OpCatEnroll, OpLevelNormal, "启用/停用邀请链接"},
@@ -248,6 +253,164 @@ func (s *OpLogService) AgentList(q dto.OpLogQuery) ([]dto.OpLogView, int64, erro
 }
 func (s *OpLogService) AgentExportRows(q dto.OpLogQuery) ([]dto.OpLogView, error) {
 	return s.exportScope(ScopeAgent, q)
+}
+
+// ===== 控制台管理日志（scope=console，复用同表）=====
+// 代理进件控制台 /console 平台运营的写操作（走 admin token，前缀 /api/console，不被 AdminOpLog 捕获）。
+// 路由固定（代理/名额/进件/邀请/服务商凭证几类），用「资源段 + 动词」派生，语义直观、新增接口零维护。
+
+// consoleResources 控制台一级资源段 → 中文名 + 分类。新增资源加一行即可。
+var consoleResources = map[string]adminResource{
+	"agents":         {"代理", OpCatMerchant},
+	"quota-logs":     {"名额", OpCatFund},
+	"enrolls":        {"进件单", OpCatEnroll},
+	"enroll-invites": {"邀请链接", OpCatEnroll},
+	"wx-partner":     {"服务商凭证", OpCatConfig},
+}
+
+// consoleVerb 控制台动作动词派生：按 HTTP 方法 + 末段关键词。返回 (动词, 级别)。
+func consoleVerb(method, lastSeg string) (string, string) {
+	switch {
+	case method == "DELETE":
+		return "删除", OpLevelDanger
+	case lastSeg == "status":
+		return "改状态", OpLevelWarning
+	case lastSeg == "permissions":
+		return "改权限", OpLevelWarning
+	case lastSeg == "quota":
+		return "调整名额", OpLevelDanger
+	case lastSeg == "refund":
+		return "退款", OpLevelDanger
+	case lastSeg == "submit":
+		return "提交微信审核", OpLevelNormal
+	case lastSeg == "sync":
+		return "同步微信状态", OpLevelNormal
+	case lastSeg == "material":
+		return "填写资料", OpLevelNormal
+	case lastSeg == "media", lastSeg == "video":
+		return "上传资料", OpLevelNormal
+	case lastSeg == "settlement":
+		return "修改结算账户", OpLevelDanger
+	case method == "POST":
+		return "新增", OpLevelNormal
+	case method == "PUT":
+		return "修改", OpLevelNormal
+	default:
+		return "操作", OpLevelNormal
+	}
+}
+
+// LookupConsoleAction 派生控制台管理动作元数据。key = "METHOD 路由模板"（不含 /api/console 前缀），
+// 如 "POST /enrolls/:id/refund"。未识别资源返回 (zero,false)，不记日志（避免噪音）。
+func LookupConsoleAction(key string) (OpActionMeta, bool) {
+	sp := strings.SplitN(key, " ", 2)
+	if len(sp) != 2 {
+		return OpActionMeta{}, false
+	}
+	method, path := sp[0], sp[1]
+	segs := strings.Split(strings.Trim(path, "/"), "/")
+	if len(segs) == 0 || segs[0] == "" {
+		return OpActionMeta{}, false
+	}
+	res, ok := consoleResources[segs[0]]
+	if !ok {
+		return OpActionMeta{}, false
+	}
+	verb, level := consoleVerb(method, segs[len(segs)-1])
+	return OpActionMeta{
+		CN:       verb + res.CN,
+		Category: res.Cat,
+		Level:    level,
+		Target:   verb + res.CN,
+	}, true
+}
+
+// ConsoleList / ConsoleExportRows 控制台管理日志。
+func (s *OpLogService) ConsoleList(q dto.OpLogQuery) ([]dto.OpLogView, int64, error) {
+	return s.listScope(ScopeConsole, q)
+}
+func (s *OpLogService) ConsoleExportRows(q dto.OpLogQuery) ([]dto.OpLogView, error) {
+	return s.exportScope(ScopeConsole, q)
+}
+
+// ConsoleOpActionOptions 控制台动作下拉（取已落库去重，只列真实发生过的组合）。
+func (s *OpLogService) ConsoleOpActionOptions() []map[string]string {
+	actions, _ := s.repo.DistinctActions(ScopeConsole)
+	out := make([]map[string]string, 0, len(actions))
+	for _, a := range actions {
+		out = append(out, map[string]string{"value": a, "label": a})
+	}
+	return out
+}
+
+// ===== 系统运维日志（scope=system，复用同表）=====
+// 非人工触发的系统事件（cron 定时任务 / 提交微信 / 微信回调推进 / 名额冻结释放等），由 service 层
+// 在关键节点手动调 RecordSystem 埋点。动作用显式常量，语义精确。
+
+// 系统事件动作常量（RecordSystem 的 action 传这些，Admin(options) 下拉据 systemActions 列出）。
+const (
+	SysActEnrollSubmit    = "提交微信审核"
+	SysActEnrollFinish    = "进件开通成功"
+	SysActEnrollReject    = "微信驳回进件"
+	SysActEnrollAutoRefund = "驳回自动退款"
+	SysActQuotaFreeze     = "冻结名额"
+	SysActQuotaConsume    = "消耗名额"
+	SysActQuotaRelease    = "释放名额"
+	SysActInviteExpire    = "邀请链接过期"
+	SysActTimeoutClose    = "超时关单"
+)
+
+// systemActions 系统事件动作 → 分类 + 级别（供前端下拉与埋点级别统一）。
+var systemActions = map[string]OpActionMeta{
+	SysActEnrollSubmit:     {SysActEnrollSubmit, OpCatEnroll, OpLevelNormal, "系统提交进件资料至微信"},
+	SysActEnrollFinish:     {SysActEnrollFinish, OpCatEnroll, OpLevelWarning, "微信开通特约商户号"},
+	SysActEnrollReject:     {SysActEnrollReject, OpCatEnroll, OpLevelWarning, "微信驳回进件申请"},
+	SysActEnrollAutoRefund: {SysActEnrollAutoRefund, OpCatFund, OpLevelDanger, "驳回后自动原路退开户费"},
+	SysActQuotaFreeze:      {SysActQuotaFreeze, OpCatFund, OpLevelNormal, "建单冻结代理名额"},
+	SysActQuotaConsume:     {SysActQuotaConsume, OpCatFund, OpLevelWarning, "进件成功消耗冻结名额"},
+	SysActQuotaRelease:     {SysActQuotaRelease, OpCatFund, OpLevelNormal, "终态失败释放冻结名额"},
+	SysActInviteExpire:     {SysActInviteExpire, OpCatEnroll, OpLevelNormal, "邀请链接到期失效"},
+	SysActTimeoutClose:     {SysActTimeoutClose, OpCatEnroll, OpLevelNormal, "未支付进件单超时关闭"},
+}
+
+// RecordSystem 埋一条系统运维日志（异步吞错，不阻断主流程）。target 为对象摘要（如进件单号），
+// detail 为可选 JSON 明细。未登记的 action 用兜底元数据（分类 system/级别 normal）。
+func (s *OpLogService) RecordSystem(action, target, detail string) {
+	meta, ok := systemActions[action]
+	if !ok {
+		meta = OpActionMeta{CN: action, Category: OpCatSystem, Level: OpLevelNormal, Target: action}
+	}
+	s.Record(OpContext{
+		Scope:    ScopeSystem,
+		UID:      0,
+		Operator: "系统",
+		IP:       "-",
+		Meta:     meta,
+		Target:   target,
+		Detail:   detail,
+	})
+}
+
+// SystemList / SystemExportRows 系统运维日志。
+func (s *OpLogService) SystemList(q dto.OpLogQuery) ([]dto.OpLogView, int64, error) {
+	return s.listScope(ScopeSystem, q)
+}
+func (s *OpLogService) SystemExportRows(q dto.OpLogQuery) ([]dto.OpLogView, error) {
+	return s.exportScope(ScopeSystem, q)
+}
+
+// SystemOpActionOptions 系统事件动作下拉（按登记表去重）。
+func (s *OpLogService) SystemOpActionOptions() []map[string]string {
+	seen := map[string]bool{}
+	out := make([]map[string]string, 0, len(systemActions))
+	for _, m := range systemActions {
+		if seen[m.CN] {
+			continue
+		}
+		seen[m.CN] = true
+		out = append(out, map[string]string{"value": m.CN, "label": m.CN, "category": m.Category, "level": m.Level})
+	}
+	return out
 }
 
 // OpActionOptions 商户端动作下拉选项（前端筛选用，按分类聚合）。

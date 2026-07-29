@@ -46,6 +46,12 @@ func AgentOpLog(oplog *service.OpLogService) gin.HandlerFunc {
 	return opLogFor(oplog, service.ScopeAgent, "/api/agent", service.LookupAgentAction)
 }
 
+// ConsoleOpLog 代理进件控制台写操作自动埋点中间件。挂在 console 路由组上（走 admin token，前缀 /api/console）。
+// 动作元数据由「资源段 × 动词」派生（service.LookupConsoleAction），未识别资源不记。
+func ConsoleOpLog(oplog *service.OpLogService) gin.HandlerFunc {
+	return opLogFor(oplog, service.ScopeConsole, "/api/console", service.LookupConsoleAction)
+}
+
 // opLogFor 构造某端的埋点中间件。scope 区分商户/管理端；prefix 为路由前缀（用于剥离得到路由模板）；
 // lookup 为该端的动作元数据查询（未登记/未识别返回 ok=false 时直接放行不记）。
 // 仅对写操作(POST/PUT/DELETE)埋点，GET 一律放行。

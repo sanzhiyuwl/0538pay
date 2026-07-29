@@ -1,0 +1,54 @@
+{
+  "_source": "https://pay.weixin.qq.com/doc/v3/partner/4012082816.md",
+  "_fetched_at": "2026-06-12",
+  "_note": "微信支付优惠费率活动目录。活动到期/下架/新增时手工维护此文件，运行 php _validate_activity_catalog.php 验证；后续可扩展为从微信文档抓取。activities[].whitelist 为参加资格白名单：settlement_id 或 industry_name 命中即视为符合行业准入。",
+  "activities": [
+    {
+      "activities_id": "20191030111cff5b5e",
+      "name": "泛行业活动",
+      "desc": "优惠费率区间 信用卡：0.2%-0.6%；非信用卡：0.2%-0.6%",
+      "credit_min": "0.2",
+      "credit_max": "0.6",
+      "debit_min": "0.2",
+      "debit_max": "0.6",
+      "valid_until": "2026-12-31",
+      "detail_url": "https://pay.wechatpay.cn/index.php/xphp/crate_benchmarking/partner_rate",
+      "whitelist": {
+        "settlement_ids": [
+          "716",
+          "719",
+          "725",
+          "727",
+          "799",
+          "903",
+          "904"
+        ],
+        "industry_names": [
+          "餐饮",
+          "零售",
+          "食品生鲜",
+          "游艺厅/KTV",
+          "网吧",
+          "院线影城",
+          "演出赛事",
+          "居民生活服务",
+          "景区/酒店",
+          "保健器械/医疗器械/非处方药品",
+          "其他私立/民营医院/诊所",
+          "休闲娱乐/旅游服务",
+          "旅行社",
+          "宗教组织",
+          "文物经营/文物复制品销售",
+          "咨询/娱乐票务",
+          "其他缴费",
+          "培训机构",
+          "停车缴费",
+          "私立/民营口腔及眼科、医疗美容医院/诊所",
+          "服饰鞋包",
+          "美妆日化",
+          "健身运动服务"
+        ]
+      }
+    }
+  ]
+}

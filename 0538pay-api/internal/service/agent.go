@@ -23,8 +23,9 @@ const (
 	PermAcquire    = "acquire"    // 收单代理：收单分润（占位，暂不启用；原 can_acquire）
 	PermQuota      = "quota"      // 名额钱包：买名额/用名额
 	PermInvite     = "invite"     // 邀请链接：生成/管理进件邀请码与二维码
-	PermRefund     = "refund"     // 手动退款：代理自助对自己名下单发起退款
-	PermSettlement = "settlement" // 佣金结算：查看佣金/提现
+	PermRefund       = "refund"        // 手动退款：代理自助对自己名下单发起退款
+	PermSettlement   = "settlement"    // 佣金结算：查看佣金/提现
+	PermSettleAccount = "settle_account" // 结算账户管理：对自己名下已开通商户查/改结算银行账户
 )
 
 // AgentPermission 权限点元数据（供平台勾选、前端数据驱动渲染）。
@@ -43,6 +44,7 @@ var AgentPermissionCatalog = []AgentPermission{
 	{Key: PermInvite, Name: "邀请链接", Group: "进件", Desc: "生成/管理进件邀请码与二维码"},
 	{Key: PermRefund, Name: "手动退款", Group: "进件", Desc: "对自己名下单发起原路退款"},
 	{Key: PermSettlement, Name: "佣金结算", Group: "进件", Desc: "查看佣金 / 提现"},
+	{Key: PermSettleAccount, Name: "结算账户管理", Group: "进件", Desc: "对自己名下已开通商户查询/修改结算银行账户"},
 	{Key: PermAcquire, Name: "收单代理", Group: "收单", Desc: "收单分润（占位，暂不启用）"},
 }
 

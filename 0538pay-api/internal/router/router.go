@@ -454,6 +454,8 @@ func Setup(r *gin.Engine, d Deps) {
 	// 前端 admin 与 console 共用 admin_token，故走 admin scope 鉴权。
 	console := api.Group("/console")
 	console.Use(middleware.Auth(d.JWT, "admin"))
+	// 控制台平台运营写操作自动埋点（scope=console，复用同表；仅 POST/PUT/DELETE 记，GET 放行）。
+	console.Use(middleware.ConsoleOpLog(d.OpLogSvc))
 	{
 		// 权限点清单（供平台勾选）
 		console.GET("/agent-permissions", d.Console.Permissions)
@@ -479,6 +481,11 @@ func Setup(r *gin.Engine, d Deps) {
 		console.GET("/enrolls/:id/material", d.Console.GetMaterial)
 		console.POST("/enrolls/:id/material", d.Console.FillMaterial)
 		console.POST("/enrolls/:id/media", d.Console.UploadMedia)
+		console.POST("/enrolls/:id/video", d.Console.UploadVideo)
+		// 结算账户管理（进件成功后售后）
+		console.GET("/enrolls/:id/settlement", d.Console.GetSettlement)
+		console.POST("/enrolls/:id/settlement", d.Console.ModifySettlement)
+		console.GET("/enrolls/:id/settlement/application", d.Console.GetSettlementApplication)
 		// 邀请链接
 		console.GET("/enroll-invites", d.Console.ListInvites)
 		console.POST("/enroll-invites", d.Console.CreateInvite)
@@ -491,10 +498,19 @@ func Setup(r *gin.Engine, d Deps) {
 		console.GET("/wx-partner", d.Console.GetWxPartner)
 		console.PUT("/wx-partner", d.Console.SaveWxPartner)
 
-		// 代理操作日志（平台视角查看所有代理在 /agent 端的写操作审计）。
+		// 审计日志三类（平台在控制台查看；复用 pay_oplog 表按 scope 区分）：
+		// 代理操作日志（scope=agent，代理在 /agent 端写操作）。
 		console.GET("/agent-oplogs", d.OpLog.AgentList)
 		console.GET("/agent-oplogs/options", d.OpLog.AgentOptions)
 		console.GET("/agent-oplogs/export", d.OpLog.AgentExport)
+		// 管理日志（scope=console，平台运营在 /console 的写操作）。
+		console.GET("/oplogs", d.OpLog.ConsoleList)
+		console.GET("/oplogs/options", d.OpLog.ConsoleOptions)
+		console.GET("/oplogs/export", d.OpLog.ConsoleExport)
+		// 运维日志（scope=system，系统事件：提交微信/开通/驳回/名额三态/超时关单等）。
+		console.GET("/system-oplogs", d.OpLog.SystemList)
+		console.GET("/system-oplogs/options", d.OpLog.SystemOptions)
+		console.GET("/system-oplogs/export", d.OpLog.SystemExport)
 	}
 
 	// 独立代理端（代理只看/只碰自己名下；自研扩展，epay 无）。
@@ -523,6 +539,11 @@ func Setup(r *gin.Engine, d Deps) {
 			authed.GET("/enrolls/:id/material", d.Agent.GetMaterial)
 			authed.POST("/enrolls/:id/material", d.Agent.FillMaterial)
 			authed.POST("/enrolls/:id/media", d.Agent.UploadMedia)
+			authed.POST("/enrolls/:id/video", d.Agent.UploadVideo)
+			// 结算账户管理（settle_account 权限）
+			authed.GET("/enrolls/:id/settlement", d.Agent.GetSettlement)
+			authed.POST("/enrolls/:id/settlement", d.Agent.ModifySettlement)
+			authed.GET("/enrolls/:id/settlement/application", d.Agent.GetSettlementApplication)
 			// 邀请链接
 			authed.GET("/enroll-invites", d.Agent.ListInvites)
 			authed.POST("/enroll-invites", d.Agent.CreateInvite)

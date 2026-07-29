@@ -291,6 +291,73 @@ func (h *AgentHandler) UploadMedia(c *gin.Context) {
 	resp.OK(c, gin.H{"media_id": mediaID})
 }
 
+// UploadVideo POST /api/agent/enrolls/:id/video 上传视频（enroll 权限 + 归属自己）。
+func (h *AgentHandler) UploadVideo(c *gin.Context) {
+	if !h.requirePerm(c, service.PermEnroll) {
+		return
+	}
+	filename, data, ok := readEnrollVideo(c)
+	if !ok {
+		return
+	}
+	id, _ := currentAgentID(c)
+	mediaID, err := h.enroll.UploadMaterialVideo(c.Request.Context(), agentIDParam(c), &id, filename, data)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"media_id": mediaID})
+}
+
+// —— 结算账户管理（settle_account 权限 + 归属自己）——
+
+// GetSettlement GET /api/agent/enrolls/:id/settlement 查自己名下商户当前结算账户。
+func (h *AgentHandler) GetSettlement(c *gin.Context) {
+	if !h.requirePerm(c, service.PermSettleAccount) {
+		return
+	}
+	id, _ := currentAgentID(c)
+	r, err := h.enroll.QuerySettleAccount(c.Request.Context(), agentIDParam(c), &id)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, r)
+}
+
+// ModifySettlement POST /api/agent/enrolls/:id/settlement 修改自己名下商户结算账户。
+func (h *AgentHandler) ModifySettlement(c *gin.Context) {
+	if !h.requirePerm(c, service.PermSettleAccount) {
+		return
+	}
+	var req service.ModifySettlementReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	id, _ := currentAgentID(c)
+	appNo, err := h.enroll.ModifySettleAccount(c.Request.Context(), agentIDParam(c), &id, req)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"application_no": appNo})
+}
+
+// GetSettlementApplication GET /api/agent/enrolls/:id/settlement/application 查改单审核状态。
+func (h *AgentHandler) GetSettlementApplication(c *gin.Context) {
+	if !h.requirePerm(c, service.PermSettleAccount) {
+		return
+	}
+	id, _ := currentAgentID(c)
+	r, err := h.enroll.QuerySettleApplication(c.Request.Context(), agentIDParam(c), &id)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, r)
+}
+
 // —— 邀请链接（invite 权限）——
 
 // ListInvites GET /api/agent/enroll-invites 自己名下的邀请链接。

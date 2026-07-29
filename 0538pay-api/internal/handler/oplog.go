@@ -128,6 +128,80 @@ func (h *OpLogHandler) AgentExport(c *gin.Context) {
 	writeOpLogCSV(c, "agent_oplogs.csv", "代理ID", rows)
 }
 
+// ===== 控制台管理日志（scope=console，复用同一 svc/表；平台运营在控制台查看）=====
+
+// ConsoleList GET /api/console/oplogs 控制台管理日志列表（多维筛选 + 分页）。
+func (h *OpLogHandler) ConsoleList(c *gin.Context) {
+	var q dto.OpLogQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	list, total, err := h.svc.ConsoleList(q)
+	if err != nil {
+		resp.Fail(c, 1102, "查询失败: "+err.Error())
+		return
+	}
+	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// ConsoleOptions GET /api/console/oplogs/options 控制台动作下拉选项（已落库去重）。
+func (h *OpLogHandler) ConsoleOptions(c *gin.Context) {
+	resp.OK(c, gin.H{"actions": h.svc.ConsoleOpActionOptions()})
+}
+
+// ConsoleExport GET /api/console/oplogs/export 控制台管理日志导出 CSV（UTF-8 BOM）。
+func (h *OpLogHandler) ConsoleExport(c *gin.Context) {
+	var q dto.OpLogQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	rows, err := h.svc.ConsoleExportRows(q)
+	if err != nil {
+		resp.Fail(c, 1102, "导出失败: "+err.Error())
+		return
+	}
+	writeOpLogCSV(c, "console_oplogs.csv", "运营ID", rows)
+}
+
+// ===== 系统运维日志（scope=system，复用同一 svc/表；平台在控制台查看）=====
+
+// SystemList GET /api/console/system-oplogs 系统运维日志列表（多维筛选 + 分页）。
+func (h *OpLogHandler) SystemList(c *gin.Context) {
+	var q dto.OpLogQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	list, total, err := h.svc.SystemList(q)
+	if err != nil {
+		resp.Fail(c, 1102, "查询失败: "+err.Error())
+		return
+	}
+	resp.Page(c, list, total, q.Page, q.PageSize)
+}
+
+// SystemOptions GET /api/console/system-oplogs/options 系统事件动作下拉选项。
+func (h *OpLogHandler) SystemOptions(c *gin.Context) {
+	resp.OK(c, gin.H{"actions": h.svc.SystemOpActionOptions()})
+}
+
+// SystemExport GET /api/console/system-oplogs/export 系统运维日志导出 CSV（UTF-8 BOM）。
+func (h *OpLogHandler) SystemExport(c *gin.Context) {
+	var q dto.OpLogQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	rows, err := h.svc.SystemExportRows(q)
+	if err != nil {
+		resp.Fail(c, 1102, "导出失败: "+err.Error())
+		return
+	}
+	writeOpLogCSV(c, "system_oplogs.csv", "来源", rows)
+}
+
 // writeOpLogCSV 流式写操作日志 CSV（UTF-8 BOM）。idCol 为第二列表头（商户号/管理员ID）。
 func writeOpLogCSV(c *gin.Context, filename, idCol string, rows []dto.OpLogView) {
 	c.Header("Content-Type", "text/csv; charset=utf-8")

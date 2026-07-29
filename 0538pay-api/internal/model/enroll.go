@@ -61,6 +61,12 @@ type SubMerchantEnroll struct {
 	WxApplymentID string `gorm:"column:wx_applyment_id;size:64;index" json:"wx_applyment_id"` // 微信申请单号
 	WxSubMchID   string `gorm:"column:wx_sub_mchid;size:32;index" json:"wx_sub_mchid"`   // 成功后的 sub_mchid（非空=已交付，硬锁不可退）
 	WxState      string `gorm:"column:wx_state;size:64" json:"wx_state"`                 // 微信申请单最新状态原值
+	SignURL      string `gorm:"column:sign_url;size:512" json:"sign_url"`               // 超管签约链接（提交微信后返回，扫码关注公众号完成核对/验证/签约）
+	AuditDetail  string `gorm:"column:audit_detail;type:text" json:"audit_detail"`      // 驳回详情 JSON 数组（field/field_name/reject_reason），仅驳回时有
+
+	// 结算账户（进件成功后售后，接口 6/7/8）
+	SettleApplicationNo string `gorm:"column:settle_application_no;size:64;index" json:"settle_application_no"` // 最近一次修改结算账户申请单号（供查改单状态）
+	SettleMeta          string `gorm:"column:settle_meta;type:text" json:"settle_meta"`                        // 最近一次查询/修改结算账户结果 JSON 快照（掩码账号+验证结果，非敏感）
 
 	Status     string     `gorm:"size:16;not null;default:'pending_pay';index" json:"status"` // 本地状态机
 	RejectReason string   `gorm:"column:reject_reason;size:512" json:"reject_reason"`         // 驳回原因

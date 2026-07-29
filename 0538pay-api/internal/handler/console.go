@@ -90,20 +90,32 @@ func consoleIntQuery(c *gin.Context, key string, def int) int {
 	return def
 }
 
-// enrollMediaMaxUpload 单次上传请求体上限（略高于 2M 图片上限，留 multipart 头开销余量）。
-const enrollMediaMaxUpload = 3 * 1024 * 1024
+// 单次上传请求体上限（略高于业务上限，留 multipart 头开销余量）。
+const (
+	enrollMediaMaxUpload = 3 * 1024 * 1024 // 图片 2M + 余量
+	enrollVideoMaxUpload = 6 * 1024 * 1024 // 视频 5M + 余量
+)
 
 // readEnrollMedia 从 multipart 表单读取 file 字段（进件资料图片上传共用，console+agent）。
-// 校验存在 + 大小上限；返回原始文件名与二进制。失败时已写好响应，返回 ok=false。
-// 更细的类型/大小/状态校验在 service 层 UploadMaterialMedia 内做。
 func readEnrollMedia(c *gin.Context) (string, []byte, bool) {
+	return readEnrollUpload(c, enrollMediaMaxUpload, "图片")
+}
+
+// readEnrollVideo 从 multipart 表单读取 file 字段（进件资料视频上传共用，console+agent）。
+func readEnrollVideo(c *gin.Context) (string, []byte, bool) {
+	return readEnrollUpload(c, enrollVideoMaxUpload, "视频")
+}
+
+// readEnrollUpload 通用 multipart 文件读取：校验存在 + 大小上限，返回文件名与二进制。
+// 失败时已写好响应，返回 ok=false。更细的类型/大小/状态校验在 service 层做。
+func readEnrollUpload(c *gin.Context, maxBytes int64, kind string) (string, []byte, bool) {
 	fh, err := c.FormFile("file")
 	if err != nil {
-		resp.Fail(c, 400, "请选择要上传的图片文件")
+		resp.Fail(c, 400, "请选择要上传的"+kind+"文件")
 		return "", nil, false
 	}
-	if fh.Size > enrollMediaMaxUpload {
-		resp.Fail(c, 400, "图片不能超过 2M，请压缩后重试")
+	if fh.Size > maxBytes {
+		resp.Fail(c, 400, kind+"文件过大，请压缩后重试")
 		return "", nil, false
 	}
 	f, err := fh.Open()
@@ -112,7 +124,7 @@ func readEnrollMedia(c *gin.Context) (string, []byte, bool) {
 		return "", nil, false
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, enrollMediaMaxUpload+1))
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
 	if err != nil {
 		resp.Fail(c, 400, "读取上传文件失败")
 		return "", nil, false
@@ -438,6 +450,57 @@ func (h *ConsoleHandler) UploadMedia(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"media_id": mediaID})
+}
+
+// UploadVideo POST /api/console/enrolls/:id/video 上传一段进件资料视频，返回微信 media_id。
+func (h *ConsoleHandler) UploadVideo(c *gin.Context) {
+	filename, data, ok := readEnrollVideo(c)
+	if !ok {
+		return
+	}
+	mediaID, err := h.enroll.UploadMaterialVideo(c.Request.Context(), consoleIDParam(c), nil, filename, data)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"media_id": mediaID})
+}
+
+// —— 结算账户管理（进件成功后售后，接口 6/7/8）——
+
+// GetSettlement GET /api/console/enrolls/:id/settlement 查当前生效的结算账户（掩码+验证结果，落库留痕）。
+func (h *ConsoleHandler) GetSettlement(c *gin.Context) {
+	r, err := h.enroll.QuerySettleAccount(c.Request.Context(), consoleIDParam(c), nil)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, r)
+}
+
+// ModifySettlement POST /api/console/enrolls/:id/settlement 修改结算银行账户，返回改单号。
+func (h *ConsoleHandler) ModifySettlement(c *gin.Context) {
+	var req service.ModifySettlementReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, "参数错误: "+err.Error())
+		return
+	}
+	appNo, err := h.enroll.ModifySettleAccount(c.Request.Context(), consoleIDParam(c), nil, req)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"application_no": appNo})
+}
+
+// GetSettlementApplication GET /api/console/enrolls/:id/settlement/application 查改单审核状态。
+func (h *ConsoleHandler) GetSettlementApplication(c *gin.Context) {
+	r, err := h.enroll.QuerySettleApplication(c.Request.Context(), consoleIDParam(c), nil)
+	if err != nil {
+		failConsole(c, err)
+		return
+	}
+	resp.OK(c, r)
 }
 
 // —— 邀请链接 ——

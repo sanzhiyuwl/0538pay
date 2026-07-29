@@ -8,7 +8,7 @@
 ----------------------------------------------------
 一、总体状态快照
 ----------------------------------------------------
-阶段：★一批打地基 + 二批提交查状态/付费前置 + 三批代理端 /agent + 四批客户自助公开页 /enroll + 五批退款四道拦截+sub_mchid硬锁定 完成（2026-07-28 更新）★
+阶段：★一批打地基 + 二批提交查状态/付费前置 + 三批代理端 /agent + 四批客户自助公开页 /enroll + 五批退款四道拦截+sub_mchid硬锁定 + 六批微信官方接口补全3/5/6/7/8(视频上传+结算账户管理6/7/8+按ID查单兜底) + 七批填全套资料settlement_info结算规则 + 八批结算规则「主体→行业」联动下拉(对照表落地) 完成（2026-07-29 更新）★
 规划文档：docs-代理进件/00-代理进件平台总体规划.txt（纲领）
           docs-代理进件/01-代理控制台改造与进件一期设计.txt（一期详细设计）
 关键决策：全部拍定（见 00/01 文档「已定」区），要点——
@@ -738,3 +738,354 @@
     给 console 组加一个 prefix=/api/console 的埋点中间件 + 派生/映射，或直接复用 admin scope 数据做只读展示页。
   - 「运维日志」：系统事件（cron/进件提交微信/回调/名额冻结释放）需在关键节点手动埋点，未做。
   - 代理端登录密码 bcrypt，本轮用临时号验证；正式代理号密码明文未知（不影响功能）。
+
+----------------------------------------------------
+六、第六批「微信官方接口补全 3/5/6/7/8」已完成（2026-07-29 14:00分）
+----------------------------------------------------
+背景：用微信支付集成技能核对官方特约商户进件（服务商 applyment4sub）接口族，
+      逐项比对本项目实现，定位缺口：接口 3（按 applyment_id 查单，作 SyncWxState 兜底）、
+      5（补充材料视频上传 media/video_upload）、6/7/8（修改结算账户 / 查结算账户 / 查改单审核状态）。
+
+决策（AskUserQuestion 四问已拍）：
+
+  - 修改结算账户：平台自有能力，代理端经【权限授权】开放（新增权限点 settle_account，与佣金 settlement 正交）。
+
+  - 视频上传：与「填全套资料」表单一起做（EnrollMaterialDrawer 内独立「补充视频」区）。
+
+  - 查询结算账户：查询后落库留痕（快照写 settle_meta 列）。
+
+  - 接口 3：作为 SyncWxState 兜底（business_code 优先，为空回落 parseApplymentID → 按 applyment_id 查）。
+
+后端（0538pay-api）：
+
+  1. model/enroll.go：SubMerchantEnroll 增 4 列并 AutoMigrate 生效——
+     sign_url(varchar512 超管签约链接) / audit_detail(text 驳回逐字段 JSON) /
+     settle_application_no(varchar64 index 改单申请号) / settle_meta(text 结算账户查询/改单快照)。
+     实测 pay_submch_enroll 四列已建（settle_application_no 带 MUL 索引）。
+
+  2. service/submerchant.go：
+     · UploadMedia/UploadVideo 抽出共用 uploadMultipart(path,filename,data,kind)，
+       视频走 /v3/merchant/media/video_upload；签名 body 仍是 meta JSON 串（filename+sha256）非整包。
+     · ApplymentStateResp 增 AuditDetail []ApplymentAuditDetail（field/field_name/reject_reason）。
+     · ModifySettlement(subMchID,req)：account_number/account_name 经 EncryptSensitive(RSA-OAEP)加密，
+       account_bank/bank_branch_id 明文透传，POST modify-settlement，返回 application_no。
+     · QuerySettlement / QuerySettlementApplication：GET 掩码账号+验证结果 / 改单审核状态。
+
+  3. service/enroll.go：
+     · SyncWxState 兜底：business_code 优先，为空 parseApplymentID(wx_applyment_id)>0 则按 ID 查，都无则报错。
+     · applyWxState 早落 sign_url/sub_mchid（TO_BE_SIGNED/SIGNING/FINISHED）、REJECTED 落 audit_detail；
+       增 APPLYMENT_STATE_CANCELED → 关单 + 释放冻结名额(路径一) + 锚定邀请过期。
+     · UploadMaterialVideo（5M/扩展名校验，fileExt 复用）。
+     · settleAccountGuard(id,agentID)：要求 finished + sub_mchid 非空 + 服务商凭证已配，否则 1302。
+     · ModifySettleAccount/QuerySettleAccount/QuerySettleApplication：均落 settle_meta 快照；
+       改单成功另落 settle_application_no。
+
+  4. handler + router + oplog：
+     · console.go/agent.go：加 UploadVideo/GetSettlement/ModifySettlement/GetSettlementApplication。
+       agent 端结算三接口 requirePerm(PermSettleAccount)（实时查库，非 JWT 快照）+ agentID 归属隔离。
+     · router：console 组 + agent 组各加 POST /enrolls/:id/video、GET/POST /enrolls/:id/settlement、
+       GET /enrolls/:id/settlement/application。
+     · oplog.go：agentActions 加「上传进件视频」(enroll/normal)、「修改结算账户」(fund/danger)。
+     · service/agent.go：AgentPermissionCatalog 加 settle_account 权限点（Group=进件）。
+
+前端（admin-web）：
+
+  1. lib/api/console.ts + agent.ts：Enroll 接口补 wx_state/sign_url/audit_detail/settle_application_no/
+     settle_meta；加 EnrollAuditDetail、SettleModifyReq/SettlementView/SettleApplicationView 类型；
+     加 uploadEnrollVideo/getEnrollSettlement/modifyEnrollSettlement/getEnrollSettleApplication
+     及 agent 端 my* 对应函数。
+
+  2. views/enroll/EnrollMaterialDrawer.vue：加 uploadVideoFn prop + 「补充视频」区（选视频→换 media_id 展示供复制）。
+
+  3. views/enroll/EnrollSettleDrawer.vue（新增，console/agent 共用）：查当前结算账户（验证结果 Badge）+
+     修改结算账户表单（account_type/银行/账号/户名，敏感字段明文提交后端加密）+ 查改单审核状态。
+
+  4. views/console/ConsoleEnroll.vue + views/agent/AgentEnroll.vue：
+     详情抽屉加超管签约链接块 + 驳回逐字段展示；页脚加「结算账户」按钮
+     （console：finished+sub_mchid；agent：再 && agentAuth.has('settle_account')）；挂 EnrollSettleDrawer +
+     给填料抽屉传 uploadVideoFn。ConsolePermissions.vue 数据驱动，settle_account 自动渲染无需改前端。
+
+自检自验（全绿）：
+  - admin-web npm run build（vue-tsc 严格）无 error；0538pay-api go build ./... + go vet 无 error；
+    go test ./internal/service/ 全通过（新增 submerchant_settle_test.go 5 条：视频上传 multipart+签名、
+    ModifySettlement 加密打包[解密回原文验证]、QuerySettlement/Application 解析[真实应答验签]、无凭证守卫）。
+
+  - ★真跑（真实微信服务商凭证已配，configured=true）：
+    · 状态门控：pending_pay 单打三个结算接口全返 1302「仅已开通…可管理结算账户」。
+    · 权限门控：代理号(有 settlement 无 settle_account)打 GET/POST settlement 返 1303「无该功能权限」。
+    · 数据隔离：代理打平台名下单(agent_id=0)返 1302「该进件单不属于您」。
+    · 视频上传无文件返 400「请选择要上传的视频文件」。
+    · 临时置 25 号单为 finished+假 sub_mchid：GET/POST settlement 均正确签名并抵达微信正式网关，
+      微信回 APPLYMENT_STATE... APPID_MCHID_NOT_MATCH（假商户号预期错），证明 Authorization 签名+
+      Wechatpay-Serial+证书握手全通、RSA-OAEP 加密无误；改单失败不落脏 application_no（查改单返「无记录」）。
+      测毕已还原 25 号单为 pending_pay 并清空 settle_meta/settle_application_no，停临时 server。
+
+  - 唯一未真跑：真实成功商户号（需真开通的 sub_mchid，本机无沙箱凭证），已由 httptest 假网关单测覆盖打包/签名/加密。
+
+下一步（交接）：
+  - 待真开通一个 sub_mchid 后，端到端跑一遍查/改结算账户成功路径（含 0.01 元打款验证、日限 5 次）。
+  - 接口族已补全（1-8 全覆盖）；后续可选：结算账户改单状态的定时轮询同步 / 视频 media_id 自动落进料表对应项。
+
+----------------------------------------------------
+七、第七批「填料补 settlement_info 结算规则(行业+费率)」已完成（2026-07-29 14:30分）
+----------------------------------------------------
+背景：用户实测发现「填全套资料」表单缺行业和优惠费率(泛活动 0.2%)。核对微信特约商户进件
+      applyment4sub 官方文档(提交申请单-4012719997.md)确认:settlement_info 是【必填 object】,
+      原填料组装体完全没带它,真提交微信必被 PARAM_ERROR 拒。这是真实缺口。
+
+决策(AskUserQuestion 三问)：
+
+  - 行业/规则数据源：settlement_id + qualification_type 用文本输入框(运营对照微信《费率结算规则对照表》
+    kf.qq.com FAQ 手填真实值,该表几百项且会变,不宜硬编码);activities_id 用 Select 下拉(有真实编码)。
+
+  - 优惠活动费率口径：按微信 2023-09-18 后口径,分开填 debit_activities_rate(借记卡) +
+    credit_activities_rate(信用卡),不用已停止兼容的单值 activities_rate。
+
+  - 补充材料图片：qualifications(特殊资质) + activities_additions(活动补充材料)一起做,多图上传。
+
+★真实编码(查微信官方《优惠费率活动对照表》4012082816.md,非编造)：
+  泛行业活动 activities_id = 20191030111cff5b5e,标准费率 0.60%,优惠区间 0.2%~0.6%。
+
+后端(0538pay-api)：
+
+  1. dto/enroll.go：EnrollMaterialReq + EnrollMaterialView 各加 7 个非敏感字段——
+     settlement_id / qualification_type / qualifications[] / activities_id /
+     debit_activities_rate / credit_activities_rate / activities_additions[]。
+
+  2. service/enroll.go FillMaterial：
+     · 校验 settlement_id / qualification_type 必填;填了 activities_id 则两费率必填。
+     · 组装 settlement_info 子对象并塞进 applyment4sub body：settlement_id/qualification_type 必带;
+       qualifications 非空才带;activities_id 非空才带(连同两费率 + activities_additions)。
+     · material_meta 快照同步这 7 字段(非敏感,原样回显供再编辑)。
+     · 新增 trimNonEmpty(去空白+剔空串) 清洗 media_id 列表。
+
+前端(admin-web)：
+
+  1. lib/api/console.ts：EnrollMaterialReq/View 补 7 字段(agent.ts 复用同类型无需改)。
+
+  2. views/enroll/EnrollMaterialDrawer.vue：blank()/loadView 补 7 字段;新增「结算规则」区
+     (结算规则ID/所属行业文本框 + 优惠费率活动 Select[内置泛行业 20191030111cff5b5e] +
+     选活动后展开借记卡/信用卡费率 + 特殊资质/活动补充材料多图上传);activitiesOptions 常量;
+     onPickMultiImage/removeMultiImage(多图 ≤5 上传,复用 uploadFn);doSave 加 settlement 校验。
+
+自检自验(全绿)：
+  - go build ./... + go vet + npm run build(vue-tsc 严格) 均无 error;go test ./internal/service/ 全通过。
+  - ★真跑(真实服务商凭证):临时置 25 号单 paid→
+    · 缺 settlement_id → 1302「请填写入驻结算规则ID」;
+    · 有 activities_id 只填一个费率 → 1302「借记卡与信用卡活动费率均需填写」;
+    · 完整合法(泛行业0.2%) → 200,material_json 的 settlement_info 含
+      settlement_id/qualification_type/activities_id/两费率齐全,GET view 正确回显;
+    · 不报活动填 → 200,settlement_info 仅 settlement_id/qualification_type(条件组装,无空活动字段);
+    · 敏感字段仍 RSA-OAEP 加密(material_json 不含身份证/银行账号明文,LIKE 均 0)——无回归。
+    测毕已还原 25 号单为 pending_pay + 清空 material_json/material_meta,停临时 server。
+
+下一步(交接)：
+  - settlement_id/qualification_type 仍需运营手填真实值(微信 FAQ 对照表未进库);若后续要下拉,
+    需人工把常用行业编码录入(后台字典或前端常量)。
+  - 真开通 sub_mchid 后端到端跑一遍带 settlement_info 的真实进件提交。
+
+----------------------------------------------------
+八、结算规则「主体→行业」联动下拉（对照表落地，2026-07-29 15:07分）
+----------------------------------------------------
+背景：七批只做了 settlement_id/qualification_type 文本框，需运营手填真实编码，易错且无费率提示。
+      本批把 wepay 项目预抓的官方对照表 JSON 拷进本项目，做成主体类型→行业联动下拉，自动带出
+      结算规则ID/费率说明/是否需特殊资质，并按行业白名单过滤可报名的优惠费率活动。
+
+数据（admin-web/src/data/）：
+
+  1. settlement_catalog.json（143KB，从 F:/wepay 拷入）：微信《费率结算规则对照表》解析结果。
+     结构 by_subject[主体类型][行业分组] = 行业项[]；行业项含
+     settlement_id / industry_id / qualification_type / need_qual / qual_text / fee_desc / scope。
+     覆盖 5 类主体：个体户37 / 企业54 / 政府10 / 事业单位15 / 社会组织19 条行业。
+
+  2. activity_catalog.json（从 wepay 拷入）：微信《优惠费率活动对照表》。
+     泛行业活动 20191030111cff5b5e，借/贷记 0.2%~0.6%，含白名单(settlement_ids + industry_names)。
+
+  3. lib/enrollCatalog.ts（新建，类型化读取层）：
+     subjectTypeLabels(5类) / industryOptions(subjectType) 扁平带分组语义 /
+     splitIndustryKey(复合键 settlement_id|qualification_type 拆分) / findIndustry(精确查一条) /
+     eligibleActivities(settlementId,qualificationType) 按白名单 settlement_id 或行业名命中过滤。
+
+  4. tsconfig.app.json 加 resolveJsonModule:true（vue-tsc 类型检查 JSON import 需要）。
+
+前端（EnrollMaterialDrawer.vue，console/agent 共用抽屉）：
+
+  1. subjectTypeOptions 由 2 项手写扩到对照表全 5 类（Object.entries(subjectTypeLabels)）。
+
+  2. 「所属行业」由两个文本框改为单个联动下拉 Select(searchable)：
+     · industrySelectOptions 随 form.subject_type 计算，label = 分组 · 行业（费率说明）。
+     · industryKey 复合键 getter/setter：读时拼 form 两字段，写时 splitIndustryKey 拆回并联动清活动
+       (换行业若已选活动不在新行业白名单则清空 activities_id/两费率/补充材料)。
+     · selectedIndustry 计算：显示 结算规则ID + fee_desc + 需特殊资质红字提示 + 经营范围。
+
+  3. 优惠费率活动 Select 改用 activitiesOptions 计算属性——只列当前行业可报名活动(eligibleActivities)，
+     不可报名时仅剩「不参与」；label 带借/贷记费率区间提示。
+
+  4. subject_type watcher：切主体清空已选行业与活动(不同主体行业不通用)；
+     新增 restoring 标志 + nextTick 释放，避免 loadView 回填期 watcher 误清刚回填的结算规则。
+
+自检自验(全绿)：
+  - npm run build(vue-tsc 严格 noUnusedLocals) 无 error；go build ./... 无 error(后端未改)。
+  - Python 校验对照表 5 主体行业条数齐全(37/54/10/15/19)。
+  - 真跑：dev server curl EnrollMaterialDrawer.vue / enrollCatalog.ts / settlement_catalog.json 均 200，
+    转换产物无 Transform 报错。
+
+下一步(交接)：
+  - 微信调价后，手动更新 src/data/两个 json 即可(注释已写明数据来源与更新方式)。
+  - 真开通 sub_mchid 后，端到端跑一遍带 settlement_info 的真实进件提交(选行业下拉→提交→微信审核)。
+
+  ★优化(2026-07-29 15:20分)：单个扁平行业下拉 → 两级联动。
+    enrollCatalog.ts 补 industryGroupNames(subjectType 大类名) / groupIndustryOptions(subjectType,group 门店类型) /
+    findIndustryGroup(反查大类,回填定位第一级)。EnrollMaterialDrawer.vue：
+    「行业大类」Select(第一级,industryGroup ref 不进 form) → 「门店类型」Select(第二级,随大类出选项,industryKey 复合键)；
+    切大类清门店类型；切主体清大类+门店+活动；loadView 反查大类回填第一级(restoring 期 watch 不误清)。
+    npm run build(vue-tsc) 无 error，dev server curl 200 无 Transform 报错。
+
+  ★优化(2026-07-29 15:40分)：开户银行 + 省市编码 手填 → 下拉(查微信官方对照表,非编造)。
+    enrollCatalog.ts 补两组常量：
+    · bankOptions：《开户银行对照表》(合作伙伴 4012082813,更新2025.02.19) 的 17 家银行 + 兜底「其他银行」,
+      account_bank 传的就是银行名文本。
+    · provinceOptions：《省市区编号对照表》(合作伙伴 4012082815) 省级 34 项(GB/T2260 省级码,如110000北京)。
+      ★官方文档明确 bank_address_code「即将下线、无需传入、非必填、至少精确到市」,故只做省级不做区县级几千项级联。
+    EnrollMaterialDrawer.vue：开户银行 input→Select(searchable);省市编码 input→省份 Select(searchable)+下线提示。
+    npm run build(vue-tsc) 无 error，dev server curl 200 无 Transform 报错。
+
+  ★补充(2026-07-29 15:55分)：开户银行「其他银行」联动补支行信息(农信社/农商行走这条)。
+    查微信官方(子商户进件 4012719997):account_bank=其他银行时,bank_branch_id(联行号)与 bank_name(支行全称) 二选一必填。
+    后端 dto/enroll.go：EnrollMaterialReq/View 各加 bank_branch_id + bank_name(非敏感)。
+    service/enroll.go：bank_account_info 抽成 bankAccountInfo map,两字段非空才带(条件组装);meta 快照同步;
+      FillMaterial 加校验(account_bank=="其他银行" 且 联行号/支行全称都空 → 1302 拦截)。
+    前端 console.ts 两接口补字段;EnrollMaterialDrawer.vue：isOtherBank 计算,选「其他银行」时模板展开
+      联行号+支行全称两输入(带二选一说明),doSave 同步校验。
+    自检:go build ./... + go test ./internal/service/(全过) + npm run build(vue-tsc) 均无 error;
+      server 二进制已重建;dev server curl 200 无 Transform 报错。
+
+  ★优化(2026-07-29 16:05分)：账户类型随主体类型联动(查微信官方 4012719997 bank_account_type)。
+    规则：仅个体户可选「经营者个人银行卡(对私)」;企业/政府机关/事业单位/社会组织只能「对公银行账户」。
+    前端 EnrollMaterialDrawer.vue：bankAccountTypeOptions 改 computed(个体户给对私+对公,其余仅对公);
+      subject_type watcher 加 immediate,切到非个体户时把已选对私强制纠正为对公(回填历史脏数据也纠)。
+    后端 service/enroll.go FillMaterial：加校验(非个体户 + 对私 → 1302 拦截),防绕过前端。
+    自检:go build ./... + npm run build 均无 error;server 二进制已重建;dev server curl 200。
+
+----------------------------------------------------
+九、第九批「进件字段全套补齐(对齐 applyment4sub 七大缺口)」已完成（2026-07-29 17:05分）
+----------------------------------------------------
+起因：从微信官方《提交申请单 applyment4sub》(4012719997,更新2025.03.26)角度审计,当前填料只覆盖
+      最窄路径(个体户/企业 + 身份证 + 无经营场景),真实提交必失败/特定主体被拒。定级全部修复:
+      🔴致命(真实提交必失败)、🟡重要(特定主体会被拒)、🟠次要(复杂场景/软校验)。
+
+修复清单(七项):
+  🔴 sales_info 经营场景缺失 → 补全 6 类场景(STORE/MP/MINI_PROGRAM/WEB/APP/WEWORK),多选+子表单;
+     微信 business_info.sales_info 必填,至少勾一类,勾了对应子对象关键字段必填。
+  🔴 certificate_info 登记证书缺失 → 政府机关/事业单位/社会组织走登记证书(替代营业执照);
+     cert_type 按主体过滤(事业单位2388/政府2389/社会组织9种),含单位证明函(传了免汇款验证)。
+  🟡 企业 id_card_address 缺失 → 企业主体身份证件需填居住地址(敏感加密);身份证走 id_card_info.address,
+     非身份证走 id_doc_info.id_doc_address。
+  🟡 id_doc_type 写死只支持身份证 → 证件类型下拉(政府仅身份证;其余可选护照/港澳台通行证/居留证等8种);
+     非身份证走 id_doc_info(证件正反面+姓名/号码/地址敏感)。
+  🟠 UBO 最终受益人缺失 → 企业/社会组织可填(≤4人,留空微信自动回填经营者);姓名/号码/地址敏感加密。
+  🟠 account_name 一致性未校验 → 已随敏感字段必填校验(has_* 回显机制)。
+  🟠 addition_info 未组装 → 补充材料区(开户承诺函/开户意愿视频/补充图片PDF≤5/补充说明)。
+
+后端(0538pay-api):
+  dto/enroll.go：EnrollMaterialReq 扩证书区(cert_*9字段)/身份证件(id_doc_type/id_card_address/id_doc_*7字段)/
+    经营场景(sales_scenes_type[]+6子结构 EnrollBizStore/MpInfo/MiniProgram/WebInfo/AppInfo/WeworkInfo)/
+    UBOList[]EnrollUBO/补充材料(legal_person_commitment/video/business_addition_pics[]/msg);
+    EnrollMaterialView 同步(敏感只回 has_*:id_card_address/id_doc_name/number/address + UBO 脱敏视图 EnrollUBOView)。
+  service/enroll.go FillMaterial：新增敏感字段加密(idAddress/idDocName/idDocNumber/idDocAddress);
+    校验块(证书主体全字段必填/企业身份地址必填/经营场景≥1类且勾选场景关键字段必填);
+    重构组装 isCertSubject 分支(subject_info 走 certificate_info OR business_license_info;
+    identity_info 走 id_card_info(含 address) OR id_doc_info);ubo_info_list 经 buildUBOList 加密;
+    sales_info 经 buildSalesInfo(逐场景校验+组装);body.addition_info 经 buildAdditionInfo(非空才带);
+    新增 4 helper:buildSalesInfo/buildUBOList/buildUBOViews/buildAdditionInfo;meta 快照扩全部新非敏感字段+has_*+UBO视图。
+
+前端(admin-web):
+  lib/api/console.ts：新增导出 interface EnrollBizStore/MpInfo/MiniProgram/WebInfo/AppInfo/WeworkInfo/UBO/UBOView;
+    EnrollMaterialReq/View 扩全部新字段。
+  views/enroll/EnrollMaterialDrawer.vue：
+    · 营业执照区加 v-if="!isCertSubject" + 必填标记;新增登记证书区 v-if="isCertSubject"(cert_type 按主体过滤 Select+8字段+证书照+证明函)。
+    · 身份区加证件类型 Select(idDocTypeOptions);isIdCard 分支走身份证字段(企业加居住地址),否则走 id_doc 字段(护照/通行证正反面)。
+    · 新增经营场景区:6 复选(salesSceneDefs/toggleScene/hasScene)+每场景条件子表单(线下场所门头照/内部照多图,MP/小程序/App AppID二选一+截图,网站域名+授权函,企业微信CorpID+截图)。
+    · 新增 UBO 区 v-if="uboEligible"(addUBO/removeUBO,≤4人,敏感字段明文提交)。
+    · 新增补充材料区(承诺函/意愿视频/补充图片≤5/补充说明 textarea)。
+    · 通用上传器 onPickArrayImage(key,arr,e,max)/onPickSingleTo(key,assign,e);computeds isCertSubject/isEnterprise/uboEligible/isIdCard/certTypeOptions/idDocTypeOptions;
+      blank()/loadView/has/doSave 全部同步扩展(证书/企业地址/场景校验)。
+
+自检自验(全绿):
+  - go build ./... 无 error;go test ./internal/service/ ok;npm run build(vue-tsc 严格 noUnusedLocals)无 error。
+  - server 二进制已重建(bin/epvia-server.exe);dev server curl EnrollMaterialDrawer.vue / enrollCatalog.ts 均 200,转换产物无 Transform 报错。已停临时 server。
+
+下一步(交接):
+  - 真开通 sub_mchid 后,分主体端到端跑真实进件提交:个体户(身份证)/企业(身份证+居住地址+UBO)/事业单位(登记证书)/社会组织(证书+UBO),验证 applyment4sub 各分支组装正确。
+  - 图片上传一期填 media_id 占位;真跑需先在系统设置配好服务商凭证,选图上传换 media_id 链路已就绪(uploadFn/uploadVideoFn)。
+
+----------------------------------------------------
+十、第十批「审计日志补齐两类(管理日志 scope=console + 运维日志 scope=system)」已完成（2026-07-29 17:30分）
+----------------------------------------------------
+起因：待优化.txt #4——审计三类里此前只做了「代理操作日志(scope=agent)」，管理日志(控制台自身写操作)与运维日志(系统事件)未做。本批补齐，销 #4。
+      注：主后台 /api/admin 的管理日志(scope=admin)早已存在；本批的「管理日志」特指代理进件控制台 /api/console 自身写操作(走 admin token,前缀不同不被 AdminOpLog 捕获)。
+
+管理日志(scope=console)——自动埋点，零维护派生：
+  service/oplog.go：加 ScopeConsole；consoleResources 五资源段(agents 代理/quota-logs 名额/enrolls 进件单/enroll-invites 邀请链接/wx-partner 服务商凭证)；consoleVerb 按 method+路由末段派生动词与级别(DELETE删除danger / status改状态warning / permissions改权限warning / quota调整名额danger / refund退款danger / submit提交微信normal / sync同步normal / material填写资料normal / media·video上传normal / settlement改结算danger / POST新增 / PUT修改)；LookupConsoleAction(资源段×动词派生,未识别资源不记避免噪音)；ConsoleList/ConsoleExportRows/ConsoleOpActionOptions(下拉取已落库去重)。
+  middleware/oplog.go：加 ConsoleOpLog(prefix=/api/console,复用 opLogFor 通用逻辑,仅 POST/PUT/DELETE 记)。
+  router.go：console 组加 console.Use(middleware.ConsoleOpLog(d.OpLogSvc))——平台运营在控制台的写操作自动埋点。
+
+运维日志(scope=system)——关键节点手动埋点：
+  service/oplog.go：加 ScopeSystem；9 个系统事件常量(SysActEnrollSubmit 提交微信审核/EnrollFinish 进件开通成功/EnrollReject 微信驳回进件/EnrollAutoRefund 驳回自动退款/QuotaFreeze 冻结名额/QuotaConsume 消耗名额/QuotaRelease 释放名额/InviteExpire 邀请链接过期/TimeoutClose 超时关单)；systemActions 映射(分类+级别)；RecordSystem(action,target,detail)(异步吞错,operator=系统/uid=0,未登记 action 兜底 system/normal)；SystemList/SystemExportRows/SystemOpActionOptions。
+  service/enroll.go：EnrollService 加 oplog 字段 + SetOpLog 注入 + sysLog(便捷埋点,oplog nil 静默) + marshalSysDetail(明细 map→JSON)。关键节点埋点：
+    · SubmitToWx 成功 → 提交微信审核(带 merchant_name/business_code)
+    · applyWxState FINISHED 开通成功 → 进件开通成功(带 sub_mchid) + settleOnFinish 消耗名额成/败
+    · applyWxState REJECTED(仅 submitted→rejected 首次) → 微信驳回进件(带 reject_reason) + 驳回自动退款成/败
+    · applyWxState CANCELED 作废 → 释放名额(reason=申请单作废)
+    · CloseTimeoutPending 超时关单 → 超时关单 + 释放名额(reason=超时关单)
+  main.go：enrollSvc.SetOpLog(opLogSvc) 注入(opLogSvc 在 enrollSvc 之前构造)。
+
+接口/前端：
+  handler/oplog.go：加 ConsoleList/ConsoleOptions/ConsoleExport + SystemList/SystemOptions/SystemExport(复用 writeOpLogCSV,idCol=运营ID/来源)。
+  router.go：console 组加 GET /oplogs、/oplogs/options、/oplogs/export(管理日志) + /system-oplogs、/system-oplogs/options、/system-oplogs/export(运维日志)，均 admin token。
+  console.ts：加 fetchConsoleOpLogs/fetchConsoleOpActionOptions/exportConsoleOpLogs + fetchSystemOpLogs/fetchSystemOpActionOptions/exportSystemOpLogs(复用 AgentOpLog 类型+level/result meta)；抽 downloadOpLogCsv 通用 CSV 下载,代理日志导出一并复用消重。
+  新建 views/console/ConsoleManageLogs.vue + ConsoleSystemLogs.vue(结构照 ConsoleAgentLogs.vue,去代理下拉;管理日志按动作/级别/结果/关键字/时间筛选,运维日志按事件类型筛选,列头「来源」)。
+  router/index.ts 注册 /console/manage-logs、/console/system-logs;nav.ts「审计日志」组加「管理日志」(UserCog 图标)+「运维日志」(Activity 图标)。
+
+自检自验(全绿)：
+  - go build ./... + go vet ./internal/... + go test ./internal/service/(ok) + npm run build(vue-tsc 严格 noUnusedLocals) 均无 error。
+  - server 二进制重建(bin/epvia-server.exe)+重启(先 taskkill 旧实例)拉新路由，确认 6 条新路由注册。
+  - 真跑：无 token 401；建/删邀请链接自动落 scope=console 日志(动作「新增邀请链接」enroll/normal/operator=admin/target/result=ok 全对)；管理日志动作下拉取已落库去重;运维日志事件下拉返 9 类全量;运维日志列表暂空(真实凭证不可达,系统事件走 RecordSystem 与 console 同一 Record 管道,已由 console 真跑覆盖);前端两页 dev server 200 无 Transform 报错。
+  - 清理：测试产生的 console 日志已从 pay_oplog 清库、临时 server 停、token/临时文件删。
+
+销待优化.txt #4(审计三类齐活)。commit 待提交。
+
+下一步(交接)：
+  - 运维日志真实事件端到端(提交微信/开通/驳回/名额消耗)仍需真开通 sub_mchid 触发,阻塞同前(本机无沙箱凭证);埋点代码路径已就绪,与 console 日志同 Record 管道已验证。
+  - 可选打磨方向：进件字段日期选择器/经营场景截图预览/主后台 admin 日志与控制台三类日志的统一入口视图。
+
+
+----------------------------------------------------
+十一、第十一批「applyment4sub 字段逐字段核对微信官方文档,清提交被拒隐患」已完成（2026-07-29 19:20分）
+----------------------------------------------------
+起因：用户「对比着文档 做到最佳完善,至少不能存在提交被拒的问题」。以微信官方《提交申请单-4012719997》为权威,把 FillMaterial 组装体逐字段核对(顶层结构/字段名/必填性/枚举/加密/条件必填),找出 5 处会导致提交被拒或流程走不通的问题并修复。核对由子代理跑,关键结论(merchant_name/contact_type/pics 必填)已回读官方文档原文复核确认属实(遵守 CLAUDE.md 关卡一「字段必须核对官方文档,禁凭记忆」)。
+
+核对确认无误的部分(未动)：顶层 key 挂载全对(sales_info 正确嵌 business_info 下);加密字段清单与官方要求一一对应无缺无多;certificate_info/bank_account_info/settlement_info/identity_info 字段名与条件必填(其他银行 branch/name 二选一、企业身份证地址必填、账户类型限制)均已对齐。
+
+修复的 5 处(按严重度)：
+  🔴1 营业执照 merchant_name 错填法人姓名 → 必被拒。官方 business_license_info.merchant_name(必填,商户名称=营业执照登记名称,2-128字符,个体户按「个体户+经营者名」),原代码填 req.LegalPerson(人名)。修复:DTO 新增 BusinessMerchantName(json business_merchant_name)独立字段;组装改用它;加必填+2-128长度校验;前端表单营业执照区新增「商户名称」输入框(占位提示「非法人姓名」)+ doSave 校验 + 回填 + View 回显。
+  🟡2 contact_type 写死 "LEGAL",超管非法人(经办人)场景无法开户。官方 contact_type 枚举 LEGAL/SUPER,SUPER 时 contact_id_doc_type/contact_id_doc_copy/contact_period_begin/end + contact_id_number 必填。修复:DTO 加 ContactType + 5 个经办人证件字段;后端校验 SUPER 时这些必填;contact_info 动态组装 contact_type + SUPER 分支带证件类型/正面照/有效期(反面照护照免,非空才带);前端加超管类型 Select(LEGAL/SUPER)+ SUPER 时展开证件类型/正反面照/有效期子表单 + 校验 + 回填。
+  🟡3 contact_id_number 无条件下发空密文(LEGAL 时用户没填也带 "") → 可能 PARAM_ERROR。修复:改「非空才带」(if contactIDNum != "")。
+  🟡4 MP/APP/WEWORK 场景截图 mp_pics/app_pics/wework_pics 官方必填但未强校验 → 勾了场景没传截图被拒。修复:buildSalesInfo 三处补 pics 非空校验;前端 doSave 三处补对应校验。
+  🟠5 身份证 id_card_copy/national/有效期(及非身份证证件正面照/姓名/号码/有效期)官方必填但后端未校验,空则下发空串。修复:FillMaterial 顶部按 id_doc_type 分支补必填校验。
+
+改动文件：
+  后端:dto/enroll.go(EnrollMaterialReq/View 加 BusinessMerchantName + ContactType + 5 经办人证件字段);service/enroll.go(FillMaterial 校验块 + merchant_name 组装修正 + contact_info 重构为动态组装 + 身份证必填校验;buildSalesInfo 三场景 pics 校验)。
+  前端:lib/api/console.ts(EnrollMaterialReq/View 同步加字段);views/enroll/EnrollMaterialDrawer.vue(blank/loadView/doSave 扩展 + 营业执照区商户名称输入 + 超管类型 Select+SUPER 证件子表单 + contactTypeOptions)。
+
+组装层单测(锁死字段防回归)：
+  ★微信进件 APIv3 官方无沙箱环境(官方《最佳安全实践-4012082456》第146行明确「APIv3暂未提供独立的沙箱测试环境和测试参数」),真实提交需真商户资料+真开户,故连不上真微信。改走「组装层单测」锁死本轮修的字段。
+  新增 internal/service/enroll_applyment_body_test.go(TestFillMaterialApplymentBody,连本地 MySQL,连不上则 Skip)：自签 RSA 公钥让 submch.Configured() 过并真实走 RSA-OAEP 加密,高位 test id(991001)插 paid 进件单→真实调 FillMaterial→从落库 material_json 反序列化断言,跑完 t.Cleanup 清库。6 子用例全绿:①营业执照 merchant_name=商户名称≠法人姓名;②LEGAL 超管不带经办人字段且空证件号不下发 contact_id_number;③SUPER 超管带经办人证件类型/正面照/有效期+证件号(解密验回原文);④MP/APP/WEWORK 场景带 *_pics 且 sales_info 挂在 business_info 下;⑤敏感字段加密无明文泄露(身份证号/银行账号/手机/邮箱明文均不出现在 body,account_number 解密验回);⑥事业单位主体走 certificate_info 不带 business_license_info。复用 submerchant_settle_test.go 的 testRSAKeyPair/parseTestPriv/decryptOAEP 辅助。
+
+自检自验(全绿)：
+  - go build ./... 无 error;go vet ./internal/service/ 无 error;go test ./internal/service/ 全过(含新增 TestFillMaterialApplymentBody 6 子用例);npm run build(vue-tsc 严格)无 error。
+  - server 二进制重建 + 起服务真跑:/api/console/enrolls 无 token 401(路由正常);停临时 server 清理完毕;测试数据 991001 已清无残留。
+
+阻塞同前：真实提交(个体户/企业/事业单位/社会组织各分支)到微信端到端需真开通 sub_mchid(★官方无沙箱,须真商户营业执照/法人身份证/银行账户,一提交即真开户);字段层面已对齐官方文档且由组装层单测锁死,常见主体+经营场景的正常提交不再有已知字段级被拒隐患。
+
+遗留(记待优化)：contact_type=SUPER 分支已做;若产品上只支持「超管=法人」可在前端隐藏该选项,当前默认 LEGAL 不影响。政府/事业单位走经办人证件的 id_holder_type(边缘场景)未做,留待后续。

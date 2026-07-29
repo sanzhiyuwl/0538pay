@@ -1,0 +1,2757 @@
+{
+  "_source": "https://kf.qq.com/faq/220228IJb2UV220228uEjU3Q.html",
+  "_fetched_at": "2026-06-13 12:46:54",
+  "_note": "由 _fetch_settlement_catalog.php 抓取并解析；UI 用 by_subject，原始 settlement 数据可在 list 里查",
+  "list": [
+    {
+      "settlement_id": "719",
+      "subject_type": "SUBJECT_TYPE_INDIVIDUAL",
+      "subject_label": "个体户",
+      "desc": "费率0.6%,入账周期T+1",
+      "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+      "items": [
+        {
+          "industry_id": "1",
+          "name": "餐饮",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "2",
+          "name": "电商平台",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "3",
+          "name": "零售",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质，若涉及烟草售卖，需提供《烟草专卖零售许可证》"
+        },
+        {
+          "industry_id": "4",
+          "name": "食品生鲜",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "7",
+          "name": "咨询/娱乐票务",
+          "group": "生活/娱乐",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "10",
+          "name": "房产中介",
+          "group": "房产/金融",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "11",
+          "name": "宠物医院",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "《动物诊疗许可证》"
+        },
+        {
+          "industry_id": "12",
+          "name": "共享服务",
+          "group": "生活服务",
+          "need_qual": true,
+          "qual_text": "交通运输业共享服务业务涉及押金需提供资金监管协议，协议要求：1、主体与商业银行签订；2、内容针对交易资金使用和偿付进行监管；3、协议须在有效期内；4、结算账户须与资金监管账户一致。其他共享服务业务涉及押金：请提供承诺函（收取押金），承诺函模板请参考： 商户承诺函（收取押金）不涉及押金：请提供承诺函，承诺函模板请参考： 商户承诺函注：行业范围包括但不限于充电宝、无人售货机（含封闭柜、开门柜）、充电桩等无人自助设备相关业务，如实际经营场景涉及资质，需额外补充特殊资质材料（例如：如为医疗器械/非处方药品经营，请补充提供《医疗器械经营许可证》或《药品经营许可证》等）"
+        },
+        {
+          "industry_id": "13",
+          "name": "休闲娱乐/旅游服务",
+          "group": "生活/娱乐",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "14",
+          "name": "游艺厅/KTV",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "1、歌舞及游艺娱乐场所（如KTV、歌厅、电子游戏厅）等：需要提供《娱乐经营许可证》；2、其他场所（如桌游、儿童乐园、游乐场、密室逃脱、台球厅等）如无上述资质，建议选择【休闲娱乐/旅游服务】行业。"
+        },
+        {
+          "industry_id": "15",
+          "name": "网吧",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "《网络文化经营许可证》"
+        },
+        {
+          "industry_id": "16",
+          "name": "院线影城",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "《电影放映经营许可证》"
+        },
+        {
+          "industry_id": "17",
+          "name": "演出赛事",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "《营业性演出许可证》"
+        },
+        {
+          "industry_id": "18",
+          "name": "居民生活服务",
+          "group": "生活服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "19",
+          "name": "景区/酒店",
+          "group": "生活/娱乐",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "21",
+          "name": "铁路客运",
+          "group": "交通/出行",
+          "need_qual": true,
+          "qual_text": "以下资质2选1:1、《铁路运输许可证》，许可范围需体现铁路旅客运输；2、其他收费授权证明文件（如授权证明书或合同）"
+        },
+        {
+          "industry_id": "26",
+          "name": "机票/票务代理",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "1、航空公司：商户主体的《营业执照》2、票务代理公司：可提供营业执照（经营范围应包含旅客票务代理）或提供机票代理销售协议"
+        },
+        {
+          "industry_id": "31",
+          "name": "培训机构",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "1、学科类培训：《办学许可证》2、非学科类培训（艺术、体育、科技类培训）：《办学许可证》或政府核准/批复/备案文件3、其他类培训（如成人技术教育、驾校培训）：驾驶员培训可提供《机动车驾驶员培训备案表》，其他技术类培训可提供对应政府批复文件。"
+        },
+        {
+          "industry_id": "34",
+          "name": "保健器械/医疗器械/非处方药品",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "1、非处方药：《药品经营许可证》2、兽药：《兽药经营许可证》3、农药：《农药经营许可证》4、医疗器械：二类医疗器械经营备案凭证或《医疗器械经营许可证》5、医疗器械第三方交易平台：提供《医疗器械网络交易服务第三方平台备案凭证》6、药品第三方交易平台：提供《药品网络交易服务第三方平台备案凭证》"
+        },
+        {
+          "industry_id": "35",
+          "name": "其他私立/民营医院/诊所",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "《医疗机构执业许可证》"
+        },
+        {
+          "industry_id": "35",
+          "name": "其他私立/民营医院/诊所",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "中医诊所提供《中医诊所备案证》"
+        },
+        {
+          "industry_id": "40",
+          "name": "其他缴费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "1、拍卖业务请提供《拍卖经营批准证书》2、如为公立医院消费医疗、商业缴费场景请提供《医疗机构执业许可证》3、其他业务请提供收费授权证明文件（如授权证明书或合同）"
+        },
+        {
+          "industry_id": "56",
+          "name": "停车缴费",
+          "group": "交通/出行",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "62",
+          "name": "私立/民营口腔及眼科、医疗美容医院/诊所",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "请提供医疗机构执业资质，诊疗科目包含口腔、眼科、医疗美容等"
+        }
+      ]
+    },
+    {
+      "settlement_id": "836",
+      "subject_type": "SUBJECT_TYPE_INDIVIDUAL",
+      "subject_label": "个体户",
+      "desc": "费率0.6%,入账周期T+1",
+      "scope": "彩票",
+      "items": [
+        {
+          "industry_id": "66",
+          "name": "彩票",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "提供彩票代销证或者彩票管理中心授权销售协议（仅限线下场景）"
+        }
+      ]
+    },
+    {
+      "settlement_id": "720",
+      "subject_type": "SUBJECT_TYPE_INDIVIDUAL",
+      "subject_label": "个体户",
+      "desc": "费率0.6%,入账周期T+1，虚拟限额",
+      "scope": "提供信息服务的业务、通讯业务等",
+      "items": [
+        {
+          "industry_id": "8",
+          "name": "婚介平台/就业信息平台/其他信息服务平台",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "就业信息平台需提供《人力资源许可证》；婚介平台/其他信息平台服务可直接提供主体执照。注：婚介平台指撮合用户进行线下1对1相亲配对的平台，若为交友社交平台或包含打赏、会员等线上虚拟增值服务，请选择“门户论坛/网络广告及推广/软件开发/其他互联网服务”"
+        },
+        {
+          "industry_id": "38",
+          "name": "虚拟充值",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "1）自营虚拟充值业务：提供相关自营资质、与主体一致的资金监管协议等；"
+        },
+        {
+          "industry_id": "38",
+          "name": "虚拟充值",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "2）他营虚拟充值业务：官方授权及合作证明以及官方所持有的自营资质、与主体一致的收费证明及资金监管协议等；"
+        },
+        {
+          "industry_id": "38",
+          "name": "虚拟充值",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "3）如涉及到电信运营商、宽带收费等线上充值业务，请提供《基础电信业务经营许可证》或《增值电信业务经营许可证》；"
+        }
+      ]
+    },
+    {
+      "settlement_id": "721",
+      "subject_type": "SUBJECT_TYPE_INDIVIDUAL",
+      "subject_label": "个体户",
+      "desc": "费率0.3%,入账周期T+1",
+      "scope": "加油",
+      "items": [
+        {
+          "industry_id": "5",
+          "name": "快递",
+          "group": "生活服务",
+          "need_qual": true,
+          "qual_text": "1、资质2选1:《快递业务经营许可证》或《快递业务分支机构名录》；2、如你仅提供仓储服务（如快递暂存柜、快递驿站），请选择【居民生活服务】行业。"
+        },
+        {
+          "industry_id": "6",
+          "name": "物流",
+          "group": "交通/出行",
+          "need_qual": true,
+          "qual_text": "以下资质4选1:1、陆运：《道路运输经营许可证》2、铁路：《铁路运输许可证》，许可范围需体现铁路货物运输3、航空：《公共航空运输企业经营许可证》4、水运：《国内水路运输经营许可证》"
+        },
+        {
+          "industry_id": "20",
+          "name": "加油/加气",
+          "group": "交通/出行",
+          "need_qual": true,
+          "qual_text": "1、成品油零售请提供《成品油零售经营批准证书》。2、成品油批发或仓储则需传经营范围含有“成品油批发”或“成品油仓储”字样的营业执照；3、汽车加气站请提供《燃气经营许可证》，证件经营类别为“燃气汽车加气站”等字样"
+        }
+      ]
+    },
+    {
+      "settlement_id": "790",
+      "subject_type": "SUBJECT_TYPE_INDIVIDUAL",
+      "subject_label": "个体户",
+      "desc": "费率0.2%，入账周期T+1",
+      "scope": "民生缴费",
+      "items": [
+        {
+          "industry_id": "41",
+          "name": "水电煤气缴费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "提供以下任意一种资质即可：1、许可证（《取水许可证》/《供电许可证》/《燃气经营许可证》/《供热经营许可证》）2、特许经营协议（需获取上级单位许可，具备水电煤气缴费收费资格）3、政府下发的红头文件（内容需证明申请商户主体具备水电煤气收费资格）"
+        }
+      ]
+    },
+    {
+      "settlement_id": "746",
+      "subject_type": "SUBJECT_TYPE_INDIVIDUAL",
+      "subject_label": "个体户",
+      "desc": "费率1%,入账周期T+1，虚拟限额",
+      "scope": "游戏、在线音视频等虚拟业务",
+      "items": [
+        {
+          "industry_id": "27",
+          "name": "在线图书/视频/音乐",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "普通在线图书/视频/音乐应提供以下任选其一资质：《互联网出版许可证》、《网络出版服务许可证》、《网络文化经营许可证》、《信息网络传播视听节目许可证》；"
+        },
+        {
+          "industry_id": "27",
+          "name": "在线图书/视频/音乐",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "如属于微短剧，应提供以下任一资质：（1）《信息网络传播视听节目许可证》或《信息网络传播视听节目备案》（业务类别均需含“网络剧（片）的制作、播出服务”）；（2）同时提供：①《信息网络传播视听节目许可证》或《信息网络传播视听节目备案》②《广播电视播出机构许可证》（3）同时提供：①《信息网络传播视听节目许可证》或《信息网络传播视听节目备案》②《广播电视节目制作经营许可证》。"
+        },
+        {
+          "industry_id": "28",
+          "name": "门户论坛/网络广告及推广/软件开发/其他互联网服务",
+          "group": "互联网服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "29",
+          "name": "游戏",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "请提供有效期内的游戏版号（《网络游戏电子出版物审批》）。若游戏涉及IP合作，请确保已获得合法有效授权。"
+        },
+        {
+          "industry_id": "30",
+          "name": "网络直播/直播平台",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "需提供《网络文化经营许可证》，且许可证的经营场景应当明确包括网络表演，PC/wap网站需要有ICP备案"
+        }
+      ]
+    },
+    {
+      "settlement_id": "716",
+      "subject_type": "SUBJECT_TYPE_ENTERPRISE",
+      "subject_label": "企业",
+      "desc": "费率0.6%,入账周期T+1",
+      "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+      "items": [
+        {
+          "industry_id": "1",
+          "name": "餐饮",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "2",
+          "name": "电商平台",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "3",
+          "name": "零售",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质，若涉及烟草售卖，需提供《烟草专卖零售许可证》"
+        },
+        {
+          "industry_id": "4",
+          "name": "食品生鲜",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "7",
+          "name": "咨询/娱乐票务",
+          "group": "生活/娱乐",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "9",
+          "name": "房地产",
+          "group": "房产/金融",
+          "need_qual": true,
+          "qual_text": "以下资质2选1:《商品房预售许可证》或《现房销售备案》"
+        },
+        {
+          "industry_id": "10",
+          "name": "房产中介",
+          "group": "房产/金融",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "11",
+          "name": "宠物医院",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "《动物诊疗许可证》"
+        },
+        {
+          "industry_id": "12",
+          "name": "共享服务",
+          "group": "生活服务",
+          "need_qual": true,
+          "qual_text": "交通运输业共享服务业务涉及押金需提供资金监管协议，协议要求：1、主体与商业银行签订；2、内容针对交易资金使用和偿付进行监管；3、协议须在有效期内；4、结算账户须与资金监管账户一致。其他共享服务业务涉及押金：请提供承诺函（收取押金），承诺函模板请参考： 商户承诺函（收取押金）不涉及押金：请提供承诺函，承诺函模板请参考： 商户承诺函注：行业范围包括但不限于充电宝、无人售货机（含封闭柜、开门柜）、充电桩等无人自助设备相关业务，如实际经营场景涉及资质，需额外补充特殊资质材料（例如：如为医疗器械/非处方药品经营，请补充提供《医疗器械经营许可证》或《药品经营许可证》等）"
+        },
+        {
+          "industry_id": "13",
+          "name": "休闲娱乐/旅游服务",
+          "group": "生活/娱乐",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "14",
+          "name": "游艺厅/KTV",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "1、歌舞及游艺娱乐场所（如KTV、歌厅、电子游戏厅）等：需要提供《娱乐经营许可证》；2、其他场所（如桌游、儿童乐园、游乐场、密室逃脱、台球厅等）如无上述资质，建议选择【休闲娱乐/旅游服务】行业。"
+        },
+        {
+          "industry_id": "15",
+          "name": "网吧",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "《网络文化经营许可证》"
+        },
+        {
+          "industry_id": "16",
+          "name": "院线影城",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "《电影放映经营许可证》"
+        },
+        {
+          "industry_id": "17",
+          "name": "演出赛事",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "《营业性演出许可证》"
+        },
+        {
+          "industry_id": "18",
+          "name": "居民生活服务",
+          "group": "生活服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "19",
+          "name": "景区/酒店",
+          "group": "生活/娱乐",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "21",
+          "name": "铁路客运",
+          "group": "交通/出行",
+          "need_qual": true,
+          "qual_text": "以下资质2选1:1、《铁路运输许可证》，许可范围需体现铁路旅客运输；2、其他收费授权证明文件（如授权证明书或合同）"
+        },
+        {
+          "industry_id": "22",
+          "name": "高速公路收费",
+          "group": "交通/出行",
+          "need_qual": true,
+          "qual_text": "以下资质5选11、高速公路车辆通行费定价批复（商户需为收费方）2、高速公路授权特许经营协议（商户需为收费方）3、高速公路发票（商户需为发票收费方）4、提供政府交通管理部门关于商户可进行ETC收费的批复材料（商户需为收费方）5、其他收费授权证明文件（如授权证明书或合同）"
+        },
+        {
+          "industry_id": "23",
+          "name": "城市公共交通",
+          "group": "交通/出行",
+          "need_qual": true,
+          "qual_text": "以下资质5选1：1、《道路运输经营许可证》（需体现城市公交业务）2、政府部门关于公交、地铁客运的定价批复文件3、商户可新增公交线路的批复文件4、与政府部门签署的特许经营协议（需体现公交、地铁业务）5、其他收费授权证明文件（如授权证明书或合同）"
+        },
+        {
+          "industry_id": "24",
+          "name": "船舶/海运服务",
+          "group": "交通/出行",
+          "need_qual": true,
+          "qual_text": "《港口经营许可证》"
+        },
+        {
+          "industry_id": "25",
+          "name": "旅行社",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "1、旅行社总公司主体：请提供《旅行社业务经营许可证》2、旅行社分公司主体：提供《旅行社分社备案登记证明》"
+        },
+        {
+          "industry_id": "26",
+          "name": "机票/票务代理",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "1、航空公司：商户主体的《营业执照》2、票务代理公司：可提供营业执照（经营范围应包含旅客票务代理）或提供机票代理销售协议"
+        },
+        {
+          "industry_id": "31",
+          "name": "培训机构",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "1、学科类培训：《办学许可证》2、非学科类培训（艺术、体育、科技类培训）：《办学许可证》或政府核准/批复/备案文件3、其他类培训（如成人技术教育、驾校培训）：驾驶员培训可提供《机动车驾驶员培训备案表》，其他技术类培训可提供对应政府批复文件。"
+        },
+        {
+          "industry_id": "34",
+          "name": "保健器械/医疗器械/非处方药品",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "1、非处方药：《药品经营许可证》2、兽药：《兽药经营许可证》3、农药：《农药经营许可证》4、医疗器械：二类医疗器械经营备案凭证或《医疗器械经营许可证》5、医疗器械第三方交易平台：提供《医疗器械网络交易服务第三方平台备案凭证》6、药品第三方交易平台：提供《药品网络交易服务第三方平台备案凭证》"
+        },
+        {
+          "industry_id": "35",
+          "name": "其他私立/民营医院/诊所",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "《医疗机构执业许可证》"
+        },
+        {
+          "industry_id": "35",
+          "name": "其他私立/民营医院/诊所",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "中医诊所提供《中医诊所备案证》"
+        },
+        {
+          "industry_id": "39",
+          "name": "有线电视缴费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "收费授权证明文件（如授权证明书或合同）"
+        },
+        {
+          "industry_id": "40",
+          "name": "其他缴费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "1、拍卖业务请提供《拍卖经营批准证书》2、如为公立医院消费医疗、商业缴费场景请提供《医疗机构执业许可证》3、其他业务请提供收费授权证明文件（如授权证明书或合同）"
+        },
+        {
+          "industry_id": "47",
+          "name": "文物经营/文物复制品销售",
+          "group": "餐饮/零售",
+          "need_qual": true,
+          "qual_text": "销售文物，需提供《文物经营许可证》。"
+        },
+        {
+          "industry_id": "47",
+          "name": "文物经营/文物复制品销售",
+          "group": "餐饮/零售",
+          "need_qual": true,
+          "qual_text": "仅销售文物复制品的，可直接提供主体执照。"
+        },
+        {
+          "industry_id": "56",
+          "name": "停车缴费",
+          "group": "交通/出行",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "62",
+          "name": "私立/民营口腔及眼科、医疗美容医院/诊所",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "请提供医疗机构执业资质，诊疗科目包含口腔、眼科、医疗美容等"
+        }
+      ]
+    },
+    {
+      "settlement_id": "835",
+      "subject_type": "SUBJECT_TYPE_ENTERPRISE",
+      "subject_label": "企业",
+      "desc": "费率0.6%,入账周期T+1",
+      "scope": "彩票",
+      "items": [
+        {
+          "industry_id": "66",
+          "name": "彩票",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "提供彩票代销证或者彩票管理中心授权销售协议（仅限线下场景）"
+        }
+      ]
+    },
+    {
+      "settlement_id": "715",
+      "subject_type": "SUBJECT_TYPE_ENTERPRISE",
+      "subject_label": "企业",
+      "desc": "费率0.6%,入账周期T+1",
+      "scope": "保险服务",
+      "items": [
+        {
+          "industry_id": "44",
+          "name": "保险业务",
+          "group": "房产/金融",
+          "need_qual": true,
+          "qual_text": "以下资质2选1:《保险许可证》或《保险中介许可证》"
+        }
+      ]
+    },
+    {
+      "settlement_id": "807",
+      "subject_type": "SUBJECT_TYPE_ENTERPRISE",
+      "subject_label": "企业",
+      "desc": "费率0.6%，入账周期T+1",
+      "scope": "典当",
+      "items": [
+        {
+          "industry_id": "48",
+          "name": "典当",
+          "group": "房产/金融",
+          "need_qual": true,
+          "qual_text": "典当：《典当经营许可证》"
+        }
+      ]
+    },
+    {
+      "settlement_id": "728",
+      "subject_type": "SUBJECT_TYPE_ENTERPRISE",
+      "subject_label": "企业",
+      "desc": "费率0.6%,入账周期T+1，虚拟限额",
+      "scope": "提供信息服务的业务、通讯业务、财经、互联网募捐信息平台服务",
+      "items": [
+        {
+          "industry_id": "8",
+          "name": "婚介平台/就业信息平台/其他信息服务平台",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "就业信息平台需提供《人力资源许可证》；婚介平台/其他信息平台服务可直接提供主体执照。注：婚介平台指撮合用户进行线下1对1相亲配对的平台，若为交友社交平台或包含打赏、会员等线上虚拟增值服务，请选择“门户论坛/网络广告及推广/软件开发/其他互联网服务”"
+        },
+        {
+          "industry_id": "38",
+          "name": "虚拟充值",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "1）自营虚拟充值业务：提供相关自营资质、与主体一致的资金监管协议等；"
+        },
+        {
+          "industry_id": "38",
+          "name": "虚拟充值",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "2）他营虚拟充值业务：官方授权及合作证明以及官方所持有的自营资质、与主体一致的收费证明及资金监管协议等；"
+        },
+        {
+          "industry_id": "38",
+          "name": "虚拟充值",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "3）如涉及到电信运营商、宽带收费等线上充值业务，请提供《基础电信业务经营许可证》或《增值电信业务经营许可证》；"
+        },
+        {
+          "industry_id": "43",
+          "name": "财经/股票类资讯",
+          "group": "房产/金融",
+          "need_qual": true,
+          "qual_text": "若有具体的荐股行为，需提供《经营证券期货业务许可证》。如所经营业务无须行政许可的，可直接提供主体执照。"
+        },
+        {
+          "industry_id": "45",
+          "name": "互联网募捐信息平台",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "必须符合并提供“慈善组织互联网募捐信息平台公告”截图，且必须提供资金监管协议。"
+        }
+      ]
+    },
+    {
+      "settlement_id": "711",
+      "subject_type": "SUBJECT_TYPE_ENTERPRISE",
+      "subject_label": "企业",
+      "desc": "费率1%,入账周期T+1，虚拟限额",
+      "scope": "游戏、在线音视频等虚拟业务",
+      "items": [
+        {
+          "industry_id": "27",
+          "name": "在线图书/视频/音乐",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "普通在线图书/视频/音乐应提供以下任选其一资质：《互联网出版许可证》、《网络出版服务许可证》、《网络文化经营许可证》、《信息网络传播视听节目许可证》；"
+        },
+        {
+          "industry_id": "27",
+          "name": "在线图书/视频/音乐",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "如属于微短剧，应提供以下任一资质：（1）《信息网络传播视听节目许可证》或《信息网络传播视听节目备案》（业务类别均需含“网络剧（片）的制作、播出服务”）；（2）同时提供：①《信息网络传播视听节目许可证》或《信息网络传播视听节目备案》②《广播电视播出机构许可证》（3）同时提供：①《信息网络传播视听节目许可证》或《信息网络传播视听节目备案》②《广播电视节目制作经营许可证》"
+        },
+        {
+          "industry_id": "28",
+          "name": "门户论坛/网络广告及推广/软件开发/其他互联网服务",
+          "group": "互联网服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "29",
+          "name": "游戏",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "请提供有效期内的游戏版号（《网络游戏电子出版物审批》）。若游戏涉及IP合作，请确保已获得合法有效授权。"
+        },
+        {
+          "industry_id": "30",
+          "name": "网络直播/直播平台",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "需提供《网络文化经营许可证》，且许可证的经营范围应当明确包括网络表演，PC/wap网站需要有ICP备案"
+        }
+      ]
+    },
+    {
+      "settlement_id": "717",
+      "subject_type": "SUBJECT_TYPE_ENTERPRISE",
+      "subject_label": "企业",
+      "desc": "费率0.3%,入账周期T+1",
+      "scope": "民办学历教育、加油、物流快递服务",
+      "items": [
+        {
+          "industry_id": "5",
+          "name": "快递",
+          "group": "生活服务",
+          "need_qual": true,
+          "qual_text": "1、资质2选1:《快递业务经营许可证》或《快递业务分支机构名录》；2、如你仅提供仓储服务（如快递暂存柜、快递驿站），请选择【居民生活服务】行业。"
+        },
+        {
+          "industry_id": "6",
+          "name": "物流",
+          "group": "交通/出行",
+          "need_qual": true,
+          "qual_text": "以下资质4选1:1、陆运：《道路运输经营许可证》2、铁路：《铁路运输许可证》，许可范围需体现铁路货物运输3、航空：《公共航空运输企业经营许可证》4、水运：《国内水路运输经营许可证》"
+        },
+        {
+          "industry_id": "20",
+          "name": "加油/加气",
+          "group": "交通/出行",
+          "need_qual": true,
+          "qual_text": "1、成品油零售请提供《成品油零售经营批准证书》。2、成品油批发或仓储则需传经营范围含有“成品油批发”或“成品油仓储”字样的营业执照；3、汽车加气站请提供《燃气经营许可证》，证件经营类别为“燃气汽车加气站”等字样"
+        },
+        {
+          "industry_id": "33",
+          "name": "民办学校（非全国高等学校）",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "民办非公立院校需提供《办学许可证》"
+        }
+      ]
+    },
+    {
+      "settlement_id": "730",
+      "subject_type": "SUBJECT_TYPE_ENTERPRISE",
+      "subject_label": "企业",
+      "desc": "费率0.2%,入账周期T+1",
+      "scope": "民生缴费",
+      "items": [
+        {
+          "industry_id": "41",
+          "name": "水电煤气缴费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "提供以下任意一种资质即可：1、许可证（《取水许可证》/《供电许可证》/《燃气经营许可证》/《供热经营许可证》）2、特许经营协议（需获取上级单位许可，具备水电煤气缴费收费资格）3、政府下发的红头文件（内容需证明申请商户主体具备水电煤气收费资格）"
+        }
+      ]
+    },
+    {
+      "settlement_id": "808",
+      "subject_type": "SUBJECT_TYPE_ENTERPRISE",
+      "subject_label": "企业",
+      "desc": "费率0.2%，入账周期T+1，禁信用卡",
+      "scope": "银行信贷还款",
+      "items": [
+        {
+          "industry_id": "60",
+          "name": "银行还款",
+          "group": "房产/金融",
+          "need_qual": true,
+          "qual_text": "1、银行业提供银监会颁发的：《金融许可证》；2、提供盖章版本的补充说明，模板参考：请【请点击这里】"
+        }
+      ]
+    },
+    {
+      "settlement_id": "718",
+      "subject_type": "SUBJECT_TYPE_ENTERPRISE",
+      "subject_label": "企业",
+      "desc": "费率0.2%,入账周期T+1，禁信用卡",
+      "scope": "信贷还款",
+      "items": [
+        {
+          "industry_id": "46",
+          "name": "信用还款",
+          "group": "房产/金融",
+          "need_qual": true,
+          "qual_text": "【消费金融】：《营业执照》公司名称含“消费金融”提交以下任一资料：1、《金融许可证》；2、开业期地方银保监局批复文件。"
+        },
+        {
+          "industry_id": "46",
+          "name": "信用还款",
+          "group": "房产/金融",
+          "need_qual": true,
+          "qual_text": "【汽车金融】：《营业执照》公司名称含“汽车金融”提交以下任一资料：1、《金融许可证》；2、银保监会关于同意开展汽车金融业务的批复。"
+        },
+        {
+          "industry_id": "46",
+          "name": "信用还款",
+          "group": "房产/金融",
+          "need_qual": true,
+          "qual_text": "【商业保理】：《营业执照》公司名称含“商业保理”，提交以下任一资料：1、《商业保理经营许可证》；2、地方金融监督管理局批复文件。"
+        },
+        {
+          "industry_id": "46",
+          "name": "信用还款",
+          "group": "房产/金融",
+          "need_qual": true,
+          "qual_text": "【融资租赁（实物类）】：《营业执照》公司名称含“融资租赁”，请提供“全国融资租赁企业管理信息系统”备案截图。"
+        },
+        {
+          "industry_id": "46",
+          "name": "信用还款",
+          "group": "房产/金融",
+          "need_qual": true,
+          "qual_text": "【信托】：《营业执照》公司名称含“信托”，提交以下任一资料：1、《金融许可证》；2、中国银保监会“信托”批复文件。"
+        },
+        {
+          "industry_id": "46",
+          "name": "信用还款",
+          "group": "房产/金融",
+          "need_qual": true,
+          "qual_text": "【融资担保】：《营业执照》公司名称含“融资担保”，提交以下任一资料：1、《融资性担保机构经营许可证》；2、《融资担保业务经营许可证》；3、地方金融监督管理局批复文件。"
+        },
+        {
+          "industry_id": "67",
+          "name": "小贷还款",
+          "group": "房产/金融",
+          "need_qual": true,
+          "qual_text": "《营业执照》公司名称含“小额贷款”提交以下任一资料：1、《小额贷款公司经营许可证》；2、地方金融监督管理局“小额贷款”行政许可文件。"
+        }
+      ]
+    },
+    {
+      "settlement_id": "739",
+      "subject_type": "SUBJECT_TYPE_ENTERPRISE",
+      "subject_label": "企业",
+      "desc": "费率0%,入账周期T+1",
+      "scope": "民办大学、缴纳党费",
+      "items": [
+        {
+          "industry_id": "32",
+          "name": "民办大学及院校",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "民办非公立院校需提供《办学许可证》"
+        },
+        {
+          "industry_id": "54",
+          "name": "党费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "提供以下资质：1、党费专用账户开户许可证/党费专用账户结算账户申请书2、党委成立文件/党委书记任免通知文件"
+        }
+      ]
+    },
+    {
+      "settlement_id": "799",
+      "subject_type": "SUBJECT_TYPE_GOVERNMENT",
+      "subject_label": "政府机关",
+      "desc": "费率0.6%，入账周期T+1",
+      "scope": "提供餐饮、交通出行等实体业务",
+      "items": [
+        {
+          "industry_id": "1",
+          "name": "餐饮",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "18",
+          "name": "居民生活服务",
+          "group": "生活服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "40",
+          "name": "其他缴费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "1、拍卖业务请提供《拍卖经营批准证书》2、如为公立医院消费医疗、商业缴费场景请提供《医疗机构执业许可证》3、其他业务请提供收费授权证明文件（如授权证明书或合同）"
+        },
+        {
+          "industry_id": "56",
+          "name": "停车缴费",
+          "group": "交通/出行",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        }
+      ]
+    },
+    {
+      "settlement_id": "798",
+      "subject_type": "SUBJECT_TYPE_GOVERNMENT",
+      "subject_label": "政府机关",
+      "desc": "费率0%，入账周期T+1",
+      "scope": "教育、医疗、公益及政府单位缴税/费",
+      "items": [
+        {
+          "industry_id": "49",
+          "name": "公立医院",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "提供《医疗机构执业许可证》+盖章版本的解释说明，模板参考详见：请【点击这里】注：收款场景需为基础保障性诊疗场景，不包含商业和消费医疗场景，公立医疗场景定义详见：请【点击这里】"
+        },
+        {
+          "industry_id": "50",
+          "name": "公办大学及学院",
+          "group": "教育/医疗",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "52",
+          "name": "公益",
+          "group": "政务/公益",
+          "need_qual": true,
+          "qual_text": "1、基金会：提供《基金会法人登记证书》且性质为“公募”，如未体现“公募”性质，则需提供《慈善组织公开募捐资格证书》；2、红十字会：提供《统一社会信用代码证书》或《社会团体法人登记证书》；3、慈善协会/慈善总会：名称为XX慈善会/慈善总会，提供主体证件（《事业单位法人证书》或《社会团体法人登记证书》），且证书需具备“慈善组织”标记，或业务范围带有“接受捐赠”、“接受捐款”、”筹集善款“相关字眼，或提供由登记地所在地的民政部门认定为慈善组织的文件证明材料；4、如主体类型为事业单位的养老机构/敬老院类商户，可提供民政部门、人民政府的批复文件，批复文件需能看出申请单位为政府部门或利用国有资产举办的非营利性养老机构/敬老院；5、其他公益组织请提供《慈善组织公开募捐资格证书》或提供由登记地所在地的民政部门认定为慈善组织的文件证明材料；"
+        },
+        {
+          "industry_id": "54",
+          "name": "党费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "提供以下资质：1、党费专用账户开户许可证/党费专用账户结算账户申请书2、党委成立文件/党委书记任免通知文件"
+        },
+        {
+          "industry_id": "55",
+          "name": "非税业务",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "提供以下任意一种资质即可：1、上年度或本年度已开具的非税票据2、非税专用账户《开户许可证》3、非税专用账户《结算账户申请书》4、申请商户主体为税务局，可提供上年度或本年度的税收完税证明/税收缴款书"
+        },
+        {
+          "industry_id": "57",
+          "name": "社保缴费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "税务局主体：请提供银行专户证明或者票据，例如完税证明票据"
+        },
+        {
+          "industry_id": "57",
+          "name": "社保缴费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "社保局/医保局主体：请提供银行专户证明或者票据，例如社会保险基金专用票据"
+        }
+      ]
+    },
+    {
+      "settlement_id": "725",
+      "subject_type": "SUBJECT_TYPE_INSTITUTIONS",
+      "subject_label": "事业单位",
+      "desc": "费率0.6%,入账周期T+1",
+      "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+      "items": [
+        {
+          "industry_id": "1",
+          "name": "餐饮",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "2",
+          "name": "电商平台",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "3",
+          "name": "零售",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质，若涉及烟草售卖，需提供《烟草专卖零售许可证》"
+        },
+        {
+          "industry_id": "18",
+          "name": "居民生活服务",
+          "group": "生活服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "22",
+          "name": "高速公路收费",
+          "group": "交通/出行",
+          "need_qual": true,
+          "qual_text": "以下资质5选11、高速公路车辆通行费定价批复（商户需为收费方）2、高速公路授权特许经营协议（商户需为收费方）3、高速公路发票（商户需为发票收费方）4、提供政府交通管理部门关于商户可进行ETC收费的批复材料（商户需为收费方）5、其他收费授权证明文件（如授权证明书或合同）"
+        },
+        {
+          "industry_id": "23",
+          "name": "城市公共交通",
+          "group": "交通/出行",
+          "need_qual": true,
+          "qual_text": "以下资质5选1：1、《道路运输经营许可证》（需体现城市公交业务）2、政府部门关于公交、地铁客运的定价批复文件3、商户可新增公交线路的批复文件4、与政府部门签署的特许经营协议（需体现公交、地铁业务）5、其他收费授权证明文件（如授权证明书或合同）"
+        },
+        {
+          "industry_id": "40",
+          "name": "其他缴费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "1、拍卖业务请提供《拍卖经营批准证书》2、如为公立医院消费医疗、商业缴费场景请提供《医疗机构执业许可证》3、其他业务请提供收费授权证明文件（如授权证明书或合同）"
+        },
+        {
+          "industry_id": "56",
+          "name": "停车缴费",
+          "group": "交通/出行",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        }
+      ]
+    },
+    {
+      "settlement_id": "722",
+      "subject_type": "SUBJECT_TYPE_INSTITUTIONS",
+      "subject_label": "事业单位",
+      "desc": "费率0.2%,入账周期T+1",
+      "scope": "民生缴费",
+      "items": [
+        {
+          "industry_id": "41",
+          "name": "水电煤气缴费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "提供以下任意一种资质即可：1、许可证（《取水许可证》/《供电许可证》/《燃气经营许可证》/《供热经营许可证》）2、特许经营协议（需获取上级单位许可，具备水电煤气缴费收费资格）3、政府下发的红头文件（内容需证明申请商户主体具备水电煤气收费资格）"
+        }
+      ]
+    },
+    {
+      "settlement_id": "724",
+      "subject_type": "SUBJECT_TYPE_INSTITUTIONS",
+      "subject_label": "事业单位",
+      "desc": "费率0%,入账周期T+1",
+      "scope": "教育、医疗、公益及政府单位缴税/费",
+      "items": [
+        {
+          "industry_id": "49",
+          "name": "公立医院",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "提供《医疗机构执业许可证》+盖章版本的解释说明，模板参考详见：请【点击这里】注：收款场景需为基础保障性诊疗场景，不包含商业和消费医疗场景，公立医疗场景定义详见：请【点击这里】"
+        },
+        {
+          "industry_id": "50",
+          "name": "公办大学及学院",
+          "group": "教育/医疗",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "51",
+          "name": "公办中小学幼儿园",
+          "group": "教育/医疗",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "52",
+          "name": "公益",
+          "group": "政务/公益",
+          "need_qual": true,
+          "qual_text": "1、基金会：提供《基金会法人登记证书》且性质为“公募”，如未体现“公募”性质，则需提供《慈善组织公开募捐资格证书》；2、红十字会：提供《统一社会信用代码证书》或《社会团体法人登记证书》；3、慈善协会/慈善总会：名称为XX慈善会/慈善总会，提供主体证件（《事业单位法人证书》或《社会团体法人登记证书》），且证书需具备“慈善组织”标记，或业务范围带有“接受捐赠”、“接受捐款”、”筹集善款“相关字眼，或提供由登记地所在地的民政部门认定为慈善组织的文件证明材料；4、如主体类型为事业单位的养老机构/敬老院类商户，可提供民政部门、人民政府的批复文件，批复文件需能看出申请单位为政府部门或利用国有资产举办的非营利性养老机构/敬老院；5、其他公益组织请提供《慈善组织公开募捐资格证书》或提供由登记地所在地的民政部门认定为慈善组织的文件证明材料；"
+        },
+        {
+          "industry_id": "54",
+          "name": "党费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "提供以下资质：1、党费专用账户开户许可证/党费专用账户结算账户申请书2、党委成立文件/党委书记任免通知文件"
+        },
+        {
+          "industry_id": "55",
+          "name": "非税业务",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "提供以下任意一种资质即可：1、上年度或本年度已开具的非税票据2、非税专用账户《开户许可证》3、非税专用账户《结算账户申请书》4、申请商户主体为税务局，可提供上年度或本年度的税收完税证明/税收缴款书"
+        }
+      ]
+    },
+    {
+      "settlement_id": "727",
+      "subject_type": "SUBJECT_TYPE_OTHERS",
+      "subject_label": "社会组织",
+      "desc": "费率0.6%,入账周期T+1",
+      "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+      "items": [
+        {
+          "industry_id": "1",
+          "name": "餐饮",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "2",
+          "name": "电商平台",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "3",
+          "name": "零售",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "3",
+          "name": "零售",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "若涉及烟草售卖，需提供《烟草专卖零售许可证》"
+        },
+        {
+          "industry_id": "7",
+          "name": "咨询/娱乐票务",
+          "group": "生活/娱乐",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "8",
+          "name": "婚介平台/就业信息平台/其他信息服务平台",
+          "group": "互联网服务",
+          "need_qual": true,
+          "qual_text": "就业信息平台需提供《人力资源许可证》；婚介平台/其他信息平台服务可直接提供主体执照。注：婚介平台指撮合用户进行线下1对1相亲配对的平台，若为交友社交平台或包含打赏、会员等线上虚拟增值服务，请选择“门户论坛/网络广告及推广/软件开发/其他互联网服务”"
+        },
+        {
+          "industry_id": "13",
+          "name": "休闲娱乐/旅游服务",
+          "group": "生活/娱乐",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "18",
+          "name": "居民生活服务",
+          "group": "生活服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "26",
+          "name": "机票/票务代理",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "1、航空公司：商户主体的《营业执照》2、票务代理公司：可提供营业执照（经营范围应包含旅客票务代理）或提供机票代理销售协议"
+        },
+        {
+          "industry_id": "31",
+          "name": "培训机构",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "1、学科类培训：《办学许可证》2、非学科类培训（艺术、体育、科技类培训）：《办学许可证》或政府核准/批复/备案文件3、其他类培训（如成人技术教育、驾校培训）：驾驶员培训可提供《机动车驾驶员培训备案表》，其他技术类培训可提供对应政府批复文件。"
+        },
+        {
+          "industry_id": "35",
+          "name": "其他私立/民营医院/诊所",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "《医疗机构执业许可证》"
+        },
+        {
+          "industry_id": "35",
+          "name": "其他私立/民营医院/诊所",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "中医诊所提供《中医诊所备案证》"
+        },
+        {
+          "industry_id": "40",
+          "name": "其他缴费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "1、拍卖业务请提供《拍卖经营批准证书》2、如为公立医院消费医疗、商业缴费场景请提供《医疗机构执业许可证》3、其他业务请提供收费授权证明文件（如授权证明书或合同）"
+        },
+        {
+          "industry_id": "53",
+          "name": "宗教组织",
+          "group": "政务/公益",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "56",
+          "name": "停车缴费",
+          "group": "交通/出行",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "62",
+          "name": "私立/民营口腔及眼科、医疗美容医院/诊所",
+          "group": "生活/娱乐",
+          "need_qual": true,
+          "qual_text": "请提供医疗机构执业资质，诊疗科目包含口腔、眼科、医疗美容等"
+        }
+      ]
+    },
+    {
+      "settlement_id": "738",
+      "subject_type": "SUBJECT_TYPE_OTHERS",
+      "subject_label": "社会组织",
+      "desc": "费率0.3%,入账周期T+1",
+      "scope": "民办学历教育",
+      "items": [
+        {
+          "industry_id": "33",
+          "name": "民办学校（非全国高等学校）",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "民办非公立院校需提供《办学许可证》"
+        }
+      ]
+    },
+    {
+      "settlement_id": "776",
+      "subject_type": "SUBJECT_TYPE_OTHERS",
+      "subject_label": "社会组织",
+      "desc": "费率0.2%，入账周期T+1",
+      "scope": "民生缴费",
+      "items": [
+        {
+          "industry_id": "41",
+          "name": "水电煤气缴费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "提供以下任意一种资质即可：1、许可证（《取水许可证》/《供电许可证》/《燃气经营许可证》/《供热经营许可证》）2、特许经营协议（需获取上级单位许可，具备水电煤气缴费收费资格）3、政府下发的红头文件（内容需证明申请商户主体具备水电煤气收费资格）"
+        }
+      ]
+    },
+    {
+      "settlement_id": "726",
+      "subject_type": "SUBJECT_TYPE_OTHERS",
+      "subject_label": "社会组织",
+      "desc": "费率0%,入账周期T+1",
+      "scope": "民办大学、公益服务",
+      "items": [
+        {
+          "industry_id": "32",
+          "name": "民办大学及院校",
+          "group": "教育/医疗",
+          "need_qual": true,
+          "qual_text": "民办非公立院校需提供《办学许可证》"
+        },
+        {
+          "industry_id": "52",
+          "name": "公益",
+          "group": "政务/公益",
+          "need_qual": true,
+          "qual_text": "1、基金会：提供《基金会法人登记证书》且性质为“公募”，如未体现“公募”性质，则需提供《慈善组织公开募捐资格证书》；2、红十字会：提供《统一社会信用代码证书》或《社会团体法人登记证书》；3、慈善协会/慈善总会：名称为XX慈善会/慈善总会，提供主体证件（《事业单位法人证书》或《社会团体法人登记证书》），且证书需具备“慈善组织”标记，或业务范围带有“接受捐赠”、“接受捐款”、”筹集善款“相关字眼，或提供由登记地所在地的民政部门认定为慈善组织的文件证明材料；4、如主体类型为事业单位的养老机构/敬老院类商户，可提供民政部门、人民政府的批复文件，批复文件需能看出申请单位为政府部门或利用国有资产举办的非营利性养老机构/敬老院；5、其他公益组织请提供《慈善组织公开募捐资格证书》或提供由登记地所在地的民政部门认定为慈善组织的文件证明材料；"
+        },
+        {
+          "industry_id": "54",
+          "name": "党费",
+          "group": "民生缴费",
+          "need_qual": true,
+          "qual_text": "提供以下资质：1、党费专用账户开户许可证/党费专用账户结算账户申请书2、党委成立文件/党委书记任免通知文件"
+        }
+      ]
+    },
+    {
+      "settlement_id": "903",
+      "subject_type": "SUBJECT_TYPE_INDIVIDUAL",
+      "subject_label": "个体户",
+      "desc": "非信用卡0.6%，信用卡0.6%，入账周期T+1",
+      "scope": "主营服饰鞋包、饰品配饰、美妆用品、生活日化类，及健身房、公共体育场馆、娱乐体育场馆等健身运动服务的实体业务",
+      "items": [
+        {
+          "industry_id": "63",
+          "name": "服饰鞋包",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "64",
+          "name": "美妆日化",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "65",
+          "name": "健身运动服务",
+          "group": "生活/娱乐",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        }
+      ]
+    },
+    {
+      "settlement_id": "904",
+      "subject_type": "SUBJECT_TYPE_ENTERPRISE",
+      "subject_label": "企业",
+      "desc": "非信用卡0.6%，信用卡0.6%，入账周期T+1",
+      "scope": "主营服饰鞋包、饰品配饰、美妆用品、生活日化类，及健身房、公共体育场馆、娱乐体育场馆等健身运动服务的实体业务",
+      "items": [
+        {
+          "industry_id": "63",
+          "name": "服饰鞋包",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "64",
+          "name": "美妆日化",
+          "group": "餐饮/零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        },
+        {
+          "industry_id": "65",
+          "name": "健身运动服务",
+          "group": "生活/娱乐",
+          "need_qual": false,
+          "qual_text": "无需特殊资质"
+        }
+      ]
+    }
+  ],
+  "by_subject": {
+    "SUBJECT_TYPE_INDIVIDUAL": {
+      "餐饮/零售": [
+        {
+          "settlement_id": "719",
+          "industry_id": "1",
+          "qualification_type": "餐饮",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "2",
+          "qualification_type": "电商平台",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "3",
+          "qualification_type": "零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质，若涉及烟草售卖，需提供《烟草专卖零售许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "4",
+          "qualification_type": "食品生鲜",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "903",
+          "industry_id": "63",
+          "qualification_type": "服饰鞋包",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "非信用卡0.6%，信用卡0.6%，入账周期T+1",
+          "scope": "主营服饰鞋包、饰品配饰、美妆用品、生活日化类，及健身房、公共体育场馆、娱乐体育场馆等健身运动服务的实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "903",
+          "industry_id": "64",
+          "qualification_type": "美妆日化",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "非信用卡0.6%，信用卡0.6%，入账周期T+1",
+          "scope": "主营服饰鞋包、饰品配饰、美妆用品、生活日化类，及健身房、公共体育场馆、娱乐体育场馆等健身运动服务的实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "生活/娱乐": [
+        {
+          "settlement_id": "719",
+          "industry_id": "7",
+          "qualification_type": "咨询/娱乐票务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "11",
+          "qualification_type": "宠物医院",
+          "need_qual": true,
+          "qual_text": "《动物诊疗许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "13",
+          "qualification_type": "休闲娱乐/旅游服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "14",
+          "qualification_type": "游艺厅/KTV",
+          "need_qual": true,
+          "qual_text": "1、歌舞及游艺娱乐场所（如KTV、歌厅、电子游戏厅）等：需要提供《娱乐经营许可证》；2、其他场所（如桌游、儿童乐园、游乐场、密室逃脱、台球厅等）如无上述资质，建议选择【休闲娱乐/旅游服务】行业。",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "15",
+          "qualification_type": "网吧",
+          "need_qual": true,
+          "qual_text": "《网络文化经营许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "16",
+          "qualification_type": "院线影城",
+          "need_qual": true,
+          "qual_text": "《电影放映经营许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "17",
+          "qualification_type": "演出赛事",
+          "need_qual": true,
+          "qual_text": "《营业性演出许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "19",
+          "qualification_type": "景区/酒店",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "26",
+          "qualification_type": "机票/票务代理",
+          "need_qual": true,
+          "qual_text": "1、航空公司：商户主体的《营业执照》2、票务代理公司：可提供营业执照（经营范围应包含旅客票务代理）或提供机票代理销售协议",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "62",
+          "qualification_type": "私立/民营口腔及眼科、医疗美容医院/诊所",
+          "need_qual": true,
+          "qual_text": "请提供医疗机构执业资质，诊疗科目包含口腔、眼科、医疗美容等",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "903",
+          "industry_id": "65",
+          "qualification_type": "健身运动服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "非信用卡0.6%，信用卡0.6%，入账周期T+1",
+          "scope": "主营服饰鞋包、饰品配饰、美妆用品、生活日化类，及健身房、公共体育场馆、娱乐体育场馆等健身运动服务的实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "房产/金融": [
+        {
+          "settlement_id": "719",
+          "industry_id": "10",
+          "qualification_type": "房产中介",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        }
+      ],
+      "生活服务": [
+        {
+          "settlement_id": "721",
+          "industry_id": "5",
+          "qualification_type": "快递",
+          "need_qual": true,
+          "qual_text": "1、资质2选1:《快递业务经营许可证》或《快递业务分支机构名录》；2、如你仅提供仓储服务（如快递暂存柜、快递驿站），请选择【居民生活服务】行业。",
+          "fee_desc": "费率0.3%,入账周期T+1",
+          "scope": "加油",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "12",
+          "qualification_type": "共享服务",
+          "need_qual": true,
+          "qual_text": "交通运输业共享服务业务涉及押金需提供资金监管协议，协议要求：1、主体与商业银行签订；2、内容针对交易资金使用和偿付进行监管；3、协议须在有效期内；4、结算账户须与资金监管账户一致。其他共享服务业务涉及押金：请提供承诺函（收取押金），承诺函模板请参考： 商户承诺函（收取押金）不涉及押金：请提供承诺函，承诺函模板请参考： 商户承诺函注：行业范围包括但不限于充电宝、无人售货机（含封闭柜、开门柜）、充电桩等无人自助设备相关业务，如实际经营场景涉及资质，需额外补充特殊资质材料（例如：如为医疗器械/非处方药品经营，请补充提供《医疗器械经营许可证》或《药品经营许可证》等）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "18",
+          "qualification_type": "居民生活服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "交通/出行": [
+        {
+          "settlement_id": "721",
+          "industry_id": "6",
+          "qualification_type": "物流",
+          "need_qual": true,
+          "qual_text": "以下资质4选1:1、陆运：《道路运输经营许可证》2、铁路：《铁路运输许可证》，许可范围需体现铁路货物运输3、航空：《公共航空运输企业经营许可证》4、水运：《国内水路运输经营许可证》",
+          "fee_desc": "费率0.3%,入账周期T+1",
+          "scope": "加油",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "721",
+          "industry_id": "20",
+          "qualification_type": "加油/加气",
+          "need_qual": true,
+          "qual_text": "1、成品油零售请提供《成品油零售经营批准证书》。2、成品油批发或仓储则需传经营范围含有“成品油批发”或“成品油仓储”字样的营业执照；3、汽车加气站请提供《燃气经营许可证》，证件经营类别为“燃气汽车加气站”等字样",
+          "fee_desc": "费率0.3%,入账周期T+1",
+          "scope": "加油",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "21",
+          "qualification_type": "铁路客运",
+          "need_qual": true,
+          "qual_text": "以下资质2选1:1、《铁路运输许可证》，许可范围需体现铁路旅客运输；2、其他收费授权证明文件（如授权证明书或合同）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "56",
+          "qualification_type": "停车缴费",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "教育/医疗": [
+        {
+          "settlement_id": "719",
+          "industry_id": "31",
+          "qualification_type": "培训机构",
+          "need_qual": true,
+          "qual_text": "1、学科类培训：《办学许可证》2、非学科类培训（艺术、体育、科技类培训）：《办学许可证》或政府核准/批复/备案文件3、其他类培训（如成人技术教育、驾校培训）：驾驶员培训可提供《机动车驾驶员培训备案表》，其他技术类培训可提供对应政府批复文件。",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "34",
+          "qualification_type": "保健器械/医疗器械/非处方药品",
+          "need_qual": true,
+          "qual_text": "1、非处方药：《药品经营许可证》2、兽药：《兽药经营许可证》3、农药：《农药经营许可证》4、医疗器械：二类医疗器械经营备案凭证或《医疗器械经营许可证》5、医疗器械第三方交易平台：提供《医疗器械网络交易服务第三方平台备案凭证》6、药品第三方交易平台：提供《药品网络交易服务第三方平台备案凭证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "719",
+          "industry_id": "35",
+          "qualification_type": "其他私立/民营医院/诊所",
+          "need_qual": true,
+          "qual_text": "《医疗机构执业许可证》\n中医诊所提供《中医诊所备案证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "836",
+          "industry_id": "66",
+          "qualification_type": "彩票",
+          "need_qual": true,
+          "qual_text": "提供彩票代销证或者彩票管理中心授权销售协议（仅限线下场景）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "彩票",
+          "activity_eligible": false
+        }
+      ],
+      "民生缴费": [
+        {
+          "settlement_id": "719",
+          "industry_id": "40",
+          "qualification_type": "其他缴费",
+          "need_qual": true,
+          "qual_text": "1、拍卖业务请提供《拍卖经营批准证书》2、如为公立医院消费医疗、商业缴费场景请提供《医疗机构执业许可证》3、其他业务请提供收费授权证明文件（如授权证明书或合同）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "790",
+          "industry_id": "41",
+          "qualification_type": "水电煤气缴费",
+          "need_qual": true,
+          "qual_text": "提供以下任意一种资质即可：1、许可证（《取水许可证》/《供电许可证》/《燃气经营许可证》/《供热经营许可证》）2、特许经营协议（需获取上级单位许可，具备水电煤气缴费收费资格）3、政府下发的红头文件（内容需证明申请商户主体具备水电煤气收费资格）",
+          "fee_desc": "费率0.2%，入账周期T+1",
+          "scope": "民生缴费",
+          "activity_eligible": false
+        }
+      ],
+      "互联网服务": [
+        {
+          "settlement_id": "720",
+          "industry_id": "8",
+          "qualification_type": "婚介平台/就业信息平台/其他信息服务平台",
+          "need_qual": true,
+          "qual_text": "就业信息平台需提供《人力资源许可证》；婚介平台/其他信息平台服务可直接提供主体执照。注：婚介平台指撮合用户进行线下1对1相亲配对的平台，若为交友社交平台或包含打赏、会员等线上虚拟增值服务，请选择“门户论坛/网络广告及推广/软件开发/其他互联网服务”",
+          "fee_desc": "费率0.6%,入账周期T+1，虚拟限额",
+          "scope": "提供信息服务的业务、通讯业务等",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "746",
+          "industry_id": "27",
+          "qualification_type": "在线图书/视频/音乐",
+          "need_qual": true,
+          "qual_text": "普通在线图书/视频/音乐应提供以下任选其一资质：《互联网出版许可证》、《网络出版服务许可证》、《网络文化经营许可证》、《信息网络传播视听节目许可证》；\n如属于微短剧，应提供以下任一资质：（1）《信息网络传播视听节目许可证》或《信息网络传播视听节目备案》（业务类别均需含“网络剧（片）的制作、播出服务”）；（2）同时提供：①《信息网络传播视听节目许可证》或《信息网络传播视听节目备案》②《广播电视播出机构许可证》（3）同时提供：①《信息网络传播视听节目许可证》或《信息网络传播视听节目备案》②《广播电视节目制作经营许可证》。",
+          "fee_desc": "费率1%,入账周期T+1，虚拟限额",
+          "scope": "游戏、在线音视频等虚拟业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "746",
+          "industry_id": "28",
+          "qualification_type": "门户论坛/网络广告及推广/软件开发/其他互联网服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率1%,入账周期T+1，虚拟限额",
+          "scope": "游戏、在线音视频等虚拟业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "746",
+          "industry_id": "29",
+          "qualification_type": "游戏",
+          "need_qual": true,
+          "qual_text": "请提供有效期内的游戏版号（《网络游戏电子出版物审批》）。若游戏涉及IP合作，请确保已获得合法有效授权。",
+          "fee_desc": "费率1%,入账周期T+1，虚拟限额",
+          "scope": "游戏、在线音视频等虚拟业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "746",
+          "industry_id": "30",
+          "qualification_type": "网络直播/直播平台",
+          "need_qual": true,
+          "qual_text": "需提供《网络文化经营许可证》，且许可证的经营场景应当明确包括网络表演，PC/wap网站需要有ICP备案",
+          "fee_desc": "费率1%,入账周期T+1，虚拟限额",
+          "scope": "游戏、在线音视频等虚拟业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "720",
+          "industry_id": "38",
+          "qualification_type": "虚拟充值",
+          "need_qual": true,
+          "qual_text": "1）自营虚拟充值业务：提供相关自营资质、与主体一致的资金监管协议等；\n2）他营虚拟充值业务：官方授权及合作证明以及官方所持有的自营资质、与主体一致的收费证明及资金监管协议等；\n3）如涉及到电信运营商、宽带收费等线上充值业务，请提供《基础电信业务经营许可证》或《增值电信业务经营许可证》；",
+          "fee_desc": "费率0.6%,入账周期T+1，虚拟限额",
+          "scope": "提供信息服务的业务、通讯业务等",
+          "activity_eligible": false
+        }
+      ]
+    },
+    "SUBJECT_TYPE_ENTERPRISE": {
+      "餐饮/零售": [
+        {
+          "settlement_id": "716",
+          "industry_id": "1",
+          "qualification_type": "餐饮",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "2",
+          "qualification_type": "电商平台",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "3",
+          "qualification_type": "零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质，若涉及烟草售卖，需提供《烟草专卖零售许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "4",
+          "qualification_type": "食品生鲜",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "47",
+          "qualification_type": "文物经营/文物复制品销售",
+          "need_qual": true,
+          "qual_text": "销售文物，需提供《文物经营许可证》。\n仅销售文物复制品的，可直接提供主体执照。",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "904",
+          "industry_id": "63",
+          "qualification_type": "服饰鞋包",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "非信用卡0.6%，信用卡0.6%，入账周期T+1",
+          "scope": "主营服饰鞋包、饰品配饰、美妆用品、生活日化类，及健身房、公共体育场馆、娱乐体育场馆等健身运动服务的实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "904",
+          "industry_id": "64",
+          "qualification_type": "美妆日化",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "非信用卡0.6%，信用卡0.6%，入账周期T+1",
+          "scope": "主营服饰鞋包、饰品配饰、美妆用品、生活日化类，及健身房、公共体育场馆、娱乐体育场馆等健身运动服务的实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "生活/娱乐": [
+        {
+          "settlement_id": "716",
+          "industry_id": "7",
+          "qualification_type": "咨询/娱乐票务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "11",
+          "qualification_type": "宠物医院",
+          "need_qual": true,
+          "qual_text": "《动物诊疗许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "13",
+          "qualification_type": "休闲娱乐/旅游服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "14",
+          "qualification_type": "游艺厅/KTV",
+          "need_qual": true,
+          "qual_text": "1、歌舞及游艺娱乐场所（如KTV、歌厅、电子游戏厅）等：需要提供《娱乐经营许可证》；2、其他场所（如桌游、儿童乐园、游乐场、密室逃脱、台球厅等）如无上述资质，建议选择【休闲娱乐/旅游服务】行业。",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "15",
+          "qualification_type": "网吧",
+          "need_qual": true,
+          "qual_text": "《网络文化经营许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "16",
+          "qualification_type": "院线影城",
+          "need_qual": true,
+          "qual_text": "《电影放映经营许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "17",
+          "qualification_type": "演出赛事",
+          "need_qual": true,
+          "qual_text": "《营业性演出许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "19",
+          "qualification_type": "景区/酒店",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "25",
+          "qualification_type": "旅行社",
+          "need_qual": true,
+          "qual_text": "1、旅行社总公司主体：请提供《旅行社业务经营许可证》2、旅行社分公司主体：提供《旅行社分社备案登记证明》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "26",
+          "qualification_type": "机票/票务代理",
+          "need_qual": true,
+          "qual_text": "1、航空公司：商户主体的《营业执照》2、票务代理公司：可提供营业执照（经营范围应包含旅客票务代理）或提供机票代理销售协议",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "62",
+          "qualification_type": "私立/民营口腔及眼科、医疗美容医院/诊所",
+          "need_qual": true,
+          "qual_text": "请提供医疗机构执业资质，诊疗科目包含口腔、眼科、医疗美容等",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "904",
+          "industry_id": "65",
+          "qualification_type": "健身运动服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "非信用卡0.6%，信用卡0.6%，入账周期T+1",
+          "scope": "主营服饰鞋包、饰品配饰、美妆用品、生活日化类，及健身房、公共体育场馆、娱乐体育场馆等健身运动服务的实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "房产/金融": [
+        {
+          "settlement_id": "716",
+          "industry_id": "9",
+          "qualification_type": "房地产",
+          "need_qual": true,
+          "qual_text": "以下资质2选1:《商品房预售许可证》或《现房销售备案》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "10",
+          "qualification_type": "房产中介",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "728",
+          "industry_id": "43",
+          "qualification_type": "财经/股票类资讯",
+          "need_qual": true,
+          "qual_text": "若有具体的荐股行为，需提供《经营证券期货业务许可证》。如所经营业务无须行政许可的，可直接提供主体执照。",
+          "fee_desc": "费率0.6%,入账周期T+1，虚拟限额",
+          "scope": "提供信息服务的业务、通讯业务、财经、互联网募捐信息平台服务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "715",
+          "industry_id": "44",
+          "qualification_type": "保险业务",
+          "need_qual": true,
+          "qual_text": "以下资质2选1:《保险许可证》或《保险中介许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "保险服务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "718",
+          "industry_id": "46",
+          "qualification_type": "信用还款",
+          "need_qual": true,
+          "qual_text": "【消费金融】：《营业执照》公司名称含“消费金融”提交以下任一资料：1、《金融许可证》；2、开业期地方银保监局批复文件。\n【汽车金融】：《营业执照》公司名称含“汽车金融”提交以下任一资料：1、《金融许可证》；2、银保监会关于同意开展汽车金融业务的批复。\n【商业保理】：《营业执照》公司名称含“商业保理”，提交以下任一资料：1、《商业保理经营许可证》；2、地方金融监督管理局批复文件。\n【融资租赁（实物类）】：《营业执照》公司名称含“融资租赁”，请提供“全国融资租赁企业管理信息系统”备案截图。\n【信托】：《营业执照》公司名称含“信托”，提交以下任一资料：1、《金融许可证》；2、中国银保监会“信托”批复文件。\n【融资担保】：《营业执照》公司名称含“融资担保”，提交以下任一资料：1、《融资性担保机构经营许可证》；2、《融资担保业务经营许可证》；3、地方金融监督管理局批复文件。",
+          "fee_desc": "费率0.2%,入账周期T+1，禁信用卡",
+          "scope": "信贷还款",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "807",
+          "industry_id": "48",
+          "qualification_type": "典当",
+          "need_qual": true,
+          "qual_text": "典当：《典当经营许可证》",
+          "fee_desc": "费率0.6%，入账周期T+1",
+          "scope": "典当",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "808",
+          "industry_id": "60",
+          "qualification_type": "银行还款",
+          "need_qual": true,
+          "qual_text": "1、银行业提供银监会颁发的：《金融许可证》；2、提供盖章版本的补充说明，模板参考：请【请点击这里】",
+          "fee_desc": "费率0.2%，入账周期T+1，禁信用卡",
+          "scope": "银行信贷还款",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "718",
+          "industry_id": "67",
+          "qualification_type": "小贷还款",
+          "need_qual": true,
+          "qual_text": "《营业执照》公司名称含“小额贷款”提交以下任一资料：1、《小额贷款公司经营许可证》；2、地方金融监督管理局“小额贷款”行政许可文件。",
+          "fee_desc": "费率0.2%,入账周期T+1，禁信用卡",
+          "scope": "信贷还款",
+          "activity_eligible": false
+        }
+      ],
+      "生活服务": [
+        {
+          "settlement_id": "717",
+          "industry_id": "5",
+          "qualification_type": "快递",
+          "need_qual": true,
+          "qual_text": "1、资质2选1:《快递业务经营许可证》或《快递业务分支机构名录》；2、如你仅提供仓储服务（如快递暂存柜、快递驿站），请选择【居民生活服务】行业。",
+          "fee_desc": "费率0.3%,入账周期T+1",
+          "scope": "民办学历教育、加油、物流快递服务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "12",
+          "qualification_type": "共享服务",
+          "need_qual": true,
+          "qual_text": "交通运输业共享服务业务涉及押金需提供资金监管协议，协议要求：1、主体与商业银行签订；2、内容针对交易资金使用和偿付进行监管；3、协议须在有效期内；4、结算账户须与资金监管账户一致。其他共享服务业务涉及押金：请提供承诺函（收取押金），承诺函模板请参考： 商户承诺函（收取押金）不涉及押金：请提供承诺函，承诺函模板请参考： 商户承诺函注：行业范围包括但不限于充电宝、无人售货机（含封闭柜、开门柜）、充电桩等无人自助设备相关业务，如实际经营场景涉及资质，需额外补充特殊资质材料（例如：如为医疗器械/非处方药品经营，请补充提供《医疗器械经营许可证》或《药品经营许可证》等）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "18",
+          "qualification_type": "居民生活服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "交通/出行": [
+        {
+          "settlement_id": "717",
+          "industry_id": "6",
+          "qualification_type": "物流",
+          "need_qual": true,
+          "qual_text": "以下资质4选1:1、陆运：《道路运输经营许可证》2、铁路：《铁路运输许可证》，许可范围需体现铁路货物运输3、航空：《公共航空运输企业经营许可证》4、水运：《国内水路运输经营许可证》",
+          "fee_desc": "费率0.3%,入账周期T+1",
+          "scope": "民办学历教育、加油、物流快递服务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "717",
+          "industry_id": "20",
+          "qualification_type": "加油/加气",
+          "need_qual": true,
+          "qual_text": "1、成品油零售请提供《成品油零售经营批准证书》。2、成品油批发或仓储则需传经营范围含有“成品油批发”或“成品油仓储”字样的营业执照；3、汽车加气站请提供《燃气经营许可证》，证件经营类别为“燃气汽车加气站”等字样",
+          "fee_desc": "费率0.3%,入账周期T+1",
+          "scope": "民办学历教育、加油、物流快递服务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "21",
+          "qualification_type": "铁路客运",
+          "need_qual": true,
+          "qual_text": "以下资质2选1:1、《铁路运输许可证》，许可范围需体现铁路旅客运输；2、其他收费授权证明文件（如授权证明书或合同）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "22",
+          "qualification_type": "高速公路收费",
+          "need_qual": true,
+          "qual_text": "以下资质5选11、高速公路车辆通行费定价批复（商户需为收费方）2、高速公路授权特许经营协议（商户需为收费方）3、高速公路发票（商户需为发票收费方）4、提供政府交通管理部门关于商户可进行ETC收费的批复材料（商户需为收费方）5、其他收费授权证明文件（如授权证明书或合同）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "23",
+          "qualification_type": "城市公共交通",
+          "need_qual": true,
+          "qual_text": "以下资质5选1：1、《道路运输经营许可证》（需体现城市公交业务）2、政府部门关于公交、地铁客运的定价批复文件3、商户可新增公交线路的批复文件4、与政府部门签署的特许经营协议（需体现公交、地铁业务）5、其他收费授权证明文件（如授权证明书或合同）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "24",
+          "qualification_type": "船舶/海运服务",
+          "need_qual": true,
+          "qual_text": "《港口经营许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "56",
+          "qualification_type": "停车缴费",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "教育/医疗": [
+        {
+          "settlement_id": "716",
+          "industry_id": "31",
+          "qualification_type": "培训机构",
+          "need_qual": true,
+          "qual_text": "1、学科类培训：《办学许可证》2、非学科类培训（艺术、体育、科技类培训）：《办学许可证》或政府核准/批复/备案文件3、其他类培训（如成人技术教育、驾校培训）：驾驶员培训可提供《机动车驾驶员培训备案表》，其他技术类培训可提供对应政府批复文件。",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "739",
+          "industry_id": "32",
+          "qualification_type": "民办大学及院校",
+          "need_qual": true,
+          "qual_text": "民办非公立院校需提供《办学许可证》",
+          "fee_desc": "费率0%,入账周期T+1",
+          "scope": "民办大学、缴纳党费",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "717",
+          "industry_id": "33",
+          "qualification_type": "民办学校（非全国高等学校）",
+          "need_qual": true,
+          "qual_text": "民办非公立院校需提供《办学许可证》",
+          "fee_desc": "费率0.3%,入账周期T+1",
+          "scope": "民办学历教育、加油、物流快递服务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "34",
+          "qualification_type": "保健器械/医疗器械/非处方药品",
+          "need_qual": true,
+          "qual_text": "1、非处方药：《药品经营许可证》2、兽药：《兽药经营许可证》3、农药：《农药经营许可证》4、医疗器械：二类医疗器械经营备案凭证或《医疗器械经营许可证》5、医疗器械第三方交易平台：提供《医疗器械网络交易服务第三方平台备案凭证》6、药品第三方交易平台：提供《药品网络交易服务第三方平台备案凭证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "35",
+          "qualification_type": "其他私立/民营医院/诊所",
+          "need_qual": true,
+          "qual_text": "《医疗机构执业许可证》\n中医诊所提供《中医诊所备案证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "835",
+          "industry_id": "66",
+          "qualification_type": "彩票",
+          "need_qual": true,
+          "qual_text": "提供彩票代销证或者彩票管理中心授权销售协议（仅限线下场景）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "彩票",
+          "activity_eligible": false
+        }
+      ],
+      "民生缴费": [
+        {
+          "settlement_id": "716",
+          "industry_id": "39",
+          "qualification_type": "有线电视缴费",
+          "need_qual": true,
+          "qual_text": "收费授权证明文件（如授权证明书或合同）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "716",
+          "industry_id": "40",
+          "qualification_type": "其他缴费",
+          "need_qual": true,
+          "qual_text": "1、拍卖业务请提供《拍卖经营批准证书》2、如为公立医院消费医疗、商业缴费场景请提供《医疗机构执业许可证》3、其他业务请提供收费授权证明文件（如授权证明书或合同）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "730",
+          "industry_id": "41",
+          "qualification_type": "水电煤气缴费",
+          "need_qual": true,
+          "qual_text": "提供以下任意一种资质即可：1、许可证（《取水许可证》/《供电许可证》/《燃气经营许可证》/《供热经营许可证》）2、特许经营协议（需获取上级单位许可，具备水电煤气缴费收费资格）3、政府下发的红头文件（内容需证明申请商户主体具备水电煤气收费资格）",
+          "fee_desc": "费率0.2%,入账周期T+1",
+          "scope": "民生缴费",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "739",
+          "industry_id": "54",
+          "qualification_type": "党费",
+          "need_qual": true,
+          "qual_text": "提供以下资质：1、党费专用账户开户许可证/党费专用账户结算账户申请书2、党委成立文件/党委书记任免通知文件",
+          "fee_desc": "费率0%,入账周期T+1",
+          "scope": "民办大学、缴纳党费",
+          "activity_eligible": false
+        }
+      ],
+      "互联网服务": [
+        {
+          "settlement_id": "728",
+          "industry_id": "8",
+          "qualification_type": "婚介平台/就业信息平台/其他信息服务平台",
+          "need_qual": true,
+          "qual_text": "就业信息平台需提供《人力资源许可证》；婚介平台/其他信息平台服务可直接提供主体执照。注：婚介平台指撮合用户进行线下1对1相亲配对的平台，若为交友社交平台或包含打赏、会员等线上虚拟增值服务，请选择“门户论坛/网络广告及推广/软件开发/其他互联网服务”",
+          "fee_desc": "费率0.6%,入账周期T+1，虚拟限额",
+          "scope": "提供信息服务的业务、通讯业务、财经、互联网募捐信息平台服务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "711",
+          "industry_id": "27",
+          "qualification_type": "在线图书/视频/音乐",
+          "need_qual": true,
+          "qual_text": "普通在线图书/视频/音乐应提供以下任选其一资质：《互联网出版许可证》、《网络出版服务许可证》、《网络文化经营许可证》、《信息网络传播视听节目许可证》；\n如属于微短剧，应提供以下任一资质：（1）《信息网络传播视听节目许可证》或《信息网络传播视听节目备案》（业务类别均需含“网络剧（片）的制作、播出服务”）；（2）同时提供：①《信息网络传播视听节目许可证》或《信息网络传播视听节目备案》②《广播电视播出机构许可证》（3）同时提供：①《信息网络传播视听节目许可证》或《信息网络传播视听节目备案》②《广播电视节目制作经营许可证》",
+          "fee_desc": "费率1%,入账周期T+1，虚拟限额",
+          "scope": "游戏、在线音视频等虚拟业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "711",
+          "industry_id": "28",
+          "qualification_type": "门户论坛/网络广告及推广/软件开发/其他互联网服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率1%,入账周期T+1，虚拟限额",
+          "scope": "游戏、在线音视频等虚拟业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "711",
+          "industry_id": "29",
+          "qualification_type": "游戏",
+          "need_qual": true,
+          "qual_text": "请提供有效期内的游戏版号（《网络游戏电子出版物审批》）。若游戏涉及IP合作，请确保已获得合法有效授权。",
+          "fee_desc": "费率1%,入账周期T+1，虚拟限额",
+          "scope": "游戏、在线音视频等虚拟业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "711",
+          "industry_id": "30",
+          "qualification_type": "网络直播/直播平台",
+          "need_qual": true,
+          "qual_text": "需提供《网络文化经营许可证》，且许可证的经营范围应当明确包括网络表演，PC/wap网站需要有ICP备案",
+          "fee_desc": "费率1%,入账周期T+1，虚拟限额",
+          "scope": "游戏、在线音视频等虚拟业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "728",
+          "industry_id": "38",
+          "qualification_type": "虚拟充值",
+          "need_qual": true,
+          "qual_text": "1）自营虚拟充值业务：提供相关自营资质、与主体一致的资金监管协议等；\n2）他营虚拟充值业务：官方授权及合作证明以及官方所持有的自营资质、与主体一致的收费证明及资金监管协议等；\n3）如涉及到电信运营商、宽带收费等线上充值业务，请提供《基础电信业务经营许可证》或《增值电信业务经营许可证》；",
+          "fee_desc": "费率0.6%,入账周期T+1，虚拟限额",
+          "scope": "提供信息服务的业务、通讯业务、财经、互联网募捐信息平台服务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "728",
+          "industry_id": "45",
+          "qualification_type": "互联网募捐信息平台",
+          "need_qual": true,
+          "qual_text": "必须符合并提供“慈善组织互联网募捐信息平台公告”截图，且必须提供资金监管协议。",
+          "fee_desc": "费率0.6%,入账周期T+1，虚拟限额",
+          "scope": "提供信息服务的业务、通讯业务、财经、互联网募捐信息平台服务",
+          "activity_eligible": false
+        }
+      ]
+    },
+    "SUBJECT_TYPE_GOVERNMENT": {
+      "餐饮/零售": [
+        {
+          "settlement_id": "799",
+          "industry_id": "1",
+          "qualification_type": "餐饮",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%，入账周期T+1",
+          "scope": "提供餐饮、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "生活服务": [
+        {
+          "settlement_id": "799",
+          "industry_id": "18",
+          "qualification_type": "居民生活服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%，入账周期T+1",
+          "scope": "提供餐饮、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "民生缴费": [
+        {
+          "settlement_id": "799",
+          "industry_id": "40",
+          "qualification_type": "其他缴费",
+          "need_qual": true,
+          "qual_text": "1、拍卖业务请提供《拍卖经营批准证书》2、如为公立医院消费医疗、商业缴费场景请提供《医疗机构执业许可证》3、其他业务请提供收费授权证明文件（如授权证明书或合同）",
+          "fee_desc": "费率0.6%，入账周期T+1",
+          "scope": "提供餐饮、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "798",
+          "industry_id": "54",
+          "qualification_type": "党费",
+          "need_qual": true,
+          "qual_text": "提供以下资质：1、党费专用账户开户许可证/党费专用账户结算账户申请书2、党委成立文件/党委书记任免通知文件",
+          "fee_desc": "费率0%，入账周期T+1",
+          "scope": "教育、医疗、公益及政府单位缴税/费",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "798",
+          "industry_id": "55",
+          "qualification_type": "非税业务",
+          "need_qual": true,
+          "qual_text": "提供以下任意一种资质即可：1、上年度或本年度已开具的非税票据2、非税专用账户《开户许可证》3、非税专用账户《结算账户申请书》4、申请商户主体为税务局，可提供上年度或本年度的税收完税证明/税收缴款书",
+          "fee_desc": "费率0%，入账周期T+1",
+          "scope": "教育、医疗、公益及政府单位缴税/费",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "798",
+          "industry_id": "57",
+          "qualification_type": "社保缴费",
+          "need_qual": true,
+          "qual_text": "税务局主体：请提供银行专户证明或者票据，例如完税证明票据\n社保局/医保局主体：请提供银行专户证明或者票据，例如社会保险基金专用票据",
+          "fee_desc": "费率0%，入账周期T+1",
+          "scope": "教育、医疗、公益及政府单位缴税/费",
+          "activity_eligible": false
+        }
+      ],
+      "交通/出行": [
+        {
+          "settlement_id": "799",
+          "industry_id": "56",
+          "qualification_type": "停车缴费",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%，入账周期T+1",
+          "scope": "提供餐饮、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "教育/医疗": [
+        {
+          "settlement_id": "798",
+          "industry_id": "49",
+          "qualification_type": "公立医院",
+          "need_qual": true,
+          "qual_text": "提供《医疗机构执业许可证》+盖章版本的解释说明，模板参考详见：请【点击这里】注：收款场景需为基础保障性诊疗场景，不包含商业和消费医疗场景，公立医疗场景定义详见：请【点击这里】",
+          "fee_desc": "费率0%，入账周期T+1",
+          "scope": "教育、医疗、公益及政府单位缴税/费",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "798",
+          "industry_id": "50",
+          "qualification_type": "公办大学及学院",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0%，入账周期T+1",
+          "scope": "教育、医疗、公益及政府单位缴税/费",
+          "activity_eligible": false
+        }
+      ],
+      "政务/公益": [
+        {
+          "settlement_id": "798",
+          "industry_id": "52",
+          "qualification_type": "公益",
+          "need_qual": true,
+          "qual_text": "1、基金会：提供《基金会法人登记证书》且性质为“公募”，如未体现“公募”性质，则需提供《慈善组织公开募捐资格证书》；2、红十字会：提供《统一社会信用代码证书》或《社会团体法人登记证书》；3、慈善协会/慈善总会：名称为XX慈善会/慈善总会，提供主体证件（《事业单位法人证书》或《社会团体法人登记证书》），且证书需具备“慈善组织”标记，或业务范围带有“接受捐赠”、“接受捐款”、”筹集善款“相关字眼，或提供由登记地所在地的民政部门认定为慈善组织的文件证明材料；4、如主体类型为事业单位的养老机构/敬老院类商户，可提供民政部门、人民政府的批复文件，批复文件需能看出申请单位为政府部门或利用国有资产举办的非营利性养老机构/敬老院；5、其他公益组织请提供《慈善组织公开募捐资格证书》或提供由登记地所在地的民政部门认定为慈善组织的文件证明材料；",
+          "fee_desc": "费率0%，入账周期T+1",
+          "scope": "教育、医疗、公益及政府单位缴税/费",
+          "activity_eligible": false
+        }
+      ]
+    },
+    "SUBJECT_TYPE_INSTITUTIONS": {
+      "餐饮/零售": [
+        {
+          "settlement_id": "725",
+          "industry_id": "1",
+          "qualification_type": "餐饮",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "725",
+          "industry_id": "2",
+          "qualification_type": "电商平台",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "725",
+          "industry_id": "3",
+          "qualification_type": "零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质，若涉及烟草售卖，需提供《烟草专卖零售许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "生活服务": [
+        {
+          "settlement_id": "725",
+          "industry_id": "18",
+          "qualification_type": "居民生活服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "交通/出行": [
+        {
+          "settlement_id": "725",
+          "industry_id": "22",
+          "qualification_type": "高速公路收费",
+          "need_qual": true,
+          "qual_text": "以下资质5选11、高速公路车辆通行费定价批复（商户需为收费方）2、高速公路授权特许经营协议（商户需为收费方）3、高速公路发票（商户需为发票收费方）4、提供政府交通管理部门关于商户可进行ETC收费的批复材料（商户需为收费方）5、其他收费授权证明文件（如授权证明书或合同）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "725",
+          "industry_id": "23",
+          "qualification_type": "城市公共交通",
+          "need_qual": true,
+          "qual_text": "以下资质5选1：1、《道路运输经营许可证》（需体现城市公交业务）2、政府部门关于公交、地铁客运的定价批复文件3、商户可新增公交线路的批复文件4、与政府部门签署的特许经营协议（需体现公交、地铁业务）5、其他收费授权证明文件（如授权证明书或合同）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "725",
+          "industry_id": "56",
+          "qualification_type": "停车缴费",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "民生缴费": [
+        {
+          "settlement_id": "725",
+          "industry_id": "40",
+          "qualification_type": "其他缴费",
+          "need_qual": true,
+          "qual_text": "1、拍卖业务请提供《拍卖经营批准证书》2、如为公立医院消费医疗、商业缴费场景请提供《医疗机构执业许可证》3、其他业务请提供收费授权证明文件（如授权证明书或合同）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供网上交易场所或信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "722",
+          "industry_id": "41",
+          "qualification_type": "水电煤气缴费",
+          "need_qual": true,
+          "qual_text": "提供以下任意一种资质即可：1、许可证（《取水许可证》/《供电许可证》/《燃气经营许可证》/《供热经营许可证》）2、特许经营协议（需获取上级单位许可，具备水电煤气缴费收费资格）3、政府下发的红头文件（内容需证明申请商户主体具备水电煤气收费资格）",
+          "fee_desc": "费率0.2%,入账周期T+1",
+          "scope": "民生缴费",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "724",
+          "industry_id": "54",
+          "qualification_type": "党费",
+          "need_qual": true,
+          "qual_text": "提供以下资质：1、党费专用账户开户许可证/党费专用账户结算账户申请书2、党委成立文件/党委书记任免通知文件",
+          "fee_desc": "费率0%,入账周期T+1",
+          "scope": "教育、医疗、公益及政府单位缴税/费",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "724",
+          "industry_id": "55",
+          "qualification_type": "非税业务",
+          "need_qual": true,
+          "qual_text": "提供以下任意一种资质即可：1、上年度或本年度已开具的非税票据2、非税专用账户《开户许可证》3、非税专用账户《结算账户申请书》4、申请商户主体为税务局，可提供上年度或本年度的税收完税证明/税收缴款书",
+          "fee_desc": "费率0%,入账周期T+1",
+          "scope": "教育、医疗、公益及政府单位缴税/费",
+          "activity_eligible": false
+        }
+      ],
+      "教育/医疗": [
+        {
+          "settlement_id": "724",
+          "industry_id": "49",
+          "qualification_type": "公立医院",
+          "need_qual": true,
+          "qual_text": "提供《医疗机构执业许可证》+盖章版本的解释说明，模板参考详见：请【点击这里】注：收款场景需为基础保障性诊疗场景，不包含商业和消费医疗场景，公立医疗场景定义详见：请【点击这里】",
+          "fee_desc": "费率0%,入账周期T+1",
+          "scope": "教育、医疗、公益及政府单位缴税/费",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "724",
+          "industry_id": "50",
+          "qualification_type": "公办大学及学院",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0%,入账周期T+1",
+          "scope": "教育、医疗、公益及政府单位缴税/费",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "724",
+          "industry_id": "51",
+          "qualification_type": "公办中小学幼儿园",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0%,入账周期T+1",
+          "scope": "教育、医疗、公益及政府单位缴税/费",
+          "activity_eligible": false
+        }
+      ],
+      "政务/公益": [
+        {
+          "settlement_id": "724",
+          "industry_id": "52",
+          "qualification_type": "公益",
+          "need_qual": true,
+          "qual_text": "1、基金会：提供《基金会法人登记证书》且性质为“公募”，如未体现“公募”性质，则需提供《慈善组织公开募捐资格证书》；2、红十字会：提供《统一社会信用代码证书》或《社会团体法人登记证书》；3、慈善协会/慈善总会：名称为XX慈善会/慈善总会，提供主体证件（《事业单位法人证书》或《社会团体法人登记证书》），且证书需具备“慈善组织”标记，或业务范围带有“接受捐赠”、“接受捐款”、”筹集善款“相关字眼，或提供由登记地所在地的民政部门认定为慈善组织的文件证明材料；4、如主体类型为事业单位的养老机构/敬老院类商户，可提供民政部门、人民政府的批复文件，批复文件需能看出申请单位为政府部门或利用国有资产举办的非营利性养老机构/敬老院；5、其他公益组织请提供《慈善组织公开募捐资格证书》或提供由登记地所在地的民政部门认定为慈善组织的文件证明材料；",
+          "fee_desc": "费率0%,入账周期T+1",
+          "scope": "教育、医疗、公益及政府单位缴税/费",
+          "activity_eligible": false
+        }
+      ]
+    },
+    "SUBJECT_TYPE_OTHERS": {
+      "餐饮/零售": [
+        {
+          "settlement_id": "727",
+          "industry_id": "1",
+          "qualification_type": "餐饮",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "727",
+          "industry_id": "2",
+          "qualification_type": "电商平台",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "727",
+          "industry_id": "3",
+          "qualification_type": "零售",
+          "need_qual": false,
+          "qual_text": "无需特殊资质\n若涉及烟草售卖，需提供《烟草专卖零售许可证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "生活/娱乐": [
+        {
+          "settlement_id": "727",
+          "industry_id": "7",
+          "qualification_type": "咨询/娱乐票务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "727",
+          "industry_id": "13",
+          "qualification_type": "休闲娱乐/旅游服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "727",
+          "industry_id": "26",
+          "qualification_type": "机票/票务代理",
+          "need_qual": true,
+          "qual_text": "1、航空公司：商户主体的《营业执照》2、票务代理公司：可提供营业执照（经营范围应包含旅客票务代理）或提供机票代理销售协议",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "727",
+          "industry_id": "62",
+          "qualification_type": "私立/民营口腔及眼科、医疗美容医院/诊所",
+          "need_qual": true,
+          "qual_text": "请提供医疗机构执业资质，诊疗科目包含口腔、眼科、医疗美容等",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "互联网服务": [
+        {
+          "settlement_id": "727",
+          "industry_id": "8",
+          "qualification_type": "婚介平台/就业信息平台/其他信息服务平台",
+          "need_qual": true,
+          "qual_text": "就业信息平台需提供《人力资源许可证》；婚介平台/其他信息平台服务可直接提供主体执照。注：婚介平台指撮合用户进行线下1对1相亲配对的平台，若为交友社交平台或包含打赏、会员等线上虚拟增值服务，请选择“门户论坛/网络广告及推广/软件开发/其他互联网服务”",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": false
+        }
+      ],
+      "生活服务": [
+        {
+          "settlement_id": "727",
+          "industry_id": "18",
+          "qualification_type": "居民生活服务",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "教育/医疗": [
+        {
+          "settlement_id": "727",
+          "industry_id": "31",
+          "qualification_type": "培训机构",
+          "need_qual": true,
+          "qual_text": "1、学科类培训：《办学许可证》2、非学科类培训（艺术、体育、科技类培训）：《办学许可证》或政府核准/批复/备案文件3、其他类培训（如成人技术教育、驾校培训）：驾驶员培训可提供《机动车驾驶员培训备案表》，其他技术类培训可提供对应政府批复文件。",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "726",
+          "industry_id": "32",
+          "qualification_type": "民办大学及院校",
+          "need_qual": true,
+          "qual_text": "民办非公立院校需提供《办学许可证》",
+          "fee_desc": "费率0%,入账周期T+1",
+          "scope": "民办大学、公益服务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "738",
+          "industry_id": "33",
+          "qualification_type": "民办学校（非全国高等学校）",
+          "need_qual": true,
+          "qual_text": "民办非公立院校需提供《办学许可证》",
+          "fee_desc": "费率0.3%,入账周期T+1",
+          "scope": "民办学历教育",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "727",
+          "industry_id": "35",
+          "qualification_type": "其他私立/民营医院/诊所",
+          "need_qual": true,
+          "qual_text": "《医疗机构执业许可证》\n中医诊所提供《中医诊所备案证》",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "民生缴费": [
+        {
+          "settlement_id": "727",
+          "industry_id": "40",
+          "qualification_type": "其他缴费",
+          "need_qual": true,
+          "qual_text": "1、拍卖业务请提供《拍卖经营批准证书》2、如为公立医院消费医疗、商业缴费场景请提供《医疗机构执业许可证》3、其他业务请提供收费授权证明文件（如授权证明书或合同）",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        },
+        {
+          "settlement_id": "776",
+          "industry_id": "41",
+          "qualification_type": "水电煤气缴费",
+          "need_qual": true,
+          "qual_text": "提供以下任意一种资质即可：1、许可证（《取水许可证》/《供电许可证》/《燃气经营许可证》/《供热经营许可证》）2、特许经营协议（需获取上级单位许可，具备水电煤气缴费收费资格）3、政府下发的红头文件（内容需证明申请商户主体具备水电煤气收费资格）",
+          "fee_desc": "费率0.2%，入账周期T+1",
+          "scope": "民生缴费",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "726",
+          "industry_id": "54",
+          "qualification_type": "党费",
+          "need_qual": true,
+          "qual_text": "提供以下资质：1、党费专用账户开户许可证/党费专用账户结算账户申请书2、党委成立文件/党委书记任免通知文件",
+          "fee_desc": "费率0%,入账周期T+1",
+          "scope": "民办大学、公益服务",
+          "activity_eligible": false
+        }
+      ],
+      "政务/公益": [
+        {
+          "settlement_id": "726",
+          "industry_id": "52",
+          "qualification_type": "公益",
+          "need_qual": true,
+          "qual_text": "1、基金会：提供《基金会法人登记证书》且性质为“公募”，如未体现“公募”性质，则需提供《慈善组织公开募捐资格证书》；2、红十字会：提供《统一社会信用代码证书》或《社会团体法人登记证书》；3、慈善协会/慈善总会：名称为XX慈善会/慈善总会，提供主体证件（《事业单位法人证书》或《社会团体法人登记证书》），且证书需具备“慈善组织”标记，或业务范围带有“接受捐赠”、“接受捐款”、”筹集善款“相关字眼，或提供由登记地所在地的民政部门认定为慈善组织的文件证明材料；4、如主体类型为事业单位的养老机构/敬老院类商户，可提供民政部门、人民政府的批复文件，批复文件需能看出申请单位为政府部门或利用国有资产举办的非营利性养老机构/敬老院；5、其他公益组织请提供《慈善组织公开募捐资格证书》或提供由登记地所在地的民政部门认定为慈善组织的文件证明材料；",
+          "fee_desc": "费率0%,入账周期T+1",
+          "scope": "民办大学、公益服务",
+          "activity_eligible": false
+        },
+        {
+          "settlement_id": "727",
+          "industry_id": "53",
+          "qualification_type": "宗教组织",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ],
+      "交通/出行": [
+        {
+          "settlement_id": "727",
+          "industry_id": "56",
+          "qualification_type": "停车缴费",
+          "need_qual": false,
+          "qual_text": "无需特殊资质",
+          "fee_desc": "费率0.6%,入账周期T+1",
+          "scope": "提供信息服务的业务、通讯业务、财经类业务及其他平台服务、餐饮、零售、交通出行等实体业务",
+          "activity_eligible": true
+        }
+      ]
+    }
+  }
+}
