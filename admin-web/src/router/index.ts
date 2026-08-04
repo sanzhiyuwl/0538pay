@@ -17,6 +17,7 @@ const StyleGuide = () => import('@/views/StyleGuide.vue')
 const Orders = () => import('@/views/Orders.vue')
 const Merchants = () => import('@/views/Merchants.vue')
 const ChannelEnrolls = () => import('@/views/ChannelEnrolls.vue')
+const RiskControls = () => import('@/views/RiskControls.vue')
 const Settle = () => import('@/views/Settle.vue')
 const ProfitSharing = () => import('@/views/ProfitSharing.vue')
 const Groups = () => import('@/views/Groups.vue')
@@ -164,6 +165,7 @@ const realPages: Record<string, any> = {
   '/admin/orders': Orders,
   '/admin/merchants': Merchants,
   '/admin/channel-enrolls': ChannelEnrolls,
+  '/admin/risk-controls': RiskControls,
   '/admin/settle': Settle,
   '/admin/profit-sharing': ProfitSharing,
   '/admin/groups': Groups,

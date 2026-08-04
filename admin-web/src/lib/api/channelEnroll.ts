@@ -9,6 +9,13 @@ import type { EnrollMaterialReq, EnrollMaterialView } from './console'
 /** 进件单状态机（全自动化：submitted=审核中；approved=已开通；pending 为历史存量兼容态） */
 export type ChannelEnrollStatus = 'draft' | 'pending' | 'submitted' | 'approved' | 'rejected'
 
+/** 微信 applyment4sub 驳回逐字段详情（REJECTED 时按字段返回，供精准补料后用相同 business_code 重提） */
+export interface ChannelEnrollAuditDetailItem {
+  field: string // 字段名（微信 applyment 字段路径）
+  field_name: string // 字段中文名称
+  reject_reason: string // 该字段的驳回原因
+}
+
 /** 进件单视图（不含敏感原文） */
 export interface ChannelEnrollView {
   id: number
@@ -17,6 +24,7 @@ export interface ChannelEnrollView {
   merchant_name: string
   subject_type: string
   contact_phone: string
+  merchant_phone: string // 商户账户注册手机（后台列表展示归属商户手机）
   channel_id: number
   channel_name: string
   plugin: string
@@ -25,6 +33,7 @@ export interface ChannelEnrollView {
   sub_mchid: string
   subchannel_id: number
   reject_reason: string
+  audit_detail?: ChannelEnrollAuditDetailItem[] // 微信驳回逐字段详情（非驳回单为空）
   audit_admin: string
   // 微信 applyment4sub 直提交状态
   business_code: string

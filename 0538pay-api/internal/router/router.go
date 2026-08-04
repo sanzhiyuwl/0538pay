@@ -24,6 +24,8 @@ type Deps struct {
 	Roll           *handler.RollHandler
 	SubChannel     *handler.SubChannelHandler
 	ChannelEnroll  *handler.ChannelEnrollHandler
+	ChannelControl *handler.ChannelControlHandler
+	ChannelCtrlNotify *handler.ChannelControlNotifyHandler
 	PayType        *handler.PayTypeHandler
 	Weixin         *handler.WeixinHandler
 	Wework         *handler.WeworkHandler
@@ -196,6 +198,12 @@ func Setup(r *gin.Engine, d Deps) {
 				authed.POST("/channel-enrolls/:id/sync", d.ChannelEnroll.Sync)       // 主动拉取微信进件状态
 				authed.POST("/channel-enrolls/:id/approve", d.ChannelEnroll.Approve) // 管理员手动交付（兜底）
 				authed.POST("/channel-enrolls/:id/reject", d.ChannelEnroll.Reject)   // 管理员手动驳回（兜底）
+
+				// 子商户管控（风控第二段）：总览 + 单个/批量刷新微信管控状态
+				authed.GET("/channel-controls", d.ChannelControl.List)
+				authed.POST("/channel-controls/refresh-all", d.ChannelControl.RefreshAll) // 批量刷新（须在 :id 前）
+				authed.POST("/channel-controls/:id/refresh", d.ChannelControl.Refresh)
+				authed.GET("/channel-controls/:id/flows", d.ChannelControl.Flows) // 管控流水时间线（风控第三段）
 			}
 
 			// 支付方式 pay_type
@@ -346,6 +354,16 @@ func Setup(r *gin.Engine, d Deps) {
 	pub := api.Group("/pub")
 	{
 		pub.GET("/cert/qcloud/callback", d.MerchantCenter.CertQcloudCallback)
+	}
+
+	// 子商户管控/处置订阅回调（风控第三段，公开无 JWT，靠 WECHATPAY2-SHA256-RSA2048 验签）。
+	// A 商户平台处置通知 / B 合作伙伴订阅·管控流水，两条独立路由分别配到微信对应回调地址。
+	if d.ChannelCtrlNotify != nil {
+		notify := api.Group("/notify/channel-control")
+		{
+			notify.POST("/violation", d.ChannelCtrlNotify.Violation)             // (A) service_notify_url
+			notify.POST("/merchant-notify", d.ChannelCtrlNotify.MerchantNotify) // (B) 合作伙伴订阅 topic 20000
+		}
 	}
 
 	// V2 REST 接口族（对齐 epay api.php?s= → ApiHelper 反射分发）。

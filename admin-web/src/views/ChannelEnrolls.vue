@@ -275,7 +275,7 @@ async function doReject() {
             <input
               v-model="query.keyword"
               class="field-input !pl-9 w-56"
-              placeholder="商户名 / 单号 / 手机"
+              placeholder="进件单号 / 商户 / 手机号"
               @keyup.enter="search"
             />
           </div>
@@ -295,9 +295,9 @@ async function doReject() {
                 </button>
               </th>
               <th class="w-[12%]">进件单号</th>
-              <th class="w-[7%]">商户</th>
+              <th class="w-[12%]">商户</th>
               <th class="w-[14%]">服务商通道</th>
-              <th class="w-[19%]">主体名称</th>
+              <th class="w-[14%]">主体名称</th>
               <th class="w-[8%]">状态</th>
               <th class="w-[10%]">微信状态</th>
               <th class="w-[14%]">子商户号</th>
@@ -308,7 +308,12 @@ async function doReject() {
             <tr v-for="e in list" :key="e.id">
               <td class="tabular-nums dim">{{ e.id }}</td>
               <td class="tabular-nums">{{ e.enroll_no }}</td>
-              <td class="tabular-nums">{{ e.uid }}</td>
+              <td>
+                <div class="tabular-nums">{{ e.uid }}</div>
+                <div class="mt-0.5 text-xs tabular-nums" :class="(e.merchant_phone || e.contact_phone) ? 'text-muted-foreground' : 'text-muted-foreground/50'">
+                  {{ e.merchant_phone || e.contact_phone || '—' }}
+                </div>
+              </td>
               <td class="truncate" :title="e.channel_name">{{ e.channel_name || '—' }}</td>
               <td class="truncate" :title="e.merchant_name">{{ e.merchant_name || '—' }}</td>
               <td><Badge :variant="statusVariant[e.status] || 'muted'">{{ e.status_text }}</Badge></td>
@@ -350,16 +355,25 @@ async function doReject() {
           <Badge :variant="statusVariant[detail.status] || 'muted'" class="shrink-0">{{ detail.status_text }}</Badge>
           <span class="min-w-0 truncate font-medium" :title="detail.channel_name">{{ detail.channel_name }}</span>
           <span class="shrink-0 text-xs text-muted-foreground">商户 <span class="text-foreground tabular-nums">{{ detail.uid }}</span></span>
+          <span v-if="detail.merchant_phone || detail.contact_phone" class="shrink-0 text-xs text-muted-foreground">手机 <span class="text-foreground tabular-nums">{{ detail.merchant_phone || detail.contact_phone }}</span></span>
           <span class="shrink-0 text-xs text-muted-foreground">微信状态 <span class="text-foreground">{{ detail.wx_state_text || '—' }}</span></span>
           <span v-if="detail.sub_mchid" class="ml-auto shrink-0 tabular-nums">
             <span class="text-muted-foreground">子商户号 </span>{{ detail.sub_mchid }}
           </span>
         </div>
 
-        <!-- 驳回原因回显 -->
-        <div v-if="detail.status === 'rejected' && detail.reject_reason" class="flex gap-2 border-l-2 border-destructive bg-destructive/[0.05] px-4 py-2.5 text-xs text-muted-foreground">
-          <XCircle class="size-4 shrink-0 text-destructive" />
-          <span>微信驳回：{{ detail.reject_reason }}</span>
+        <!-- 驳回原因回显：整体原因 + 微信逐字段详情（引导商户精准补料后用相同单据重提） -->
+        <div v-if="detail.status === 'rejected' && (detail.reject_reason || detail.audit_detail?.length)" class="border-l-2 border-destructive bg-destructive/[0.05] px-4 py-2.5 text-xs">
+          <div v-if="detail.reject_reason" class="flex gap-2 text-muted-foreground">
+            <XCircle class="size-4 shrink-0 text-destructive" />
+            <span>微信驳回：{{ detail.reject_reason }}</span>
+          </div>
+          <dl v-if="detail.audit_detail?.length" class="mt-2 space-y-1.5" :class="{ 'border-t border-destructive/20 pt-2': detail.reject_reason }">
+            <div v-for="(a, i) in detail.audit_detail" :key="i" class="flex gap-2">
+              <dt class="w-28 shrink-0 font-medium text-foreground">{{ a.field_name || a.field || '—' }}</dt>
+              <dd class="min-w-0 flex-1 text-muted-foreground">{{ a.reject_reason || '—' }}</dd>
+            </div>
+          </dl>
         </div>
 
         <!-- 待签约：二维码直接内嵌，超管扫码即签约，无需另开网页 -->

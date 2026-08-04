@@ -35,10 +35,14 @@ type MerchantCenterService struct {
 	certVerify *CertVerifyService // 实名第三方核验（可空；SetCertVerify 注入）
 	notice    *NoticeService     // 提现待处理管理员通知（可空；SetNoticeService 注入）
 	cfg       *ConfigService     // 全局配置（F-20 user_settings_edit 开关；可空，SetConfigService 注入）
+	controlGuard *ChannelControlGuard // 风控第二段提现硬锁（可空；SetControlGuard 注入）
 }
 
 // SetConfigService 注入全局配置服务（F-20 自定义接口信息编辑开关 user_settings_edit）。
 func (s *MerchantCenterService) SetConfigService(c *ConfigService) { s.cfg = c }
+
+// SetControlGuard 注入风控第二段硬锁（提现校验名下子商户是否被微信关闭提现 NO_WITHDRAWAL）。nil 则不拦截。
+func (s *MerchantCenterService) SetControlGuard(g *ChannelControlGuard) { s.controlGuard = g }
 
 // SetPayTypeRepo 注入支付方式名录（会员套餐可用通道费率展示，对齐 epay groupbuy.php display_info）。
 func (s *MerchantCenterService) SetPayTypeRepo(r *repository.PayTypeRepo) { s.payTypes = r }
@@ -885,6 +889,10 @@ func (s *MerchantCenterService) Apply(uid uint, req dto.ApplyReq) error {
 	if m.Settle != 1 {
 		return maErr("结算功能未开启，无法提现")
 	}
+	// 风控第二段·提现硬锁：名下任一子商户被微信关闭提现(NO_WITHDRAWAL)则拦截。
+	if err := s.controlGuard.GuardMerchant(uid, ctrlFnNoWithdrawal); err != nil {
+		return err
+	}
 	amount, err := decimal.NewFromString(req.Amount)
 	if err != nil || amount.LessThanOrEqual(decimal.Zero) {
 		return maErr("请输入有效的提现金额")
@@ -964,6 +972,12 @@ func (s *MerchantCenterService) Refund(uid uint, req dto.RefundReq) error {
 	}
 	if o == nil {
 		return maErr("订单不存在或不属于当前商户")
+	}
+	// 风控第二段·退款硬锁：该订单子商户被微信关闭退款(NO_REFUND)则拦截（按订单通道精确解析子商户号）。
+	if s.pay != nil {
+		if err := s.pay.GuardOrderRefund(o); err != nil {
+			return err
+		}
 	}
 	// 状态支持 [1已付, 2已退部分, 3冻结]（对齐 epay in_array(status,[1,2,3])）。
 	if o.Status != 1 && o.Status != 2 && o.Status != 3 {

@@ -27,20 +27,22 @@ import (
 // 敏感字段（证件号/银行账号/开户名）用平台 RSA 公钥(sys_rsa_public)加密落 material_json，
 // 后台审核时用私钥(sys_rsa_private)解密报送上游；列表/回显只给脱敏 has_* 与掩码。
 type ChannelEnrollService struct {
-	repo     *repository.ChannelEnrollRepo
-	channels *repository.ChannelRepo
-	subs     *repository.SubChannelRepo
-	cfg      *ConfigService
-	submch   *SubMerchantService // 微信服务商 applyment4sub 引擎（提交/上传/查状态），与代理线共用
+	repo      *repository.ChannelEnrollRepo
+	channels  *repository.ChannelRepo
+	subs      *repository.SubChannelRepo
+	merchants *repository.MerchantRepo // 派生归属商户注册手机（后台列表展示）
+	cfg       *ConfigService
+	submch    *SubMerchantService // 微信服务商 applyment4sub 引擎（提交/上传/查状态），与代理线共用
 }
 
 func NewChannelEnrollService(
 	repo *repository.ChannelEnrollRepo,
 	channels *repository.ChannelRepo,
 	subs *repository.SubChannelRepo,
+	merchants *repository.MerchantRepo,
 	cfg *ConfigService,
 ) *ChannelEnrollService {
-	return &ChannelEnrollService{repo: repo, channels: channels, subs: subs, cfg: cfg}
+	return &ChannelEnrollService{repo: repo, channels: channels, subs: subs, merchants: merchants, cfg: cfg}
 }
 
 // SetSubMerchant 注入微信服务商进件引擎（applyment4sub 提交/媒体上传/查状态）。
@@ -155,15 +157,16 @@ func (s *ChannelEnrollService) List(q repository.ChannelEnrollQuery) ([]dto.Chan
 		return nil, 0, err
 	}
 	nameCache := map[int]string{}
+	phoneCache := map[uint]string{}
 	views := make([]dto.ChannelEnrollView, 0, len(list))
 	for i := range list {
-		views = append(views, s.toView(&list[i], nameCache))
+		views = append(views, s.toView(&list[i], nameCache, phoneCache))
 	}
 	return views, total, nil
 }
 
-// toView 组装列表视图（不含敏感原文）。
-func (s *ChannelEnrollService) toView(e *model.ChannelEnroll, nameCache map[int]string) dto.ChannelEnrollView {
+// toView 组装列表视图（不含敏感原文）。nameCache/phoneCache 可为 nil（详情单条查询时）。
+func (s *ChannelEnrollService) toView(e *model.ChannelEnroll, nameCache map[int]string, phoneCache map[uint]string) dto.ChannelEnrollView {
 	name, ok := nameCache[e.ChannelID]
 	if !ok {
 		if ch, _ := s.channels.FindByID(uint(e.ChannelID)); ch != nil {
@@ -171,6 +174,18 @@ func (s *ChannelEnrollService) toView(e *model.ChannelEnroll, nameCache map[int]
 		}
 		if nameCache != nil {
 			nameCache[e.ChannelID] = name
+		}
+	}
+	// 归属商户注册手机：从 pay_merchant 派生（后台列表展示商户手机，与进件时填的 contact_phone 相互独立）。
+	merchantPhone, ok := phoneCache[e.UID]
+	if !ok {
+		if s.merchants != nil {
+			if m, _ := s.merchants.FindByUIDSafe(e.UID); m != nil {
+				merchantPhone = m.Phone
+			}
+		}
+		if phoneCache != nil {
+			phoneCache[e.UID] = merchantPhone
 		}
 	}
 	fmtTime := func(t *time.Time) string {
@@ -198,10 +213,11 @@ func (s *ChannelEnrollService) toView(e *model.ChannelEnroll, nameCache map[int]
 		ID:           e.ID,
 		EnrollNo:     e.EnrollNo,
 		UID:          e.UID,
-		MerchantName: e.MerchantName,
-		SubjectType:  e.SubjectType,
-		ContactPhone: e.ContactPhone,
-		ChannelID:    e.ChannelID,
+		MerchantName:  e.MerchantName,
+		SubjectType:   e.SubjectType,
+		ContactPhone:  e.ContactPhone,
+		MerchantPhone: merchantPhone,
+		ChannelID:     e.ChannelID,
 		ChannelName:  name,
 		Plugin:       e.Plugin,
 		Status:       e.Status,
@@ -209,6 +225,7 @@ func (s *ChannelEnrollService) toView(e *model.ChannelEnroll, nameCache map[int]
 		SubMchID:      e.SubMchID,
 		SubChannelID:  e.SubChannelID,
 		RejectReason:  e.RejectReason,
+		AuditDetail:   parseChannelEnrollAuditDetail(e.AuditDetail),
 		AuditAdmin:    e.AuditAdmin,
 		BusinessCode:  e.BusinessCode,
 		WxApplymentID: e.WxApplymentID,
@@ -223,6 +240,19 @@ func (s *ChannelEnrollService) toView(e *model.ChannelEnroll, nameCache map[int]
 	}
 }
 
+// parseChannelEnrollAuditDetail 把落库的驳回逐字段详情 JSON 串还原为结构化数组（供前端逐项展开）。
+// 空串/脏值返回 nil（前端按无逐字段详情处理，只显示整体 reject_reason）。
+func parseChannelEnrollAuditDetail(raw string) []dto.ChannelEnrollAuditDetailItem {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var items []dto.ChannelEnrollAuditDetailItem
+	if err := json.Unmarshal([]byte(raw), &items); err != nil || len(items) == 0 {
+		return nil
+	}
+	return items
+}
+
 // Get 取进件单详情（含填料脱敏回显）。uid>0 时校验归属（商户端只看自己）。
 func (s *ChannelEnrollService) Get(id uint, uid uint) (*dto.ChannelEnrollDetail, error) {
 	e, err := s.repo.FindByID(id)
@@ -233,7 +263,7 @@ func (s *ChannelEnrollService) Get(id uint, uid uint) (*dto.ChannelEnrollDetail,
 		return nil, ceErr("该进件单不属于您")
 	}
 	detail := &dto.ChannelEnrollDetail{
-		ChannelEnrollView: s.toView(e, nil),
+		ChannelEnrollView: s.toView(e, nil, nil),
 		Material:          s.materialView(e.MaterialMeta),
 	}
 	return detail, nil
@@ -495,6 +525,7 @@ func (s *ChannelEnrollService) SubmitToWx(ctx context.Context, id uint, uid uint
 		"status":        model.ChannelEnrollSubmitted,
 		"wx_state":      "APPLYMENT_STATE_AUDITING",
 		"reject_reason": "",
+		"audit_detail":  "", // 重新提交清掉上一轮驳回逐字段详情
 		"submit_time":   &now,
 	}
 	if r.ApplymentID > 0 {
@@ -587,6 +618,7 @@ func (s *ChannelEnrollService) applyWxState(e *model.ChannelEnroll, st *Applymen
 		fields["status"] = model.ChannelEnrollApproved
 		fields["audit_time"] = &now
 		fields["reject_reason"] = ""
+		fields["audit_detail"] = "" // 开通即清掉遗留驳回逐字段详情
 		if err := s.repo.Update(e.ID, fields); err != nil {
 			return nil, err
 		}
@@ -725,6 +757,7 @@ func (s *ChannelEnrollService) Approve(id uint, adminName string, req dto.Channe
 		"audit_admin":   adminName,
 		"audit_time":    &now,
 		"reject_reason": "",
+		"audit_detail":  "", // 手动交付开通，清掉遗留驳回逐字段详情
 	}); err != nil {
 		return nil, err
 	}

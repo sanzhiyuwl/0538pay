@@ -18,6 +18,7 @@ type ProfitService struct {
 	channels  *repository.ChannelRepo
 	merchants *repository.MerchantRepo // 分账规则校验 uid 存在性（可空；SetMerchantRepo 注入）
 	cfg       *ConfigService           // 读 direct_settle_time 决定 delay（可空；SetConfigService 注入）
+	controlGuard *ChannelControlGuard  // 风控第二段分账硬锁（可空；SetControlGuard 注入）
 }
 
 func NewProfitService(repo *repository.ProfitRepo, channels *repository.ChannelRepo) *ProfitService {
@@ -29,6 +30,18 @@ func (s *ProfitService) SetMerchantRepo(m *repository.MerchantRepo) { s.merchant
 
 // SetConfigService 注入配置服务（读 direct_settle_time）。nil 则 delay 恒 0（立即提交队列）。
 func (s *ProfitService) SetConfigService(c *ConfigService) { s.cfg = c }
+
+// SetControlGuard 注入风控第二段硬锁（分账提交校验扣款商户子商户是否被微信关闭分账 NO_PROFIT_SHARING）。nil 则不拦截。
+func (s *ProfitService) SetControlGuard(g *ChannelControlGuard) { s.controlGuard = g }
+
+// guardProfit 分账硬锁：按扣款商户(PsUID)校验其子商户是否被微信关闭分账分出。
+// PsUID 空（通道全局分账、无特定商户）时无对应子商户可查，放行。
+func (s *ProfitService) guardProfit(o *model.ProfitOrder) error {
+	if s.controlGuard == nil || o == nil || o.PsUID == nil {
+		return nil
+	}
+	return s.controlGuard.GuardMerchant(*o.PsUID, ctrlFnNoProfitSharing)
+}
 
 // ProfitError 携带业务错误码与提示。
 type ProfitError struct {
@@ -250,6 +263,10 @@ func (s *ProfitService) Operate(id uint, req dto.PsStatusReq) error {
 		if o.Status != 0 && o.Status != 3 {
 			return psErr("仅待分账/失败的记录可提交分账")
 		}
+		// 风控第二段·分账硬锁：扣款商户子商户被微信关闭分账分出(NO_PROFIT_SHARING)则拦截提交。
+		if err := s.guardProfit(o); err != nil {
+			return err
+		}
 		// 真实渠道分账 API 待凭证：本地直接置成功（成功时按规则扣商户余额）。
 		settleNo := "PS" + time.Now().Format("20060102150405")
 		flipped, err := s.repo.MarkSuccessWithDebit(id, settleNo)
@@ -266,6 +283,10 @@ func (s *ProfitService) Operate(id uint, req dto.PsStatusReq) error {
 	case "query":
 		if o.Status != 1 {
 			return psErr("仅已提交的记录可查询结果")
+		}
+		// 风控第二段·分账硬锁：query 分支同样会扣款置成功，被管控则拦截（与 submit 同源）。
+		if err := s.guardProfit(o); err != nil {
+			return err
 		}
 		settleNo := o.SettleNo
 		if settleNo == "" {
@@ -332,6 +353,12 @@ func (s *ProfitService) AutoExecute(limit int) (int, error) {
 	}
 	done := 0
 	for _, id := range ids {
+		// 风控第二段·分账硬锁：扣款商户被微信关闭分账分出则跳过本单（下轮再试，不中断整批）。
+		if o, _ := s.repo.FindOrder(id); o != nil {
+			if err := s.guardProfit(o); err != nil {
+				continue
+			}
+		}
 		settleNo := "PS" + time.Now().Format("20060102150405")
 		flipped, err := s.repo.MarkSuccessWithDebit(id, settleNo)
 		if err != nil {

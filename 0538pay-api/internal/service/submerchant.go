@@ -429,6 +429,64 @@ func (s *SubMerchantService) queryApplyment(ctx context.Context, path string) (*
 	return &r, raw, nil
 }
 
+// —— 子商户管控情况查询（风控第二段：进件成功后按 sub_mchid 查被管控能力及原因）——
+//
+// 接口：GET /v3/mch-operation-manage/merchant-limitations/sub-mchid/{sub_mchid}
+// 前提：只能查已进件成功、且在本服务商名下（存在受理关系）的子商户；无受理关系报
+//       INVALID_REQUEST。无管控时应答各字段缺省（非错误）。字段以官方 4012803072 为准。
+
+// MchLimitationRecovery 被管控原因及解脱路径单项。
+// ★ recovery_specifications 是列表，一商户可能多条、每条各自关联不同能力；
+//   顶层 LimitedFunctions 只是聚合，明细在每条里，别当扁平一维。
+type MchLimitationRecovery struct {
+	LimitationCaseID         string   `json:"limitation_case_id"`         // 被管控单据号（↔第三段关联主键/幂等键）
+	LimitationReasonType     string   `json:"limitation_reason_type"`     // 原因类型（RISK_ABNORMAL 等 10 项枚举）
+	LimitationReason         string   `json:"limitation_reason"`          // 被管控原因文本
+	LimitationReasonDescribe string   `json:"limitation_reason_describe"` // 原因描述（给商户看的人话）
+	RelateLimitations        []string `json:"relate_limitations"`         // 本条关联的被管控能力（枚举 7 项）
+	OtherRelateLimitations   string   `json:"other_relate_limitations"`   // 其他关联能力（自由文本）
+	RecoverWay               string   `json:"recover_way"`                // 解脱路径（19 项枚举）
+	RecoverWayParam          string   `json:"recover_way_param"`          // 解脱路径参数
+	RecoverHelpURL           string   `json:"recover_help_url"`           // 解脱帮助链接
+	LimitationActionType     string   `json:"limitation_action_type"`     // 处置方式（立即/延迟管控）
+	LimitationStartDate      string   `json:"limitation_start_date"`      // 预计管控开始时间（延迟管控，rfc3339）
+	LimitationDate           string   `json:"limitation_date"`            // 实际被管控时间（rfc3339）
+}
+
+// MchLimitationResp 子商户管控情况应答（官方 4012803072 字段全集）。
+type MchLimitationResp struct {
+	Mchid                  string                  `json:"mchid"`                    // 被查子商户号
+	LimitedFunctions       []string                `json:"limited_functions"`        // 顶层聚合的被管控能力列表（枚举 7 项）
+	OtherLimitedFunctions  string                  `json:"other_limited_functions"`  // 枚举外的其他被管控能力（自由文本）
+	RecoverySpecifications []MchLimitationRecovery `json:"recovery_specifications"`  // 被管控原因+解脱路径列表
+}
+
+// Limited 是否处于任一被管控能力（有枚举命中或其他能力文本非空）。
+func (r *MchLimitationResp) Limited() bool {
+	return len(r.LimitedFunctions) > 0 || strings.TrimSpace(r.OtherLimitedFunctions) != ""
+}
+
+// QuerySubMchLimitation 查询子商户管控情况。
+// 无管控时返回的 resp 各字段缺省（resp.Limited()==false）；429 RATELIMIT_EXCEEDED 由调用方限速处理。
+func (s *SubMerchantService) QuerySubMchLimitation(ctx context.Context, subMchID string) (*MchLimitationResp, []byte, error) {
+	if strings.TrimSpace(subMchID) == "" {
+		return nil, nil, smErr("子商户号为空，无法查询管控情况")
+	}
+	path := "/v3/mch-operation-manage/merchant-limitations/sub-mchid/" + subMchID
+	raw, code, err := s.doRequest(ctx, http.MethodGet, path, "")
+	if err != nil {
+		return nil, raw, err
+	}
+	if code < 200 || code >= 300 {
+		return nil, raw, smErr("查询子商户管控情况失败: " + wxErrMsg(raw))
+	}
+	var r MchLimitationResp
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return nil, raw, fmt.Errorf("解析子商户管控应答失败: %w", err)
+	}
+	return &r, raw, nil
+}
+
 // —— 结算账户（进件成功后售后：修改/查询结算银行账户）——
 
 // ModifySettlementReq 修改结算账户入参（明文，敏感字段由 service 加密后组装）。

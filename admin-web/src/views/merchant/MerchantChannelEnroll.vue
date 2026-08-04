@@ -550,13 +550,21 @@ async function copySignURL() {
           </template>
         </div>
 
-        <!-- 驳回原因 -->
+        <!-- 驳回原因：整体原因 + 微信逐字段详情（照此逐项修改后用相同单据重新提交） -->
         <div
-          v-if="detail.status === 'rejected' && detail.reject_reason"
-          class="flex gap-2 border-l-2 border-destructive bg-destructive/[0.05] px-4 py-2.5 text-xs text-muted-foreground"
+          v-if="detail.status === 'rejected' && (detail.reject_reason || detail.audit_detail?.length)"
+          class="border-l-2 border-destructive bg-destructive/[0.05] px-4 py-2.5 text-xs"
         >
-          <X class="size-4 shrink-0 text-destructive" />
-          <span>微信驳回：{{ detail.reject_reason }}，请修改资料后重新提交。</span>
+          <div v-if="detail.reject_reason" class="flex gap-2 text-muted-foreground">
+            <X class="size-4 shrink-0 text-destructive" />
+            <span>微信驳回：{{ detail.reject_reason }}，请按下方逐项修改资料后重新提交。</span>
+          </div>
+          <dl v-if="detail.audit_detail?.length" class="mt-2 space-y-1.5" :class="{ 'border-t border-destructive/20 pt-2': detail.reject_reason }">
+            <div v-for="(a, i) in detail.audit_detail" :key="i" class="flex gap-2">
+              <dt class="w-28 shrink-0 font-medium text-foreground">{{ a.field_name || a.field || '—' }}</dt>
+              <dd class="min-w-0 flex-1 text-muted-foreground">{{ a.reject_reason || '—' }}</dd>
+            </div>
+          </dl>
         </div>
         <!-- 已开通 -->
         <div v-if="detail.status === 'approved'" class="flex items-center gap-2 bg-success/[0.07] px-4 py-3 text-sm">

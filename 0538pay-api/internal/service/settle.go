@@ -95,6 +95,7 @@ type SettleService struct {
 	cfg          *ConfigService        // 打款备注 transfer_desc（可空；SetConfigService 注入）
 	notice       *NoticeService        // 结算完成通知（可空；SetNoticeService 注入）
 	groups       *repository.GroupRepo // 组级 settle_open/settle_rate 覆盖（可空；SetGroupRepo 注入）
+	controlGuard *ChannelControlGuard  // 风控第二段提现硬锁（可空；SetControlGuard 注入。自动结算跳过被关闭提现的商户）
 }
 
 func NewSettleService(repo *repository.SettleRepo, merchantRepo *repository.MerchantRepo) *SettleService {
@@ -103,6 +104,9 @@ func NewSettleService(repo *repository.SettleRepo, merchantRepo *repository.Merc
 
 // SetNoticeService 注入对外通知中枢（K-1）。结算记录置为已完成时发 settle 场景通知。
 func (s *SettleService) SetNoticeService(n *NoticeService) { s.notice = n }
+
+// SetControlGuard 注入风控第二段硬锁（自动结算跳过名下子商户被微信关闭提现 NO_WITHDRAWAL 的商户）。nil 则不拦截。
+func (s *SettleService) SetControlGuard(g *ChannelControlGuard) { s.controlGuard = g }
 
 // notifySettleDone 结算完成后发 settle 通知（对齐 epay ajax_settle.php MsgNotice::send('settle')）。
 // 异步触发，通道未配置静默降级，不阻塞结算状态流转。
@@ -509,6 +513,11 @@ func (s *SettleService) RunAutoSettle(ctx context.Context, limit int) (int, erro
 		m := merchants[i]
 		if certForce && m.Cert == 0 {
 			continue // 强制实名下未实名商户跳过结算
+		}
+		// 风控第二段·提现硬锁：名下子商户被微信关闭提现(NO_WITHDRAWAL)则跳过自动结算
+		// （与商户端 Apply 手动提现同源，避免"手动被拦、自动照放"的口径不一致）。
+		if s.controlGuard.GuardMerchant(m.UID, ctrlFnNoWithdrawal) != nil {
+			continue
 		}
 		// 组级 settle_open 关停 / 全局未开启自动结算 → 跳过；组级 settle_rate 覆盖费率
 		// （对齐 epay cron.php:31-36 getGroupConfig）。

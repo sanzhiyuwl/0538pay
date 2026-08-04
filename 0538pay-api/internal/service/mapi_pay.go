@@ -197,6 +197,12 @@ func (s *MapiService) PayRefund(m *model.Merchant, params map[string]string) (ma
 	if err != nil {
 		return nil, err
 	}
+	// 风控第二段·退款硬锁：该订单子商户被微信关闭退款(NO_REFUND)则拦截（与商户端 Refund 同源，按订单通道精确解析）。
+	if s.pay != nil {
+		if err := s.pay.GuardOrderRefund(o); err != nil {
+			return nil, err
+		}
+	}
 	outRefundNo := strings.TrimSpace(params["out_refund_no"])
 
 	// B1-03 幂等：out_refund_no 长度>5 时查已有退款单，按状态分两支（对齐 epay Order.php:474-483）：

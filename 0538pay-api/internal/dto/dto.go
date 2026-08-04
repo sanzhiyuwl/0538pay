@@ -1775,14 +1775,23 @@ type BillingResult struct {
 // 并把上游开出的子商户号写进占位符 key、置 status=1、回填 apply_id。敏感字段（证件号/银行账号）
 // RSA 加密可逆落库，后台审核时脱敏展示，需要时解密报送上游。
 
+// ChannelEnrollAuditDetailItem 微信 applyment4sub 驳回逐字段详情单项（REJECTED 时按字段返回）。
+// 与 service.ApplymentAuditDetail 同结构，供前端逐项展开引导商户精准补料后用相同 business_code 重提。
+type ChannelEnrollAuditDetailItem struct {
+	Field        string `json:"field"`         // 字段名（微信 applyment 字段路径，如 subject_info.identity_info.id_card_copy）
+	FieldName    string `json:"field_name"`    // 字段中文名称
+	RejectReason string `json:"reject_reason"` // 该字段的驳回原因
+}
+
 // ChannelEnrollView 进件单列表/详情视图（不含敏感原文，敏感只回 has_*）。
 type ChannelEnrollView struct {
 	ID           uint   `json:"id"`
 	EnrollNo     string `json:"enroll_no"`
 	UID          uint   `json:"uid"`
-	MerchantName string `json:"merchant_name"` // 商户/主体名称
-	SubjectType  string `json:"subject_type"`  // 主体类型
-	ContactPhone string `json:"contact_phone"` // 联系手机（明文）
+	MerchantName  string `json:"merchant_name"`  // 商户/主体名称
+	SubjectType   string `json:"subject_type"`   // 主体类型
+	ContactPhone  string `json:"contact_phone"`  // 联系手机（明文，进件时填的进度联系手机，可空）
+	MerchantPhone string `json:"merchant_phone"` // 商户账户注册手机（从 pay_merchant 派生，后台列表展示归属商户手机）
 	ChannelID    int    `json:"channel_id"`    // 归属服务商主通道
 	ChannelName  string `json:"channel_name"`  // 主通道名（派生）
 	Plugin       string `json:"plugin"`        // 主通道插件 key
@@ -1791,7 +1800,9 @@ type ChannelEnrollView struct {
 	SubMchID     string `json:"sub_mchid"`     // 微信子商户号（approved 后有）
 	SubChannelID uint   `json:"subchannel_id"` // 建/更新的子通道 id
 	RejectReason string `json:"reject_reason"` // 驳回原因
-	AuditAdmin   string `json:"audit_admin"`   // 审核人（全自动阶段可空）
+	// 微信驳回逐字段详情（applyment4sub REJECTED 时按字段返回，供商户精准补料；非驳回单为空）。
+	AuditDetail []ChannelEnrollAuditDetailItem `json:"audit_detail,omitempty"`
+	AuditAdmin  string                         `json:"audit_admin"` // 审核人（全自动阶段可空）
 	// 微信 applyment4sub 直提交状态（全自动化）
 	BusinessCode  string `json:"business_code"`   // 业务申请编号
 	WxApplymentID string `json:"wx_applyment_id"` // 微信申请单号
@@ -1845,3 +1856,103 @@ type ChannelEnrollDetail struct {
 	ChannelEnrollView
 	Material ChannelEnrollMaterialView `json:"material"`
 }
+
+// —— 子商户管控（风控第二段：查询子商户管控情况 4012803072）——
+
+// ChannelControlRecovery 被管控原因及解脱路径单项（对外视图，一商户可多条）。
+type ChannelControlRecovery struct {
+	LimitationCaseID         string   `json:"limitation_case_id"`
+	LimitationReasonType     string   `json:"limitation_reason_type"`
+	LimitationReasonTypeText string   `json:"limitation_reason_type_text"` // 原因类型中文
+	LimitationReason         string   `json:"limitation_reason"`
+	LimitationReasonDescribe string   `json:"limitation_reason_describe"`
+	RelateLimitations        []string `json:"relate_limitations,omitempty"`
+	OtherRelateLimitations   string   `json:"other_relate_limitations,omitempty"`
+	RecoverWay               string   `json:"recover_way"`
+	RecoverWayText           string   `json:"recover_way_text"` // 解脱路径中文
+	RecoverWayParam          string   `json:"recover_way_param,omitempty"`
+	RecoverHelpURL           string   `json:"recover_help_url,omitempty"`
+	LimitationActionType     string   `json:"limitation_action_type,omitempty"`
+	LimitationStartDate      string   `json:"limitation_start_date,omitempty"`
+	LimitationDate           string   `json:"limitation_date,omitempty"`
+}
+
+// ChannelControlView 某已开通子商户的管控状态视图（风控总览页一行）。
+type ChannelControlView struct {
+	EnrollID     uint   `json:"enroll_id"`
+	UID          uint   `json:"uid"`
+	MerchantName string `json:"merchant_name"`
+	MerchantPhone string `json:"merchant_phone"`
+	ChannelID    int    `json:"channel_id"`
+	ChannelName  string `json:"channel_name"`
+	SubMchID     string `json:"sub_mchid"`
+
+	State     string `json:"state"`      // normal/controlled/delayed（未刷新过为 normal + queried=false）
+	StateText string `json:"state_text"` // 正常/被管控/延迟管控
+
+	LimitedFunctions      []string `json:"limited_functions,omitempty"`       // 顶层聚合被管控能力枚举
+	LimitedFunctionTexts  []string `json:"limited_function_texts,omitempty"`  // 对应中文
+	OtherLimitedFunctions string   `json:"other_limited_functions,omitempty"` // 枚举外能力（自由文本）
+
+	Recovery []ChannelControlRecovery `json:"recovery,omitempty"` // 原因+解脱路径列表
+
+	Queried    bool   `json:"queried"`      // 是否已刷新过（有快照）
+	LastQueryAt string `json:"last_query_at"` // 最近刷新时间（未刷新为空）
+	LastError  string `json:"last_error,omitempty"` // 最近刷新失败原因
+}
+
+// ChannelControlOverview 风控总览概览卡数据。
+type ChannelControlOverview struct {
+	ApprovedTotal int64 `json:"approved_total"` // 已开通子商户总数
+	Controlled    int64 `json:"controlled"`     // 被管控家数
+	Delayed       int64 `json:"delayed"`        // 延迟管控家数
+	Normal        int64 `json:"normal"`         // 正常家数（含未刷新）
+	NeverQueried  int64 `json:"never_queried"`  // 尚未刷新过的家数
+}
+
+// ChannelControlListResp 风控总览列表应答（概览 + 列表）。
+type ChannelControlListResp struct {
+	Overview ChannelControlOverview `json:"overview"`
+	List     []ChannelControlView   `json:"list"`
+}
+
+// ChannelControlRefreshResp 单个/批量刷新应答。
+type ChannelControlRefreshResp struct {
+	Refreshed  int                  `json:"refreshed"`   // 成功刷新家数
+	Failed     int                  `json:"failed"`      // 失败家数
+	Views      []ChannelControlView `json:"views"`       // 刷新后的最新视图（单个刷新返回一条）
+}
+
+// —— 子商户管控流水（风控第三段：处置/管控订阅回调时间线）——
+
+// ChannelControlFlowItem 一条管控流水（详情抽屉时间线一行）。
+type ChannelControlFlowItem struct {
+	ID        uint   `json:"id"`
+	Mechanism string `json:"mechanism"` // violation / merchant_notify
+	EventType string `json:"event_type"`
+	Summary   string `json:"summary,omitempty"`
+	SubMchID  string `json:"sub_mchid"`
+
+	// (A) 商户平台处置通知
+	RecordID          string `json:"record_id,omitempty"`
+	CompanyName       string `json:"company_name,omitempty"`
+	PunishPlan        string `json:"punish_plan,omitempty"`
+	PunishTime        string `json:"punish_time,omitempty"`
+	PunishDescription string `json:"punish_description,omitempty"`
+	RiskType          string `json:"risk_type,omitempty"`
+	RiskDescription   string `json:"risk_description,omitempty"`
+
+	// (B) 合作伙伴订阅·管控流水
+	BusinessCode      string `json:"business_code,omitempty"`
+	BusinessState     string `json:"business_state,omitempty"`
+	BusinessStateText string `json:"business_state_text,omitempty"`
+	BusinessTime      string `json:"business_time,omitempty"`
+
+	CreatedAt string `json:"created_at"` // 落库时间（时间线排序）
+}
+
+// ChannelControlFlowResp 某进件单的管控流水列表应答。
+type ChannelControlFlowResp struct {
+	List []ChannelControlFlowItem `json:"list"`
+}
+

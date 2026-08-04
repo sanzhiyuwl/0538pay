@@ -103,8 +103,9 @@ func main() {
 	rollSvc := service.NewRollService(rollRepo, channelRepo)
 	subChannelSvc := service.NewSubChannelService(subChannelRepo, channelRepo, merchantRepo)
 	// 服务商通道商户进件（epay 精仿线：只走商户进件不走二清，0730 阶段1）：审核通过自动建子通道+回填子商户号。
+	channelEnrollRepo := repository.NewChannelEnrollRepo(db)
 	channelEnrollSvc := service.NewChannelEnrollService(
-		repository.NewChannelEnrollRepo(db), channelRepo, subChannelRepo, configSvc)
+		channelEnrollRepo, channelRepo, subChannelRepo, merchantRepo, configSvc)
 	payTypeSvc := service.NewPayTypeService(payTypeRepo, channelRepo)
 	weixinSvc := service.NewWeixinService(repository.NewWeixinRepo(db))
 	weworkSvc := service.NewWeworkService(repository.NewWeworkRepo(db))
@@ -184,6 +185,22 @@ func main() {
 	submchSvc := service.NewSubMerchantService(configSvc) // 特约商户进件微信接口（提交/查状态）
 	enrollSvc.SetSubMerchant(submchSvc)                    // 注入：提交微信 + 查申请单状态
 	channelEnrollSvc.SetSubMerchant(submchSvc)             // 服务商通道商户进件线共用同一微信引擎（全自动 applyment4sub）
+	// 子商户管控（风控第二段）：按 sub_mchid 查微信被管控能力落快照，供风控总览页 + 收单硬锁。
+	channelControlRepo := repository.NewChannelControlRepo(db)
+	channelControlSvc := service.NewChannelControlService(
+		channelEnrollRepo, channelControlRepo, channelRepo, merchantRepo, submchSvc)
+	// 子商户管控流水（风控第三段）：处置/管控订阅回调落追加型流水，供风控详情抽屉时间线。
+	channelControlFlowRepo := repository.NewChannelControlFlowRepo(db)
+	channelControlSvc.SetFlowRepo(channelControlFlowRepo)
+	channelControlNotifySvc := service.NewChannelControlNotifyService(
+		channelControlFlowRepo, channelEnrollRepo, submchSvc, channelControlSvc)
+	// 收单/退款/提现/分账硬锁：读本地管控快照拦截被管控子商户的资金操作（守 0730 不走二清红线）。
+	channelControlGuard := service.NewChannelControlGuard(channelControlRepo, channelEnrollRepo)
+	paySvc.SetControlGuard(channelControlGuard)           // 收单(NO_TRANSACTION*)+渠道退款(NO_REFUND)
+	merchantCenterSvc.SetControlGuard(channelControlGuard) // 商户提现(NO_WITHDRAWAL)
+	profitSvc.SetControlGuard(channelControlGuard)         // 分账提交/自动执行(NO_PROFIT_SHARING)
+	settleSvc.SetControlGuard(channelControlGuard)         // 自动结算跳过被关闭提现的商户(NO_WITHDRAWAL)
+	// V2 REST 退款(mapi_pay PayRefund)经 s.pay.GuardOrderRefund 复用 paySvc 上的守卫，无需单独注入。
 	enrollSvc.SetAgentRepo(agentSvc.Repo())               // 注入：路径一进件成功扣名额
 	agentSvc.SetEnrollRepo(enrollRepo)                    // 注入：删代理守卫查名下进件单/邀请足迹
 	enrollSvc.SetPayService(paySvc)                        // 注入：付费前置下开户费收款单
@@ -258,6 +275,8 @@ func main() {
 		Roll:           handler.NewRollHandler(rollSvc),
 		SubChannel:     handler.NewSubChannelHandler(subChannelSvc),
 		ChannelEnroll:  handler.NewChannelEnrollHandler(channelEnrollSvc),
+		ChannelControl: handler.NewChannelControlHandler(channelControlSvc),
+		ChannelCtrlNotify: handler.NewChannelControlNotifyHandler(channelControlNotifySvc),
 		PayType:        handler.NewPayTypeHandler(payTypeSvc),
 		Weixin:         handler.NewWeixinHandler(weixinSvc),
 		Wework:         handler.NewWeworkHandler(weworkSvc),

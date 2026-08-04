@@ -74,6 +74,10 @@ func AutoMigrate(db *gorm.DB) error {
 		&Role{},
 		// 服务商通道商户进件（epay 精仿线：只走商户进件不走二清，0730 阶段1）
 		&ChannelEnroll{},
+		// 子商户管控快照（风控第二段：进件成功后按 sub_mchid 查微信被管控能力落地）
+		&ChannelControl{},
+		// 子商户管控流水（风控第三段：处置/管控订阅回调追加型时间线）
+		&ChannelControlFlow{},
 		// 代理进件平台（自研扩展，epay 无）
 		&Agent{},
 		&AgentQuotaWallet{},

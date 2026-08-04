@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/epvia/api/internal/model"
@@ -30,7 +31,15 @@ func (r *ChannelEnrollRepo) List(q ChannelEnrollQuery) ([]model.ChannelEnroll, i
 	tx := r.db.Model(&model.ChannelEnroll{})
 	if q.Keyword != "" {
 		kw := "%" + q.Keyword + "%"
-		tx = tx.Where("merchant_name LIKE ? OR enroll_no LIKE ? OR contact_phone LIKE ?", kw, kw, kw)
+		// 按 进件单号 / 商户(名称或商户号) / 手机号(进件联系手机 + 商户账户注册手机) 联合模糊查。
+		// 账户手机在 pay_merchant，用子查询命中其 uid；商户号(uid)按数字精确匹配。
+		conds := "enroll_no LIKE ? OR merchant_name LIKE ? OR contact_phone LIKE ? OR uid IN (SELECT uid FROM pay_merchant WHERE phone LIKE ?)"
+		args := []interface{}{kw, kw, kw, kw}
+		if uid, err := strconv.ParseUint(q.Keyword, 10, 64); err == nil {
+			conds += " OR uid = ?"
+			args = append(args, uid)
+		}
+		tx = tx.Where(conds, args...)
 	}
 	if q.UID > 0 {
 		tx = tx.Where("uid = ?", q.UID)
@@ -55,6 +64,43 @@ func (r *ChannelEnrollRepo) List(q ChannelEnrollQuery) ([]model.ChannelEnroll, i
 	var list []model.ChannelEnroll
 	err := tx.Order(order).Offset((q.Page - 1) * q.PageSize).Limit(q.PageSize).Find(&list).Error
 	return list, total, err
+}
+
+// ListApproved 取所有已开通（status=approved 且 sub_mchid 非空）的进件单。
+// 风控管控总览页的数据源全集：这些是在本服务商名下已拿到子商户号、可能被管控的商户。
+func (r *ChannelEnrollRepo) ListApproved() ([]model.ChannelEnroll, error) {
+	var list []model.ChannelEnroll
+	err := r.db.Where("status = ? AND sub_mchid <> ''", model.ChannelEnrollApproved).
+		Order("id DESC").Find(&list).Error
+	return list, err
+}
+
+// ListApprovedByUID 取某商户名下所有已开通（approved 且 sub_mchid 非空）进件单。
+// 提现/分账等 uid 级硬锁用：商户名下任一子商户被管控即命中，无进件的纯平台商户返回空。
+func (r *ChannelEnrollRepo) ListApprovedByUID(uid uint) ([]model.ChannelEnroll, error) {
+	var list []model.ChannelEnroll
+	err := r.db.Where("uid = ? AND status = ? AND sub_mchid <> ''", uid, model.ChannelEnrollApproved).
+		Order("id DESC").Find(&list).Error
+	return list, err
+}
+
+// FindApprovedBySubMchID 按子商户号反查已开通进件单（风控第三段订阅回调归属用）。
+// 回调只带 sub_mchid，需据此定位本服务商名下的进件单以回填 enroll_id/uid 并触发第二段刷新。
+// 未找到（含非本服务商名下）返回 (nil, nil)。
+func (r *ChannelEnrollRepo) FindApprovedBySubMchID(subMchID string) (*model.ChannelEnroll, error) {
+	if subMchID == "" {
+		return nil, nil
+	}
+	var e model.ChannelEnroll
+	err := r.db.Where("sub_mchid = ? AND status = ?", subMchID, model.ChannelEnrollApproved).
+		Order("id DESC").First(&e).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
 }
 
 // FindByID 按主键取进件单。未找到返回 gorm.ErrRecordNotFound。

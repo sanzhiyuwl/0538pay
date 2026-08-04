@@ -57,6 +57,7 @@ type PayService struct {
 	weixins     *repository.WeixinRepo     // 微信公众号（可空；SetWeixinRepo 注入。JSAPI 收银台网页授权换 openid 用）
 	regPayHook func(param string) error   // B1-51 付费注册 tid=1 回调建号钩子（可空；SetRegPayHook 注入，避免与 reg 服务循环依赖）
 	enrollPayHook func(param string) error // 代理进件 tid=6 开户费收款成功放行钩子（可空；SetEnrollPayHook 注入，避免与 enroll 服务循环依赖）
+	controlGuard  *ChannelControlGuard    // 风控第二段收单/退款硬锁（可空；SetControlGuard 注入。读子商户管控快照拦截被管控收款）
 }
 
 // SetWeixinRepo 注入微信公众号仓储（JSAPI 收银台网页授权：据通道绑定公众号 appwxmp 取 appid/appsecret 换 openid）。
@@ -70,6 +71,19 @@ func (s *PayService) SetRegPayHook(f func(param string) error) { s.regPayHook = 
 // SetEnrollPayHook 注入代理进件开户费收款放行钩子。tid=6 开户费订单支付成功后调用，参数为订单 param（含进件单号）。
 // nil 则 tid=6 订单支付后不放行（向后兼容未启用进件平台）。
 func (s *PayService) SetEnrollPayHook(f func(param string) error) { s.enrollPayHook = f }
+
+// SetControlGuard 注入风控第二段硬锁（读子商户管控快照拦截被管控收款/退款）。nil 则不拦截。
+func (s *PayService) SetControlGuard(g *ChannelControlGuard) { s.controlGuard = g }
+
+// GuardOrderRefund 退款硬锁：订单所用子商户被微信关闭退款(NO_REFUND)则拦截。
+// 供渠道原路退款(RefundViaChannel)与商户余额退款(MerchantCenterService.Refund)共用，子商户号由订单通道配置解析。
+func (s *PayService) GuardOrderRefund(o *model.Order) error {
+	if s.controlGuard == nil || o == nil {
+		return nil
+	}
+	cfg := s.loadChannelConfigForOrder(o.Channel, o.Subchannel)
+	return s.controlGuard.GuardSubMch(cfg.ExtraOr(subMchConfigKey, ""), ctrlFnNoRefund)
+}
 
 // SetNoticeService 注入对外通知中枢（K-1）。支付成功后发 order 场景通知（微信/邮件/短信）。
 // nil 则不发对外通知（不影响商户异步回调 do_notify）。
@@ -1038,6 +1052,12 @@ func (s *PayService) RefundViaChannel(ctx context.Context, o *model.Order, money
 	}
 	// B1-34：退款侧同样按 subchannel>0 取子通道配置（对齐 epay Plugin::refund L145 getSub）。
 	cfg := s.loadChannelConfigForOrder(o.Channel, o.Subchannel)
+	// 风控第二段·退款硬锁：子商户被微信关闭退款(NO_REFUND)则拦截原路退款（只读本地快照）。
+	if s.controlGuard != nil {
+		if err := s.controlGuard.GuardSubMch(cfg.ExtraOr(subMchConfigKey, ""), ctrlFnNoRefund); err != nil {
+			return false, err
+		}
+	}
 	total := o.Money
 	if o.RealMoney != nil && o.RealMoney.GreaterThan(decimal.Zero) {
 		total = *o.RealMoney
@@ -1489,6 +1509,14 @@ func (s *PayService) dispatch(ctx context.Context, o *model.Order, payType strin
 	// 载入通道密钥配置（真实渠道用；mock 通道 config 为空返回零值 Config）。
 	// B1-34：subchannel>0 时用子通道 info 覆盖主通道 config 占位（对齐 epay Plugin::loadForPay getSub）。
 	cfg := s.loadChannelConfigForOrder(o.Channel, o.Subchannel)
+	// 风控第二段·收单硬锁：订单所用子商户被微信关闭收单（NO_TRANSACTION / NO_TRANSACTION_AND_RECHARGE）
+	// 时直接拦截下单，绝不回退平台号——守 0730「不走二清」红线。只读本地快照，不在下单链路现查微信。
+	if s.controlGuard != nil {
+		if err := s.controlGuard.GuardSubMch(cfg.ExtraOr(subMchConfigKey, ""),
+			ctrlFnNoTransaction, ctrlFnNoTransactionAndRecharge); err != nil {
+			return nil, err
+		}
+	}
 	// 渠道回调地址 = 通道配置的 notify_url 基址 + /系统订单号，命中本系统 /api/pay/notify/:trade_no。
 	cfg.NotifyURL = notifyBackURL(cfg.NotifyURL, o.TradeNo)
 	// 发给渠道的是实际待付金额 realmoney（含 randomFloat 随机微调 + mode=1 加费），而非原始订单额 money
