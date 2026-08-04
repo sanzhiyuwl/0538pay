@@ -15,6 +15,10 @@ import {
   eligibleActivities,
   bankOptions,
   provinceOptions,
+  wxProvinceOptions,
+  wxCityOptions,
+  wxDistrictOptions,
+  wxResolveArea,
 } from '@/lib/enrollCatalog'
 
 const toast = useToast()
@@ -314,6 +318,22 @@ const videoMediaId = ref('')
 // 回填期间置真，避免 subject_type watcher 把刚回填的结算规则清掉。
 const restoring = ref(false)
 
+// —— 门店省市区三级级联 state（微信 biz_address_code 要求区县级 6 位，只有 form.biz_store.biz_address_code 是真填码）——
+// storeProvince/storeCity 只驱动上层下拉选项，切换上级时清空下级选中值；回填时由 loadView 反查填入。
+const storeProvince = ref('')
+const storeCity = ref('')
+const storeCityOptions = computed(() => wxCityOptions(storeProvince.value))
+const storeDistrictOptions = computed(() => wxDistrictOptions(storeCity.value))
+watch(storeProvince, (_n, o) => {
+  if (restoring.value || o === undefined) return
+  storeCity.value = ''
+  form.biz_store.biz_address_code = ''
+})
+watch(storeCity, (_n, o) => {
+  if (restoring.value || o === undefined) return
+  form.biz_store.biz_address_code = ''
+})
+
 async function loadView(id: number) {
   loading.value = true
   restoring.value = true
@@ -374,6 +394,12 @@ async function loadView(id: number) {
     // 经营场景回填
     form.sales_scenes_type = Array.isArray(v.sales_scenes_type) ? [...v.sales_scenes_type] : []
     if (v.biz_store) form.biz_store = { ...v.biz_store, store_entrance_pic: [...(v.biz_store.store_entrance_pic || [])], indoor_pic: [...(v.biz_store.indoor_pic || [])] }
+    // 由已保存的区县级 biz_address_code 反查省/市，回显到三级下拉的上两级。
+    {
+      const area = wxResolveArea(form.biz_store.biz_address_code)
+      storeProvince.value = area.province
+      storeCity.value = area.city
+    }
     if (v.mp_info) form.mp_info = { ...v.mp_info, mp_pics: [...(v.mp_info.mp_pics || [])] }
     if (v.mini_program) form.mini_program = { ...v.mini_program, mini_program_pics: [...(v.mini_program.mini_program_pics || [])] }
     if (v.web_info) form.web_info = { ...v.web_info }
@@ -423,13 +449,113 @@ async function loadView(id: number) {
   }
 }
 
+// —— 草稿自动保存（防误关丢数据）——
+// 抽屉点遮罩即关（通用 Drawer 行为），未提交的填料会丢。这里把整份 form + 敏感标记 + 门店级联/视频态
+// 按进件单 id 存 localStorage，打开时若有比后端更新的草稿则恢复。成功提交后清该单草稿。
+// 注意：含敏感字段明文（用户已确认此取舍），仅暂存本机浏览器，提交后即清除。
+const DRAFT_PREFIX = 'enroll_material_draft_'
+const draftSavedAt = ref('') // 最近一次草稿保存时间（顶部提示用）
+let draftDebounce: number | undefined
+// 抑制草稿写入：loadView/恢复期间置真，避免把刚灌入的数据又当"用户编辑"写回。
+const suppressDraft = ref(false)
+
+function draftKey(id: number | null): string {
+  return DRAFT_PREFIX + (id ?? 'new')
+}
+
+// 打包当前编辑态（form + has 敏感标记 + 门店级联 + 视频 media）。
+function snapshotDraft() {
+  return {
+    savedAt: new Date().toISOString(),
+    form: JSON.parse(JSON.stringify(form)),
+    has: JSON.parse(JSON.stringify(has)),
+    storeProvince: storeProvince.value,
+    storeCity: storeCity.value,
+    videoMediaId: videoMediaId.value,
+  }
+}
+
+function writeDraft() {
+  if (suppressDraft.value) return
+  try {
+    const snap = snapshotDraft()
+    localStorage.setItem(draftKey(props.enrollId), JSON.stringify(snap))
+    draftSavedAt.value = snap.savedAt
+  } catch {
+    /* localStorage 写满/隐私模式等，静默忽略，不打断填写 */
+  }
+}
+
+function readDraft(id: number | null): ReturnType<typeof snapshotDraft> | null {
+  try {
+    const raw = localStorage.getItem(draftKey(id))
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function clearDraft(id: number | null) {
+  try {
+    localStorage.removeItem(draftKey(id))
+  } catch {
+    /* 忽略 */
+  }
+  draftSavedAt.value = ''
+}
+
+// 把草稿快照灌回响应式状态（恢复期间抑制草稿写入与联动清值）。
+function applyDraft(snap: ReturnType<typeof snapshotDraft>) {
+  suppressDraft.value = true
+  restoring.value = true
+  Object.assign(form, snap.form)
+  Object.assign(has, snap.has)
+  storeProvince.value = snap.storeProvince || ''
+  storeCity.value = snap.storeCity || ''
+  videoMediaId.value = snap.videoMediaId || ''
+  // 恢复行业大类联动（settlement_id/qualification_type 已在 form 里）。
+  industryGroup.value = findIndustryGroup(form.subject_type, form.settlement_id, form.qualification_type)
+  draftSavedAt.value = snap.savedAt
+  nextTick(() => {
+    restoring.value = false
+    suppressDraft.value = false
+  })
+}
+
+// 手动清除草稿并回到后端已保存态。
+async function discardDraft() {
+  clearDraft(props.enrollId)
+  if (props.enrollId) await loadView(props.enrollId)
+}
+
+// form/has/门店级联/视频 变化时防抖写草稿。
+watch(
+  [() => form, () => has, storeProvince, storeCity, videoMediaId],
+  () => {
+    if (suppressDraft.value || !props.modelValue) return
+    if (draftDebounce) window.clearTimeout(draftDebounce)
+    draftDebounce = window.setTimeout(writeDraft, 600)
+  },
+  { deep: true },
+)
+
+// 打开抽屉：先拉后端已保存资料，再检查本地是否有更新的草稿并提示恢复。
 watch(
   () => [props.modelValue, props.enrollId] as const,
-  ([open, id]) => {
-    if (open && id) loadView(id)
+  async ([open, id]) => {
+    if (!open) return
+    if (id) await loadView(id)
+    const snap = readDraft(id)
+    if (snap) applyDraft(snap)
   },
   { immediate: true },
 )
+
+const draftSavedText = computed(() => {
+  if (!draftSavedAt.value) return ''
+  const d = new Date(draftSavedAt.value)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
+})
 
 const sensitivePlaceholder = (filled: boolean) => (filled ? '已填（如需修改请重新输入原文）' : '必填')
 
@@ -800,6 +926,7 @@ async function doSave() {
   saving.value = true
   try {
     await props.submitFn(props.enrollId, { ...form })
+    clearDraft(props.enrollId) // 提交成功，清掉本地草稿
     toast.success('资料已保存')
     emit('saved')
     emit('update:modelValue', false)
@@ -821,6 +948,13 @@ async function doSave() {
   >
     <div v-if="loading" class="py-10 text-center dim">加载中…</div>
     <div v-else class="space-y-5">
+      <!-- 草稿自动保存提示：填料实时暂存本地，误关抽屉不丢；提交成功后自动清除 -->
+      <div v-if="draftSavedText" class="flex items-center gap-2 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        <span>已自动保存草稿（{{ draftSavedText }}）· 误关抽屉后重新打开可恢复，敏感信息仅暂存本机</span>
+        <span class="flex-1" />
+        <button type="button" class="text-destructive hover:underline" @click="discardDraft">清除草稿</button>
+      </div>
+
       <!-- 主体基础 -->
       <section class="space-y-3">
         <h4 class="text-sm font-medium">主体基础</h4>
@@ -1246,9 +1380,14 @@ async function doSave() {
             <input v-model="form.biz_store.biz_store_name" placeholder="门店招牌名称" class="field-input flex-1" />
           </div>
           <div class="row-field">
-            <label class="lbl">门店省份<span class="text-destructive">*</span></label>
-            <Select v-model="form.biz_store.biz_address_code" :options="provinceOptions" searchable placeholder="选择门店所在省份" class="flex-1" />
+            <label class="lbl">门店省市区<span class="text-destructive">*</span></label>
+            <div class="flex flex-1 flex-wrap gap-2">
+              <Select v-model="storeProvince" :options="wxProvinceOptions" searchable placeholder="省" class="min-w-[8rem] flex-1" />
+              <Select v-model="storeCity" :options="storeCityOptions" searchable placeholder="市" class="min-w-[8rem] flex-1" :disabled="!storeProvince" />
+              <Select v-model="form.biz_store.biz_address_code" :options="storeDistrictOptions" searchable placeholder="区/县" class="min-w-[8rem] flex-1" :disabled="!storeCity" />
+            </div>
           </div>
+          <p class="-mt-1 text-[11px] text-muted-foreground">微信要求精确到区/县级，编码取自官方省市区对照表。</p>
           <div class="row-field">
             <label class="lbl">门店地址<span class="text-destructive">*</span></label>
             <input v-model="form.biz_store.biz_store_address" placeholder="门店详细地址" class="field-input flex-1" />

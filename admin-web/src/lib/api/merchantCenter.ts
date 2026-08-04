@@ -251,6 +251,7 @@ export function changePassword(oldpwd: string, newpwd: string): Promise<{ ok: bo
 
 // ===== 保证金（D3）=====
 export interface DepositInfo {
+  enabled: boolean // 保证金门槛全局开关（user_deposit）；关闭时隐藏保证金入口/页面
   deposit: number
   depositMin: number
   money: number
@@ -263,6 +264,15 @@ export function rechargeDeposit(amount: string, payType = 'balance'): Promise<{ 
 }
 export function withdrawDeposit(amount: string): Promise<{ ok: boolean }> {
   return request('/merchant/deposit/withdraw', { method: 'POST', body: { amount } })
+}
+
+// ===== 商户端全局功能开关 =====
+// 由平台在后台「支付设置」等处控制，商户端据此过滤导航/守卫页面（如保证金门槛开关）。
+export interface MerchantFeatures {
+  deposit: boolean // 保证金门槛开关（user_deposit），关闭时隐藏保证金入口与页面
+}
+export function fetchMerchantFeatures(): Promise<MerchantFeatures> {
+  return request<MerchantFeatures>('/merchant/features')
 }
 
 // ===== 购买会员（D3）=====

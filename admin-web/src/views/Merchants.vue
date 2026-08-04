@@ -55,8 +55,11 @@ import {
   updateSubChannel,
   setSubChannelStatus,
   deleteSubChannel,
+  fetchSubChannelInfoFields,
+  fetchSubChannelInfoFieldsByChannel,
   type SubChannelView,
   type SubChannelSaveReq,
+  type SubChannelInfoField,
 } from '@/lib/api/subchannels'
 import { fetchChannels } from '@/lib/api/channels'
 import {
@@ -362,12 +365,20 @@ const subChannels = ref<Channel[]>([])
 const subLoading = ref(false)
 const subEditingID = ref<number | null>(null)
 const subSaving = ref(false)
-const subForm = reactive({ channel: 0, name: '', info: '' })
+const subForm = reactive({ channel: 0, name: '' })
+
+// 自定义参数动态表单（对齐 epay ajax_user subChannelInfo）：按主通道 config 占位符渲染字段，
+// 只填占位字段（如 [appmchid] → 商户自己的号），避免手填错 key。subFieldValues 存 key→值。
+const subFields = ref<SubChannelInfoField[]>([])
+const subFieldValues = reactive<Record<string, string>>({})
+const subFieldsLoading = ref(false)
+const subFieldsLoaded = ref(false) // 是否已成功拉取过字段定义（区分「无占位符」与「未加载」）
 
 async function openSubChannels(m: Merchant) {
   subMerchant.value = m
   subEditingID.value = null
-  Object.assign(subForm, { channel: 0, name: '', info: '' })
+  Object.assign(subForm, { channel: 0, name: '' })
+  resetSubFields()
   subDrawer.value = true
   openMenu.value = null
   await loadSubChannels()
@@ -377,6 +388,36 @@ async function openSubChannels(m: Merchant) {
       subChannels.value = res.list
     } catch { /* 忽略 */ }
   }
+}
+
+// 清空动态字段态。
+function resetSubFields() {
+  subFields.value = []
+  subFieldsLoaded.value = false
+  for (const k of Object.keys(subFieldValues)) delete subFieldValues[k]
+}
+
+// 按当前主通道拉取占位字段定义（新建预览）；curValues 用于回填（编辑时来自子通道 info）。
+async function loadSubFieldsByChannel(channelID: number, curValues?: Record<string, string>) {
+  resetSubFields()
+  if (!channelID) return
+  subFieldsLoading.value = true
+  try {
+    const form = await fetchSubChannelInfoFieldsByChannel(channelID)
+    subFields.value = form.fields
+    subFieldsLoaded.value = true
+    for (const f of form.fields) subFieldValues[f.key] = curValues?.[f.key] ?? ''
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载参数字段失败')
+  } finally {
+    subFieldsLoading.value = false
+  }
+}
+
+// 新建时切换归属主通道 → 重新拉该通道的占位字段（仅新建态；编辑态字段随子通道固定）。
+async function onSubChannelChange(channelID: number) {
+  if (subEditingID.value !== null) return
+  await loadSubFieldsByChannel(channelID)
 }
 async function loadSubChannels() {
   if (!subMerchant.value) return
@@ -391,13 +432,38 @@ async function loadSubChannels() {
     subLoading.value = false
   }
 }
-function subEdit(sc: SubChannelView) {
+async function subEdit(sc: SubChannelView) {
   subEditingID.value = sc.id
-  Object.assign(subForm, { channel: sc.channel, name: sc.name, info: sc.info })
+  Object.assign(subForm, { channel: sc.channel, name: sc.name })
+  // 编辑：按子通道 ID 拉字段定义（后端已回填当前 info 值），比自行解析 info JSON 更稳。
+  resetSubFields()
+  subFieldsLoading.value = true
+  try {
+    const form = await fetchSubChannelInfoFields(sc.id)
+    subFields.value = form.fields
+    subFieldsLoaded.value = true
+    for (const f of form.fields) subFieldValues[f.key] = f.value ?? ''
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载参数字段失败')
+  } finally {
+    subFieldsLoading.value = false
+  }
 }
 function subResetForm() {
   subEditingID.value = null
-  Object.assign(subForm, { channel: subChannels.value[0]?.id ?? 0, name: '', info: '' })
+  const first = subChannels.value[0]?.id ?? 0
+  Object.assign(subForm, { channel: first, name: '' })
+  void loadSubFieldsByChannel(first)
+}
+// 把动态字段值拼成 info JSON（只收字段定义里的 key，空值也保留键便于占位替换判定）。
+function buildSubInfo(): string {
+  if (!subFieldsLoaded.value || subFields.value.length === 0) return ''
+  const obj: Record<string, string> = {}
+  for (const f of subFields.value) {
+    const v = (subFieldValues[f.key] ?? '').trim()
+    if (v !== '') obj[f.key] = v
+  }
+  return Object.keys(obj).length ? JSON.stringify(obj) : ''
 }
 async function subSave() {
   if (!subMerchant.value) return
@@ -406,7 +472,7 @@ async function subSave() {
   const payload: SubChannelSaveReq = {
     channel: subForm.channel,
     name: subForm.name.trim(),
-    info: subForm.info.trim(),
+    info: buildSubInfo(),
   }
   subSaving.value = true
   try {
@@ -1022,21 +1088,54 @@ async function confirmDelete() {
             <Select
               v-model="subForm.channel"
               :options="subChannels.map((c) => ({ value: c.id, label: `${c.name}（${c.typeshowname}）` }))"
+              :disabled="subEditingID !== null"
               class="flex-1"
+              @update:model-value="onSubChannelChange(subForm.channel)"
             />
           </div>
           <div class="row-field">
             <label class="lbl">子通道名称<span class="text-destructive">*</span></label>
             <input v-model="subForm.name" placeholder="同一商户内唯一" class="field-input flex-1" />
           </div>
+          <!-- 自定义参数：按主通道 config 占位符动态渲染（对齐 epay subChannelInfo），只填占位字段 -->
           <div>
-            <label class="mb-1.5 block text-sm">自定义参数（JSON，可空）</label>
-            <textarea
-              v-model="subForm.info"
-              rows="4"
-              placeholder='如 {"appid":"xxx"}，替换主通道 config 中形如 [appid] 的占位变量'
-              class="field-input w-full font-mono text-xs"
-            />
+            <label class="mb-1.5 block text-sm">自定义支付参数</label>
+            <div v-if="subFieldsLoading" class="text-xs dim">加载参数字段…</div>
+            <div v-else-if="!subForm.channel" class="text-xs dim">请先选择归属主通道</div>
+            <div v-else-if="subFieldsLoaded && subFields.length === 0" class="rounded bg-muted/40 px-3 py-2 text-xs dim">
+              该主通道未配置占位参数（config 无形如 [key] 的字段），此子通道无需填写自定义参数。
+            </div>
+            <div v-else class="space-y-3">
+              <div v-for="f in subFields" :key="f.key" class="space-y-1">
+                <label class="block text-sm">
+                  {{ f.label }}
+                  <span class="ml-1 text-xs dim">[{{ f.key }}]</span>
+                </label>
+                <textarea
+                  v-if="f.type === 'textarea'"
+                  v-model="subFieldValues[f.key]"
+                  rows="2"
+                  :placeholder="f.tip"
+                  class="field-input w-full font-mono text-xs"
+                />
+                <Select
+                  v-else-if="f.type === 'select' && f.options"
+                  v-model="subFieldValues[f.key]"
+                  :options="f.options.map((o, i) => ({ value: String(i), label: o }))"
+                  class="w-full"
+                />
+                <input
+                  v-else
+                  v-model="subFieldValues[f.key]"
+                  :type="f.type === 'password' ? 'password' : 'text'"
+                  :placeholder="f.tip"
+                  class="field-input w-full"
+                />
+              </div>
+              <p class="text-xs dim">
+                以上字段将替换主通道 config 中对应的 [占位] 变量，作为该商户在此通道的专属参数（如子商户号）。
+              </p>
+            </div>
           </div>
           <div class="flex items-center gap-2">
             <Button size="sm" :disabled="subSaving" @click="subSave">

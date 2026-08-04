@@ -23,6 +23,7 @@ type Deps struct {
 	Channel        *handler.ChannelHandler
 	Roll           *handler.RollHandler
 	SubChannel     *handler.SubChannelHandler
+	ChannelEnroll  *handler.ChannelEnrollHandler
 	PayType        *handler.PayTypeHandler
 	Weixin         *handler.WeixinHandler
 	Wework         *handler.WeworkHandler
@@ -181,10 +182,21 @@ func Setup(r *gin.Engine, d Deps) {
 
 			// 子通道（商户维度，?uid= 指定商户）
 			authed.GET("/subchannels", d.SubChannel.List)
+			authed.GET("/subchannels/info-fields", d.SubChannel.InfoFormByChannel) // 新建预览：?channel= 按主通道取占位字段
 			authed.POST("/subchannels", d.SubChannel.Create)
 			authed.PUT("/subchannels/:id", d.SubChannel.Update)
 			authed.PUT("/subchannels/:id/status", d.SubChannel.SetStatus)
+			authed.GET("/subchannels/:id/info-fields", d.SubChannel.InfoForm) // 编辑：按主通道占位符+插件inputs动态渲染info表单(对齐epay subChannelInfo)
 			authed.DELETE("/subchannels/:id", d.SubChannel.Delete)
+
+			// 服务商通道商户进件审核（epay 精仿线：只走商户进件不走二清；通过则自动建子通道回填子商户号）
+			if d.ChannelEnroll != nil {
+				authed.GET("/channel-enrolls", d.ChannelEnroll.List)
+				authed.GET("/channel-enrolls/:id", d.ChannelEnroll.Get)
+				authed.POST("/channel-enrolls/:id/sync", d.ChannelEnroll.Sync)       // 主动拉取微信进件状态
+				authed.POST("/channel-enrolls/:id/approve", d.ChannelEnroll.Approve) // 管理员手动交付（兜底）
+				authed.POST("/channel-enrolls/:id/reject", d.ChannelEnroll.Reject)   // 管理员手动驳回（兜底）
+			}
 
 			// 支付方式 pay_type
 			authed.GET("/paytypes", d.PayType.List)
@@ -427,6 +439,7 @@ func Setup(r *gin.Engine, d Deps) {
 			mAuthed.GET("/transfers", d.MerchantCenter.Transfers)
 			mAuthed.POST("/transfer", d.MerchantCenter.TransferCreate)
 			// 保证金 / 购买会员（D3 增值）
+			mAuthed.GET("/features", d.MerchantCenter.Features) // 商户端全局功能开关（导航/页面守卫用）
 			mAuthed.GET("/deposit", d.MerchantCenter.DepositInfo)
 			mAuthed.POST("/deposit/recharge", d.MerchantCenter.DepositRecharge)
 			mAuthed.POST("/deposit/withdraw", d.MerchantCenter.DepositWithdraw)
@@ -452,6 +465,20 @@ func Setup(r *gin.Engine, d Deps) {
 			mAuthed.GET("/help", d.MerchantCenter.Help)
 			mAuthed.GET("/messages", d.MerchantCenter.Messages)
 			mAuthed.POST("/messages/:id/read", d.MerchantCenter.MessageRead)
+			// 服务商通道商户进件自助（epay 精仿线：选服务商通道进件拿自己的子商户号，非二清）
+			if d.ChannelEnroll != nil {
+				mAuthed.GET("/channel-enrolls", d.ChannelEnroll.MyList)
+				mAuthed.GET("/channel-enrolls/channels", d.ChannelEnroll.MyChannels) // 可进件的服务商通道选项（须在 :id 前）
+				mAuthed.GET("/channel-enrolls/:id", d.ChannelEnroll.MyGet)
+				mAuthed.POST("/channel-enrolls", d.ChannelEnroll.MyCreate)
+				mAuthed.POST("/channel-enrolls/:id/media", d.ChannelEnroll.MyUploadMedia) // 上传资料图片换 media_id
+				mAuthed.POST("/channel-enrolls/:id/video", d.ChannelEnroll.MyUploadVideo) // 上传资料视频换 media_id
+				mAuthed.POST("/channel-enrolls/:id/material", d.ChannelEnroll.MyFillMaterial)
+				mAuthed.POST("/channel-enrolls/:id/submit", d.ChannelEnroll.MySubmit) // 提交微信进件（applyment4sub）
+				mAuthed.POST("/channel-enrolls/:id/sync", d.ChannelEnroll.MySync)     // 拉取微信进件状态
+				mAuthed.POST("/channel-enrolls/:id/toggle", d.ChannelEnroll.MyToggle)   // 支付开关：启停已开通渠道
+				mAuthed.DELETE("/channel-enrolls/:id", d.ChannelEnroll.MyDelete)       // 删除进件单（提交前放弃，仅草稿/被驳回）
+			}
 		}
 	}
 

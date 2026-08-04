@@ -61,6 +61,9 @@ var configDefaults = map[string]string{
 	// 支付 pay
 	"pay_maxmoney": "50000",                // 最大支付金额
 	"pay_minmoney": "0.01",                 // 最小支付金额
+	// 内部收款统一通道（自研扩展）：余额充值/进件/测试/聚合收款等平台内部订单默认走此通道插件 key。
+	// 默认七相聚合(qixiang)；改此值即可全站切换内部收款通道，无需动代码。
+	"internal_pay_plugin": "qixiang",
 	"blockname":    "博彩|赌博|违禁|毒品|枪支", // 商品屏蔽关键词(|分隔)
 	"blockalert":   "温馨提醒该商品禁止出售",     // 屏蔽提示
 	"forceqq":      "0", // 强制填联系QQ才能收款(1开0关；对齐 epay forceqq)
@@ -230,6 +233,7 @@ var configGroups = map[string][]string{
 		"cert_force", "forceqq", "pay_iplimit", "pay_userlimit",
 		"pay_verify", "pay_verify_type", "pay_verify_check_uid",
 		"pay_verify_check_second", "pay_verify_check_count", "pay_verify_check_rate", "pay_verify_check_ip",
+		"internal_pay_plugin",
 	},
 	"deposit": {"user_deposit_min", "cert_money", "user_deposit", "user_deposit_day"},
 	"site":    {"sitename", "kfqq", "reg_open"},

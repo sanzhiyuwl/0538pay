@@ -2,17 +2,42 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Menu, Bell, Sun, Moon, ChevronDown, Store, ShieldAlert } from 'lucide-vue-next'
-import { merchantNav, merchantLeaves, type NavNode } from '@/config/nav'
+import { merchantNav as rawMerchantNav, type NavNode, type NavLeaf } from '@/config/nav'
 import { useThemeStore } from '@/stores/theme'
 import { cn } from '@/lib/utils'
 import { useIdleLogout } from '@/composables/useIdleLogout'
 import { useMerchantAuthStore } from '@/stores/merchantAuth'
+import { useMerchantFeaturesStore } from '@/stores/merchantFeatures'
 import MerchantUserMenu from '@/components/MerchantUserMenu.vue'
 import MerchantNotificationDrawer from '@/components/MerchantNotificationDrawer.vue'
 import { fetchMessages } from '@/lib/api/merchantCenter'
 import { Button } from '@/components/ui'
 
 const theme = useThemeStore()
+
+// 商户端全局功能开关：挂载拉一次，用于过滤导航（保证金门槛关闭时隐藏保证金入口）。
+const featuresStore = useMerchantFeaturesStore()
+onMounted(() => featuresStore.load())
+
+// 按开关过滤后的导航：保证金门槛（deposit）关闭时，从「账户中心」剔除「保证金」子项。
+const merchantNav = computed<NavNode[]>(() =>
+  rawMerchantNav
+    .map((node) => {
+      if (!node.children) return node
+      const children = node.children.filter(
+        (leaf) => leaf.to !== '/m/deposit' || featuresStore.features.deposit,
+      )
+      return { ...node, children }
+    })
+    // 剔除过滤后子项为空的分组（当前不会出现，防御性保留）
+    .filter((node) => !node.children || node.children.length > 0),
+)
+// 可路由叶子（面包屑/当前标题用），随过滤后的导航同步。
+const merchantLeaves = computed<NavLeaf[]>(() =>
+  merchantNav.value.flatMap((n) =>
+    n.children ? n.children : n.to ? [{ title: n.title, to: n.to }] : [],
+  ),
+)
 
 // 闲置超时自动退出（安全增强）：与管理后台同源逻辑，跳商户登录页。
 const merchantAuth = useMerchantAuthStore()
@@ -47,7 +72,7 @@ function nodeActive(node: NavNode) {
 // 展开状态：默认展开当前所在的一级菜单
 const openKeys = ref<Set<string>>(new Set())
 function syncOpen() {
-  merchantNav.forEach((n) => {
+  merchantNav.value.forEach((n) => {
     if (n.children && nodeActive(n)) openKeys.value.add(n.title)
   })
 }
@@ -61,10 +86,10 @@ function toggle(node: NavNode) {
 }
 
 const currentTitle = computed(
-  () => merchantLeaves.find((i) => i.to === route.path)?.title ?? '工作台',
+  () => merchantLeaves.value.find((i) => i.to === route.path)?.title ?? '工作台',
 )
 const currentParent = computed(() => {
-  const p = merchantNav.find((n) => n.children && nodeActive(n))
+  const p = merchantNav.value.find((n) => n.children && nodeActive(n))
   return p?.title ?? ''
 })
 </script>

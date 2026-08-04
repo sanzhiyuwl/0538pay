@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { Search, RotateCcw, Wallet, AlertCircle, QrCode } from 'lucide-vue-next'
+import { Search, RotateCcw, AlertCircle, QrCode } from 'lucide-vue-next'
 import { Panel, Button, Badge, Select, Pagination, Modal } from '@/components/ui'
 import {
   settleTypeMeta,
@@ -14,7 +13,6 @@ import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 import { formatMoney } from '@/lib/utils'
 
-const router = useRouter()
 const toast = useToast()
 
 // ===== 真接口数据（一次拉当前商户结算记录，客户端筛选/分页）=====
@@ -72,9 +70,11 @@ function confirmReceipt(s: SettleRecord) {
   <div class="space-y-2.5">
     <!-- 筛选 -->
     <Panel title="结算记录" :subtitle="`共 ${total} 条`">
+      <!-- 申请提现入口隐藏（功能下线，路由保留）
       <template #actions>
         <Button size="sm" @click="router.push('/m/apply')"><Wallet />申请提现</Button>
       </template>
+      -->
       <div class="filter-bar">
         <div class="filter-item">
           <label class="filter-label">结算状态</label>

@@ -191,3 +191,60 @@ export const provinceOptions: { value: string; label: string }[] = [
   { value: '810000', label: '香港特别行政区' },
   { value: '820000', label: '澳门特别行政区' },
 ]
+
+// —— 门店省市区编码（biz_store_info.biz_address_code，区县级必填）——
+// 微信「线下场所」的省市编码不同于开户银行：必须精确到区/县级 6 位码，且取值必须落在
+// 微信官方《省市区编号对照表》(合作伙伴 4012082815) 内，省级码（xx0000）会被 PARAM_ERROR 拒绝。
+// 数据源：该文档的全量 xlsx 附件解析而来（微信口径，非纯 GB/T 2260；微信调价/调整时手动重跑更新 json）。
+import wxAreaCatalog from '@/data/wx_area_catalog.json'
+
+interface AreaNode {
+  code: string
+  name: string
+}
+interface WxAreaCatalog {
+  updated: string
+  source: string
+  provinces: AreaNode[]
+  cities: Record<string, AreaNode[]> // 省code → 市列表
+  districts: Record<string, AreaNode[]> // 市code → 区县列表
+}
+const wxArea = wxAreaCatalog as WxAreaCatalog
+
+const toOptions = (list: AreaNode[]): { value: string; label: string }[] =>
+  list.map((a) => ({ value: a.code, label: a.name }))
+
+/** 门店省份下拉选项（区县级级联的第一级）。 */
+export const wxProvinceOptions = toOptions(wxArea.provinces)
+
+/** 某省下的市级下拉选项；无匹配返回空数组。 */
+export function wxCityOptions(provinceCode: string): { value: string; label: string }[] {
+  if (!provinceCode) return []
+  return toOptions(wxArea.cities[provinceCode] ?? [])
+}
+
+/** 某市下的区县下拉选项（biz_address_code 最终取这一级的 code）；无匹配返回空数组。 */
+export function wxDistrictOptions(cityCode: string): { value: string; label: string }[] {
+  if (!cityCode) return []
+  return toOptions(wxArea.districts[cityCode] ?? [])
+}
+
+/**
+ * 由一个区县级 biz_address_code 反查其所属的省code、市code（用于回显已保存的值到三级下拉）。
+ * 找不到时对应项返回空串。
+ */
+export function wxResolveArea(districtCode: string): { province: string; city: string } {
+  const empty = { province: '', city: '' }
+  if (!districtCode) return empty
+  for (const [cityCode, list] of Object.entries(wxArea.districts)) {
+    if (list.some((d) => d.code === districtCode)) {
+      for (const [provCode, cities] of Object.entries(wxArea.cities)) {
+        if (cities.some((c) => c.code === cityCode)) {
+          return { province: provCode, city: cityCode }
+        }
+      }
+      return { province: '', city: cityCode }
+    }
+  }
+  return empty
+}

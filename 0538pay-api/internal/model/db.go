@@ -72,6 +72,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&Article{},
 		&OperationLog{},
 		&Role{},
+		// 服务商通道商户进件（epay 精仿线：只走商户进件不走二清，0730 阶段1）
+		&ChannelEnroll{},
 		// 代理进件平台（自研扩展，epay 无）
 		&Agent{},
 		&AgentQuotaWallet{},

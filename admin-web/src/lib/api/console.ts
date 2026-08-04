@@ -333,6 +333,7 @@ export interface EnrollMaterialView {
   has_account_name: boolean
   has_account_number: boolean
   has_contact_name: boolean
+  contact_name_masked: string // 超管姓名脱敏（张*/徐*坤），提示谁来扫码签约
   has_contact_id_number: boolean
   has_mobile_phone: boolean
   has_contact_email: boolean

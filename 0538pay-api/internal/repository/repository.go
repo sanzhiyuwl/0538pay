@@ -424,6 +424,13 @@ func (r *ChannelRepo) ListEnabledByType(typeID int) ([]model.Channel, error) {
 	return list, err
 }
 
+// ListEnabled 列出全部启用通道（status=1），按 id 升序。服务商进件线筛可进件通道用。
+func (r *ChannelRepo) ListEnabled() ([]model.Channel, error) {
+	var list []model.Channel
+	err := r.db.Where("status = 1").Order("id ASC").Find(&list).Error
+	return list, err
+}
+
 // FindManyByIDs 按 ID 列表批量查通道（轮询组内成员金额过滤用）。返回 id→通道。
 func (r *ChannelRepo) FindManyByIDs(ids []int) (map[int]*model.Channel, error) {
 	out := map[int]*model.Channel{}

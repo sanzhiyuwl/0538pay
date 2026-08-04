@@ -33,6 +33,7 @@ const brandStyle: Record<string, { accent: string; color: string }> = {
   彩虹易支付: { accent: 'text-primary', color: 'var(--primary)' },
   富友支付: { accent: 'text-[#e6a23c]', color: '#e6a23c' },
   V免签: { accent: 'text-[#8957e5]', color: '#8957e5' },
+  七相聚合: { accent: 'text-[#409eff]', color: '#409eff' },
 }
 function brandAccent(brand: string): string {
   return brandStyle[brand]?.accent || 'text-muted-foreground'
@@ -111,8 +112,12 @@ const brandCards = computed<BrandCard[]>(() => {
       configurable: items.some((x) => x.configurable),
     })
   }
-  // 品牌按形态数降序（覆盖越全越靠前），同数按名称
-  cards.sort((a, b) => b.items.length - a.items.length || a.brand.localeCompare(b.brand))
+  // 七相聚合为平台自用通道，固定置顶；其余品牌按形态数降序（覆盖越全越靠前），同数按名称
+  cards.sort((a, b) => {
+    if (a.brand === '七相聚合') return -1
+    if (b.brand === '七相聚合') return 1
+    return b.items.length - a.items.length || a.brand.localeCompare(b.brand)
+  })
   return cards
 })
 const summary = computed(() => ({
@@ -325,7 +330,10 @@ function isImplemented(name: string): boolean {
                 <BrandLogo :brand="card.brand" />
               </span>
               <div class="min-w-0 flex-1">
-                <div class="truncate text-sm font-semibold leading-tight tracking-tight">{{ card.brand }}</div>
+                <div class="flex items-center gap-1.5">
+                  <span class="truncate text-sm font-semibold leading-tight tracking-tight">{{ card.brand }}</span>
+                  <Badge v-if="card.brand === '七相聚合'" variant="warning">自用通道</Badge>
+                </div>
                 <div class="mt-0.5 truncate text-[11px] text-muted-foreground">{{ protocolLine(card) }}</div>
               </div>
               <div class="flex shrink-0 flex-col items-end gap-1">

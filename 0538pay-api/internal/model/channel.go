@@ -29,6 +29,12 @@ type Channel struct {
 	AppWxA    int    `gorm:"column:appwxa;default:0" json:"appwxa"`       // 绑定的微信小程序 id
 	AppType   string `gorm:"column:apptype;size:50" json:"apptype"`       // 通道支持的 APP 支付子类型
 	DayStatus int8   `gorm:"column:daystatus;default:0" json:"daystatus"` // 单日限额开关
+	// MerchantWhitelist 商户白名单（自研扩展，epay 无）：逗号分隔的商户号(uid)列表。
+	// 非空时该通道仅对列表内的商户可用——下单选通道所有分支（随机/子通道/固定/轮询）
+	// 与收银台可见性判定统一过滤，不在名单内的商户视此通道为不存在。
+	// 空=不限制（默认，对齐 epay 原生按用户组分配的行为，不影响既有通道）。
+	// 用途：把某通道（如七相聚合自用通道）锁死只给指定商户收款。
+	MerchantWhitelist string `gorm:"column:merchant_whitelist;size:255;default:''" json:"merchant_whitelist"`
 }
 
 func (Channel) TableName() string { return "pay_channel" }

@@ -35,7 +35,10 @@ func (s *PayService) Notify(ctx context.Context, tradeNo string, raw map[string]
 	if !ok {
 		return nil, payErr("支付渠道不可用：" + order.Plugin)
 	}
-	cfg := s.loadChannelConfig(order.Channel)
+	// B4：回调验签依赖子商户的 mch_id/API 密钥，须按 subchannel>0 ? getSub : get 加载配置
+	// （对齐 epay Plugin::loadForPay L54，回调走同一加载路径），否则子通道订单的回调会用
+	// 平台号 config 验签，导致验签失败或错配商户号。与 dispatch/RefundViaChannel 保持一致。
+	cfg := s.loadChannelConfigForOrder(order.Channel, order.Subchannel)
 	nr, err := ch.Notify(ctx, cfg, raw)
 	if err != nil {
 		return nil, payErr("回调解析失败：" + err.Error())

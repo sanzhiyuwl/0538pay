@@ -3,6 +3,7 @@ import { reactive, ref, computed, onMounted } from 'vue'
 import { Save } from 'lucide-vue-next'
 import { Panel, Button, Select, Switch } from '@/components/ui'
 import { fetchConfig, saveConfig } from '@/lib/api/config'
+import { fetchPluginMeta } from '@/lib/api/channels'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 
@@ -40,6 +41,9 @@ const payVerifyTypeOptions = [
 const form = reactive({
   pay_maxmoney: '50000',
   pay_minmoney: '0.01',
+  // 内部收款通道：平台自身充值/进件/测试/聚合等内部收款统一走此通道（默认七相聚合），
+  // 收银台按此通道支持的支付方式（微信/支付宝）分派。对齐后端 internal_pay_plugin。
+  internal_pay_plugin: 'qixiang',
   blockname: '博彩|赌博|违禁|毒品|枪支',
   blockalert: '温馨提醒该商品禁止出售',
   refund_fee_type: '0',
@@ -92,6 +96,29 @@ const depositOn = computed({
 const loading = ref(false)
 const saving = ref(false)
 
+// 内部收款通道候选：从已注册插件里取支持微信/支付宝的聚合/直连通道（默认七相置顶）。
+const internalPluginOptions = ref<{ value: string; label: string }[]>([
+  { value: 'qixiang', label: '七相聚合（自用通道）' },
+])
+
+async function loadInternalPluginOptions() {
+  try {
+    const metas = await fetchPluginMeta()
+    const opts = metas
+      .filter((m) => !m.delegate) // 排除已退役的形态包（仅作聚合门面委托目标）
+      .filter((m) => (m.methods ?? []).some((x) => x === 'alipay' || x === 'wxpay'))
+      .map((m) => ({
+        value: m.key,
+        label: m.key === 'qixiang' ? `${m.showname}（自用通道）` : m.showname,
+      }))
+    // 七相置顶，其余按原序
+    opts.sort((a, b) => (a.value === 'qixiang' ? -1 : b.value === 'qixiang' ? 1 : 0))
+    if (opts.length) internalPluginOptions.value = opts
+  } catch {
+    // 拉取失败保留默认七相选项，不阻断设置页加载
+  }
+}
+
 async function load() {
   loading.value = true
   try {
@@ -108,7 +135,10 @@ async function load() {
     loading.value = false
   }
 }
-onMounted(load)
+onMounted(() => {
+  load()
+  loadInternalPluginOptions()
+})
 
 async function save() {
   saving.value = true
@@ -160,8 +190,16 @@ async function save() {
           <label class="lbl">退款手续费</label>
           <Select v-model="form.refund_fee_type" :options="refundFeeOptions" class="flex-1" />
         </div>
+        <div class="row-field">
+          <label class="lbl">内部收款通道</label>
+          <Select v-model="form.internal_pay_plugin" :options="internalPluginOptions" class="flex-1" />
+        </div>
         <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           屏蔽关键词命中商品名时拦截下单并记风控。退款手续费策略决定退款时从商户扣分成还是扣实付全额。
+        </p>
+        <p class="rounded bg-warning/[0.08] px-3 py-2 text-xs text-warning">
+          内部收款通道：平台自身的余额充值、进件工本费、测试支付、聚合收款等所有内部扫码收款，统一走此通道（默认七相聚合），
+          收银台按该通道支持的支付方式（微信/支付宝）分派。需先在「支付通道」里配置并开启对应通道。
         </p>
       </div>
     </Panel>

@@ -214,6 +214,24 @@ func (s *MerchantSelfService) enabledPayTypes(uid uint, gid int, device string) 
 		return nil
 	}
 	mobile := isMobileDevice(device)
+	// 内部收款统一走配置的 internal_pay_plugin 通道（默认七相聚合）。可选支付方式 = 该通道
+	// 已实现且支持的支付方式集（对齐 descriptor.Methods）∩ 已开启的 pay_type。
+	// Type 返回支付方式英文名（alipay/wxpay），下单 CreateInternalOrder 据此让聚合通道分派收款。
+	internalPlugin := "qixiang"
+	if v := strings.TrimSpace(s.cfg.Str("internal_pay_plugin")); v != "" {
+		internalPlugin = v
+	}
+	ch, err := s.channels.FindEnabledByPlugin(internalPlugin)
+	if err != nil || ch == nil {
+		return nil // 内部收款通道未配置/未开启 → 无可用支付方式
+	}
+	if _, ok := channel.Get(ch.Plugin); !ok {
+		return nil // 通道插件未实现
+	}
+	supported := map[string]bool{}
+	for _, m := range channel.Describe(ch.Plugin).Methods {
+		supported[m] = true
+	}
 	out := make([]dto.PayTypeOption, 0, len(types))
 	seen := map[string]bool{}
 	for i := range types {
@@ -226,26 +244,17 @@ func (s *MerchantSelfService) enabledPayTypes(uid uint, gid int, device string) 
 			continue
 		}
 		// B1-64：按用户组 info 的可见性过滤（channel=0 隐藏 / -1 有启用通道 / -2 有子通道 / 正整数校验通道或轮询组）。
-		// gid>=0 且 selector 注入时才做组过滤；否则退回下面的 plugin 存在性判定（向后兼容）。
 		if s.selector != nil && gid >= 0 {
 			if !s.selector.IsTypeAvailable(uid, gid, int(t.ID)) {
 				continue
 			}
 		}
-		// 该支付方式下需存在已开启通道，且该通道插件已在渠道注册表实现（否则下单会失败）。
-		ch, err := s.channels.FindEnabledByPlugin(t.Name)
-		if err != nil || ch == nil {
+		// 该支付方式须为内部收款通道所支持（如七相支持 alipay/wxpay），且未重复。
+		if !supported[t.Name] || seen[t.Name] {
 			continue
 		}
-		if _, ok := channel.Get(ch.Plugin); !ok {
-			continue // 通道 plugin 未实现（如 seed 里 alipay/wxpay 显示名），不作为测试/收款可选项
-		}
-		if seen[ch.Plugin] {
-			continue
-		}
-		seen[ch.Plugin] = true
-		// Type 用通道 plugin（下单 CreateInternalOrder 按 plugin 定位并 dispatch），ShowName 用支付方式友好名。
-		out = append(out, dto.PayTypeOption{Type: ch.Plugin, ShowName: t.ShowName})
+		seen[t.Name] = true
+		out = append(out, dto.PayTypeOption{Type: t.Name, ShowName: t.ShowName})
 	}
 	return out
 }

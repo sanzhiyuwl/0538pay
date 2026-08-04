@@ -40,6 +40,26 @@ type SelectResult struct {
 	PayMax     string          // 选定通道单笔最大限额（选后硬拒绝用，对齐 epay submitData['paymax']）
 }
 
+// channelAllowsMerchant 判断某通道是否对某商户(uid)开放（自研扩展，epay 无）。
+// MerchantWhitelist 空 → 不限制（默认，对齐 epay 原生行为，恒放行）。
+// 非空 → 仅当 uid 在逗号分隔的白名单里才放行。uid=0（无商户上下文，如后台测试）
+// 在有白名单时一律拒绝，避免误路由到自用通道。
+func channelAllowsMerchant(ch *model.Channel, uid uint) bool {
+	wl := strings.TrimSpace(ch.MerchantWhitelist)
+	if wl == "" {
+		return true // 未设白名单：不限制
+	}
+	if uid == 0 {
+		return false // 有白名单但无商户上下文：拒绝
+	}
+	for _, seg := range strings.Split(wl, ",") {
+		if id, err := strconv.Atoi(strings.TrimSpace(seg)); err == nil && uint(id) == uid {
+			return true
+		}
+	}
+	return false
+}
+
 // GroupAssign 用户组 info 里单个支付方式的分配配置（对齐 epay pre_group.info 的值对象）。
 // epay 里 channel 以字符串存（如 "-1"），故用 string 承接再转换。
 type GroupAssign struct {
@@ -60,7 +80,7 @@ func (s *ChannelSelector) Select(uid uint, gid, typeID int, money decimal.Decima
 	}
 	if !hasGroup {
 		// 未设置用户组 info → 该 type 下所有启用通道中随机（对齐 epay else 分支的 SQL rand()）。
-		return s.pickRandomOfType(typeID, money, decimal.Decimal{}, false)
+		return s.pickRandomOfType(uid, typeID, money, decimal.Decimal{}, false)
 	}
 
 	channelVal, _ := strconv.Atoi(strings.TrimSpace(assign.Channel))
@@ -72,13 +92,13 @@ func (s *ChannelSelector) Select(uid uint, gid, typeID int, money decimal.Decima
 		return nil, selErr("当前支付方式已关闭")
 	case channelVal == -1:
 		// (B) 随机可用通道。
-		return s.pickRandomOfType(typeID, money, rateOverride, hasRate)
+		return s.pickRandomOfType(uid, typeID, money, rateOverride, hasRate)
 	case channelVal == -2:
 		// (C) 用户自定义子通道（顺序调度）。
 		return s.pickSubChannel(uid, typeID, money, rateOverride, hasRate)
 	default:
 		// (D) 正整数：固定通道 或 轮询组（由 type 字段判定）。
-		return s.pickFixedOrRoll(assign, channelVal, money, rateOverride, hasRate)
+		return s.pickFixedOrRoll(uid, assign, channelVal, money, rateOverride, hasRate)
 	}
 }
 
@@ -93,28 +113,50 @@ func (s *ChannelSelector) IsTypeAvailable(uid uint, gid, typeID int) bool {
 		return false
 	}
 	if !hasGroup {
-		// 无组 info：该 type 下存在启用通道即可见（对齐 epay else 分支的 status=1 探测）。
-		list, err := s.channels.ListEnabledByType(typeID)
-		return err == nil && len(list) > 0
+		// 无组 info：该 type 下存在（对本商户开放的）启用通道即可见。
+		return s.hasEnabledForMerchant(uid, typeID)
 	}
 	channelVal, _ := strconv.Atoi(strings.TrimSpace(assign.Channel))
 	switch {
 	case channelVal == 0:
 		return false
 	case channelVal == -1:
-		list, err := s.channels.ListEnabledByType(typeID)
-		return err == nil && len(list) > 0
+		return s.hasEnabledForMerchant(uid, typeID)
 	case channelVal == -2:
 		rows, err := s.subchannels.FindPickable(uid, typeID)
-		return err == nil && len(rows) > 0
+		if err != nil {
+			return false
+		}
+		// 商户白名单过滤：主通道设白名单且本商户不在其中的子通道不计入可见（自研扩展）。
+		for i := range rows {
+			if channelAllowsMerchant(&model.Channel{MerchantWhitelist: rows[i].Whitelist}, uid) {
+				return true
+			}
+		}
+		return false
 	default:
 		if assign.Type == "roll" {
 			roll, err := s.rolls.FindByID(uint(channelVal))
 			return err == nil && roll != nil && roll.Status == 1
 		}
 		ch, err := s.channels.FindByID(uint(channelVal))
-		return err == nil && ch != nil && ch.Status == 1 && ch.DayStatus == 0
+		return err == nil && ch != nil && ch.Status == 1 && ch.DayStatus == 0 && channelAllowsMerchant(ch, uid)
 	}
+}
+
+// hasEnabledForMerchant 该支付方式下是否存在「对本商户开放的」启用通道（自研扩展白名单感知）。
+// 替代裸的 ListEnabledByType()>0 判定，避免自用通道让支付方式对无关商户误显示为可用。
+func (s *ChannelSelector) hasEnabledForMerchant(uid uint, typeID int) bool {
+	list, err := s.channels.ListEnabledByType(typeID)
+	if err != nil {
+		return false
+	}
+	for i := range list {
+		if channelAllowsMerchant(&list[i], uid) {
+			return true
+		}
+	}
+	return false
 }
 
 // loadAssign 载入某组对某支付方式的分配配置。gid>0 查该组，缺失回退默认组 gid=0（对齐 epay）。
@@ -153,10 +195,18 @@ func (s *ChannelSelector) loadAssign(gid, typeID int) (GroupAssign, bool, error)
 
 // pickRandomOfType 对齐 epay -1 分支：取该 type 全部启用通道，金额过滤后等概率随机(array_rand)；
 // 全被金额过滤则在原集里随机（epay 同样兜底）。
-func (s *ChannelSelector) pickRandomOfType(typeID int, money, rateOverride decimal.Decimal, hasRate bool) (*SelectResult, error) {
-	list, err := s.channels.ListEnabledByType(typeID)
+// uid 用于商户白名单过滤（自研扩展）：先剔除本商户不可用的通道，再走 epay 原逻辑。
+func (s *ChannelSelector) pickRandomOfType(uid uint, typeID int, money, rateOverride decimal.Decimal, hasRate bool) (*SelectResult, error) {
+	all, err := s.channels.ListEnabledByType(typeID)
 	if err != nil {
 		return nil, err
+	}
+	// 商户白名单过滤：不在名单内的通道对本商户不存在（自研扩展，先于 epay 金额过滤）。
+	list := make([]model.Channel, 0, len(all))
+	for i := range all {
+		if channelAllowsMerchant(&all[i], uid) {
+			list = append(list, all[i])
+		}
 	}
 	if len(list) == 0 {
 		return nil, selErr("暂无可用支付通道")
@@ -178,9 +228,16 @@ func (s *ChannelSelector) pickRandomOfType(typeID int, money, rateOverride decim
 // pickSubChannel 对齐 epay -2 分支：该商户该 type 下按 use_time 升序取第一个可用子通道，
 // 命中后回写 use_time。金额过滤后取第一个，全被过滤则取原集第一个。
 func (s *ChannelSelector) pickSubChannel(uid uint, typeID int, money, rateOverride decimal.Decimal, hasRate bool) (*SelectResult, error) {
-	rows, err := s.subchannels.FindPickable(uid, typeID)
+	all, err := s.subchannels.FindPickable(uid, typeID)
 	if err != nil {
 		return nil, err
+	}
+	// 商户白名单过滤（自研扩展）：主通道设了白名单且本商户不在其中 → 该子通道对本商户不可用。
+	rows := make([]repository.SubChannelPick, 0, len(all))
+	for i := range all {
+		if channelAllowsMerchant(&model.Channel{MerchantWhitelist: all[i].Whitelist}, uid) {
+			rows = append(rows, all[i])
+		}
 	}
 	if len(rows) == 0 {
 		return nil, selErr("暂无可用子通道，请联系管理员配置")
@@ -236,10 +293,10 @@ func subInfoAppType(info string) string {
 
 // pickFixedOrRoll 对齐 epay (D) 分支：type=roll 时正整数是轮询组ID，先经 getChannelFromRoll
 // 解析成真实通道ID；否则正整数直接是通道ID。随后校验通道启用。
-func (s *ChannelSelector) pickFixedOrRoll(assign GroupAssign, channelVal int, money, rateOverride decimal.Decimal, hasRate bool) (*SelectResult, error) {
+func (s *ChannelSelector) pickFixedOrRoll(uid uint, assign GroupAssign, channelVal int, money, rateOverride decimal.Decimal, hasRate bool) (*SelectResult, error) {
 	channelID := channelVal
 	if assign.Type == "roll" {
-		resolved, err := s.getChannelFromRoll(uint(channelVal), money)
+		resolved, err := s.getChannelFromRoll(uid, uint(channelVal), money)
 		if err != nil {
 			return nil, err
 		}
@@ -256,6 +313,10 @@ func (s *ChannelSelector) pickFixedOrRoll(assign GroupAssign, channelVal int, mo
 	// $row['daystatus']==0 因键缺失恒真 → 组固定指定的通道不受 daytop 单日熔断影响）。
 	// roll 分支的 daystatus 过滤已在 getChannelFromRoll 池内做过，此处沿用 status 校验即可。
 	if ch == nil || ch.Status != 1 {
+		return nil, selErr("指定支付通道不可用")
+	}
+	// 商户白名单过滤（自研扩展）：固定/轮询指定的通道也须对本商户开放，否则拒绝。
+	if !channelAllowsMerchant(ch, uid) {
 		return nil, selErr("指定支付通道不可用")
 	}
 	return s.buildResult(ch, 0, "", rateOverride, hasRate), nil
@@ -282,7 +343,7 @@ func (s *ChannelSelector) buildResult(ch *model.Channel, subID int, subInfo stri
 // getChannelFromRoll 1:1 移植 epay Channel::getChannelFromRoll：
 // 载入轮询组 → 金额过滤组内可用通道 → 按 kind 选：2首个/1权重随机/0顺序游标。
 // 返回命中的真实通道ID；组未启用/无可用返回 0。
-func (s *ChannelSelector) getChannelFromRoll(rollID uint, money decimal.Decimal) (int, error) {
+func (s *ChannelSelector) getChannelFromRoll(uid, rollID uint, money decimal.Decimal) (int, error) {
 	roll, err := s.rolls.FindByID(rollID)
 	if err != nil {
 		return 0, err
@@ -303,10 +364,14 @@ func (s *ChannelSelector) getChannelFromRoll(rollID uint, money decimal.Decimal)
 		return 0, err
 	}
 	// 保留原顺序中「启用且金额合规」的成员（对齐 epay 先过滤再按 kind 选）。
+	// 追加商户白名单过滤（自研扩展）：轮询组内不对本商户开放的通道也剔除。
 	avail := make([]rollMember, 0, len(members))
 	for _, m := range members {
 		ch := chMap[m.ChannelID]
 		if ch == nil || ch.Status != 1 || ch.DayStatus != 0 {
+			continue
+		}
+		if !channelAllowsMerchant(ch, uid) {
 			continue
 		}
 		if !channelFitsMoney(ch, money) {

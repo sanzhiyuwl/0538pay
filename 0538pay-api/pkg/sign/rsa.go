@@ -113,6 +113,38 @@ func VerifyRSA(params map[string]string, pubKey string) bool {
 	return rsa.VerifyPKCS1v15(pub, crypto.SHA256, h[:], raw) == nil
 }
 
+// EncryptRSA 用公钥 RSA-OAEP(SHA-256) 加密明文，返回 base64 密文。
+// 用于服务商进件线敏感字段（身份证号/银行账号）可逆落库：公钥加密存库，私钥审核时解密。
+// 2048 位密钥 OAEP-SHA256 单块明文上限 190 字节，身份证/银行账号远小于此，无需分块。
+func EncryptRSA(plain, pubKey string) (string, error) {
+	pub, err := ParseRSAPublicKey(pubKey)
+	if err != nil {
+		return "", err
+	}
+	ct, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, pub, []byte(plain), nil)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(ct), nil
+}
+
+// DecryptRSA 用私钥 RSA-OAEP(SHA-256) 解密 base64 密文，返回明文（与 EncryptRSA 配对）。
+func DecryptRSA(cipherB64, privKey string) (string, error) {
+	priv, err := ParseRSAPrivateKey(privKey)
+	if err != nil {
+		return "", err
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(cipherB64))
+	if err != nil {
+		return "", errors.New("密文非合法 base64")
+	}
+	pt, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, priv, raw, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(pt), nil
+}
+
 // GenerateRSAKeyPair 生成 2048 位 RSA 密钥对，返回 epay 格式的单行 base64（PKCS#8 私钥 / PKIX 公钥）。
 // 对齐 epay generate_key_pair + pemToBase64：库里存去头尾单行 base64。
 func GenerateRSAKeyPair() (privB64, pubB64 string, err error) {

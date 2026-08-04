@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   Search,
@@ -210,6 +210,8 @@ const form = reactive<ChannelSaveReq>({
   daytop: 0,
   paymin: '',
   paymax: '',
+  apptype: '',
+  merchant_whitelist: '',
 })
 
 // 支付方式下拉（去掉“所有支付方式”那项，表单必须选具体方式）
@@ -225,16 +227,46 @@ const pluginOptions = computed(() => {
   const method = typeMethod[form.type]
   return Object.values(pluginMeta.value)
     .filter((m) => m.key !== 'mock' && (m.methods || []).includes(method))
+    // 退役形态包(delegate)不进建通道候选（已聚合到 wxpay/wxpayv2 门面，后端单一数据源标记）；
+    // 编辑存量该形态通道时仍保留当前值，避免下拉丢值（批次二迁移后自然消失）
+    .filter((m) => !m.delegate || m.key === form.plugin)
     .filter((m) => m.enabled || m.key === form.plugin)
     .sort((a, b) => (a.brand + a.protocol + a.form).localeCompare(b.brand + b.protocol + b.form))
     .map((m) => ({ value: m.key, label: m.enabled ? `${m.showname} (${m.key})` : `${m.showname} (${m.key})（已禁用）` }))
 })
 
+// 当前所选插件支持的支付形态（Products()）；非空则表单出 apptype 勾选（聚合门面渠道 wxpay/wxpayv2）。
+const pluginProducts = computed(() => pluginMeta.value[form.plugin]?.products ?? [])
+// 是否为需勾选形态的聚合门面渠道（Products 多于 1 个形态才需勾选；单形态渠道不出勾选）。
+const needAppType = computed(() => pluginProducts.value.length > 1)
+// apptype 勾选集（表单本地，逗号 join 存入 form.apptype 提交）。
+const appTypeChecked = ref<Set<string>>(new Set())
+function toggleAppType(code: string) {
+  const s = new Set(appTypeChecked.value)
+  s.has(code) ? s.delete(code) : s.add(code)
+  appTypeChecked.value = s
+  form.apptype = pluginProducts.value.filter((p) => s.has(p.code)).map((p) => p.code).join(',')
+}
+// 切插件时清空并按新插件重置 apptype 勾选（编辑/复制回填时用 prefilling 抑制，避免清掉回填值）。
+const prefilling = ref(false)
+watch(() => form.plugin, () => {
+  if (prefilling.value) return
+  appTypeChecked.value = new Set()
+  form.apptype = ''
+})
+// prefillAppType 据通道已存 apptype 串回填勾选集（编辑/复制时用）。
+function prefillAppType(apptype?: string) {
+  const codes = (apptype || '').split(',').map((s) => s.trim()).filter(Boolean)
+  appTypeChecked.value = new Set(codes)
+  form.apptype = codes.join(',')
+}
+
 function resetForm() {
   Object.assign(form, {
     name: '', type: 1, plugin: '', mode: 0, rate: '',
-    costrate: '', daytop: 0, paymin: '', paymax: '',
+    costrate: '', daytop: 0, paymin: '', paymax: '', apptype: '', merchant_whitelist: '',
   })
+  appTypeChecked.value = new Set()
 }
 
 function openCreate() {
@@ -246,6 +278,7 @@ function openCreate() {
 
 function openEdit(c: Channel) {
   editingId.value = c.id
+  prefilling.value = true // 抑制 plugin watch 清空 apptype
   Object.assign(form, {
     name: c.name,
     type: c.type || 1,
@@ -256,7 +289,11 @@ function openEdit(c: Channel) {
     daytop: c.daytop,
     paymin: c.paymin,
     paymax: c.paymax,
+    apptype: c.apptype || '',
+    merchant_whitelist: c.merchant_whitelist || '',
   })
+  prefillAppType(c.apptype)
+  void nextTick(() => { prefilling.value = false })
   channelDrawer.value = true
   openMenu.value = null
 }
@@ -264,6 +301,7 @@ function openEdit(c: Channel) {
 function openCopy(c: Channel) {
   // 复制：带入源通道字段但清空名称，走新增（对齐 epay copy）
   editingId.value = null
+  prefilling.value = true
   Object.assign(form, {
     name: c.name + ' 副本',
     type: c.type || 1,
@@ -274,7 +312,11 @@ function openCopy(c: Channel) {
     daytop: c.daytop,
     paymin: c.paymin,
     paymax: c.paymax,
+    apptype: c.apptype || '',
+    merchant_whitelist: c.merchant_whitelist || '',
   })
+  prefillAppType(c.apptype)
+  void nextTick(() => { prefilling.value = false })
   channelDrawer.value = true
   openMenu.value = null
 }
@@ -288,6 +330,8 @@ async function saveChannel() {
   if (!form.name.trim()) return toast.error('请填写显示名称')
   if (!form.plugin) return toast.error('请选择支付插件')
   if (!form.rate.trim()) return toast.error('请填写分成比例')
+  // 聚合门面渠道必须勾选至少一个支付形态，否则下单无形态可分派。
+  if (needAppType.value && !(form.apptype || '').trim()) return toast.error('请至少勾选一个支付形态')
   const payload: ChannelSaveReq = {
     name: form.name.trim(),
     type: form.type,
@@ -298,6 +342,8 @@ async function saveChannel() {
     daytop: form.mode === 1 ? 0 : Number(form.daytop) || 0,
     paymin: form.paymin.trim(),
     paymax: form.paymax.trim(),
+    apptype: needAppType.value ? (form.apptype || '') : '',
+    merchant_whitelist: (form.merchant_whitelist || '').trim(),
   }
   saving.value = true
   try {
@@ -624,6 +670,30 @@ async function saveConfig() {
             class="flex-1"
           />
         </div>
+        <!-- 支付形态勾选（聚合门面渠道 wxpay/wxpayv2：一个通道承载多形态，下单按买家场景自动分派） -->
+        <div v-if="needAppType" class="row-field items-start">
+          <label class="lbl pt-1.5">支付形态<span class="text-destructive">*</span></label>
+          <div class="flex-1">
+            <div class="flex flex-wrap gap-x-5 gap-y-2 bg-muted/40 px-3.5 py-2.5">
+              <label
+                v-for="p in pluginProducts"
+                :key="p.code"
+                class="flex cursor-pointer items-center gap-2 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  class="size-4 rounded border-border accent-primary"
+                  :checked="appTypeChecked.has(p.code)"
+                  @change="toggleAppType(p.code)"
+                />
+                <span>{{ p.name }}</span>
+              </label>
+            </div>
+            <p class="mt-1.5 text-xs text-muted-foreground">
+              勾选此通道开通的形态。买家用微信内/手机浏览器/电脑访问时，系统自动选 JSAPI/H5/Native 下单（对齐 epay apptype）。
+            </p>
+          </div>
+        </div>
         <div class="row-field">
           <label class="lbl">通道模式</label>
           <Select
@@ -666,6 +736,19 @@ async function saveConfig() {
         <div class="row-field">
           <label class="lbl">单笔最大</label>
           <input v-model="form.paymax" placeholder="留空为不限" class="field-input flex-1" />
+        </div>
+        <div class="row-field items-start">
+          <label class="lbl pt-1.5">商户白名单</label>
+          <div class="flex-1">
+            <input
+              v-model="form.merchant_whitelist"
+              placeholder="留空为不限；填商户号如 1000,1002"
+              class="field-input w-full"
+            />
+            <p class="mt-1 text-xs text-muted-foreground">
+              仅供本通道对指定商户开放（自用通道用）。逗号分隔商户号，留空则所有商户按用户组分配正常使用。
+            </p>
+          </div>
         </div>
         <p class="rounded bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           商户直清模式下资金不入平台余额，单日限额将被忽略。新增通道默认关闭，配置好密钥后在列表手动开启。

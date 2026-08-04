@@ -17,7 +17,6 @@ import {
   Gift,
   HelpCircle,
   Globe,
-  Layers,
   Plug,
   MessageCircle,
   Handshake,
@@ -58,6 +57,7 @@ export const navMenu: NavNode[] = [
     icon: Users,
     children: [
       { title: '商户列表', to: '/admin/merchants' },
+      { title: '通道进件审核', to: '/admin/channel-enrolls' },
       { title: '用户组 / 套餐', to: '/admin/groups' },
       { title: '邀请码管理', to: '/admin/invite-codes' },
       { title: '授权域名', to: '/admin/domains' },
@@ -230,6 +230,7 @@ export const merchantNav: NavNode[] = [
       { title: '保证金', to: '/m/deposit' },
     ],
   },
+  { title: '渠道申请', icon: Plug, to: '/m/channel-enroll' },
   {
     title: '交易查询',
     icon: ListOrdered,
@@ -237,7 +238,7 @@ export const merchantNav: NavNode[] = [
       { title: '订单记录', to: '/m/orders' },
       { title: '资金明细', to: '/m/records' },
       { title: '结算记录', to: '/m/settle' },
-      { title: '申请提现', to: '/m/apply' },
+      // { title: '申请提现', to: '/m/apply' }, // 隐藏（路由保留）
       { title: '余额充值', to: '/m/recharge' },
     ],
   },
@@ -248,10 +249,10 @@ export const merchantNav: NavNode[] = [
       { title: '授权域名', to: '/m/domains' },
       { title: '聚合收款', to: '/m/onecode' },
       { title: '测试支付', to: '/m/test' },
-      { title: '代付管理', to: '/m/transfer' },
+      // { title: '代付管理', to: '/m/transfer' }, // 隐藏（路由保留）
     ],
   },
-  { title: '通道套餐', icon: Layers, to: '/m/groupbuy' },
+  // { title: '通道套餐', icon: Layers, to: '/m/groupbuy' }, // 隐藏（用户组套餐，路由保留）
   { title: '邀请返现', icon: Gift, to: '/m/invite' },
   { title: '使用说明', icon: HelpCircle, to: '/m/help' },
 ]

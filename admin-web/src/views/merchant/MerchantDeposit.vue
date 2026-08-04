@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-vue-next'
+import { ArrowDownToLine, ArrowUpFromLine, ShieldOff } from 'lucide-vue-next'
 import { Panel, Button, Select } from '@/components/ui'
 import { fetchDepositInfo, rechargeDeposit, withdrawDeposit, type DepositInfo } from '@/lib/api/merchantCenter'
 import { ApiError } from '@/lib/api/client'
@@ -11,7 +11,7 @@ import { formatMoney } from '@/lib/utils'
 const toast = useToast()
 const auth = useMerchantAuthStore()
 
-const info = ref<DepositInfo>({ deposit: 0, depositMin: 0, money: 0 })
+const info = ref<DepositInfo>({ enabled: true, deposit: 0, depositMin: 0, money: 0 })
 const busy = ref(false)
 
 // 余额支付即时到账；渠道支付待凭证，先只放余额支付
@@ -69,8 +69,21 @@ async function doWithdraw() {
 
 <template>
   <div class="space-y-2.5">
+    <!-- 保证金门槛全局关闭：不展示保证金功能（对齐 epay user_deposit 开关；后台「支付设置」可开启） -->
+    <Panel v-if="!info.enabled" title="保证金">
+      <div class="flex flex-col items-center justify-center gap-3 py-14 text-center">
+        <div class="flex size-12 items-center justify-center rounded-full bg-muted/60 text-muted-foreground">
+          <ShieldOff class="size-6" />
+        </div>
+        <div class="text-sm font-medium">保证金功能未开启</div>
+        <p class="max-w-sm text-xs leading-relaxed text-muted-foreground">
+          平台未启用保证金门槛，暂无需缴纳保证金。如需开启，请联系平台管理员。
+        </p>
+      </div>
+    </Panel>
+
     <!-- 保证金概况 -->
-    <Panel title="保证金" subtitle="平台要求的账户保证金，不足时无法调用部分接口">
+    <Panel v-if="info.enabled" title="保证金" subtitle="平台要求的账户保证金，不足时无法调用部分接口">
       <div class="max-w-2xl">
         <div class="grid grid-cols-2 gap-4">
           <div class="border border-border/70 p-4">
@@ -91,7 +104,7 @@ async function doWithdraw() {
     </Panel>
 
     <!-- 充值保证金 -->
-    <Panel title="充值保证金">
+    <Panel v-if="info.enabled" title="充值保证金">
       <div class="max-w-2xl space-y-3.5">
         <div class="row-field">
           <label class="lbl">充值金额</label>
@@ -113,7 +126,7 @@ async function doWithdraw() {
     </Panel>
 
     <!-- 提取保证金 -->
-    <Panel title="提取保证金" subtitle="将保证金提取回商户可用余额">
+    <Panel v-if="info.enabled" title="提取保证金" subtitle="将保证金提取回商户可用余额">
       <div class="max-w-2xl space-y-3.5">
         <div class="row-field">
           <label class="lbl">提取金额</label>

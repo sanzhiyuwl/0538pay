@@ -29,9 +29,11 @@ import (
 	_ "github.com/epvia/api/internal/channel/epayn"
 	_ "github.com/epvia/api/internal/channel/mock"
 	_ "github.com/epvia/api/internal/channel/vmq"
+	_ "github.com/epvia/api/internal/channel/wxpay" // APIv3 聚合门面（按形态分派委托，批次一）
 	_ "github.com/epvia/api/internal/channel/wxnative"
 	_ "github.com/epvia/api/internal/channel/wxjsapi"
 	_ "github.com/epvia/api/internal/channel/wxh5"
+	_ "github.com/epvia/api/internal/channel/wxpayv2" // APIv2 聚合门面（按形态分派委托，批次一）
 	_ "github.com/epvia/api/internal/channel/wxv2native"
 	_ "github.com/epvia/api/internal/channel/wxv2jsapi"
 	_ "github.com/epvia/api/internal/channel/wxv2h5"
@@ -39,6 +41,7 @@ import (
 	_ "github.com/epvia/api/internal/channel/wxv2app"
 	_ "github.com/epvia/api/internal/channel/wxv2micro"
 	_ "github.com/epvia/api/internal/channel/fuiou2"
+	_ "github.com/epvia/api/internal/channel/qixiang" // 七相聚合支付（易支付 V1(MD5) 兼容，平台自用）
 )
 
 func main() {
@@ -99,6 +102,9 @@ func main() {
 	paySvc.SetWeixinRepo(repository.NewWeixinRepo(db)) // JSAPI 收银台网页授权换 openid（通道绑定公众号 appid/secret）
 	rollSvc := service.NewRollService(rollRepo, channelRepo)
 	subChannelSvc := service.NewSubChannelService(subChannelRepo, channelRepo, merchantRepo)
+	// 服务商通道商户进件（epay 精仿线：只走商户进件不走二清，0730 阶段1）：审核通过自动建子通道+回填子商户号。
+	channelEnrollSvc := service.NewChannelEnrollService(
+		repository.NewChannelEnrollRepo(db), channelRepo, subChannelRepo, configSvc)
 	payTypeSvc := service.NewPayTypeService(payTypeRepo, channelRepo)
 	weixinSvc := service.NewWeixinService(repository.NewWeixinRepo(db))
 	weworkSvc := service.NewWeworkService(repository.NewWeworkRepo(db))
@@ -177,6 +183,7 @@ func main() {
 	enrollSvc := service.NewEnrollService(enrollRepo, configSvc)
 	submchSvc := service.NewSubMerchantService(configSvc) // 特约商户进件微信接口（提交/查状态）
 	enrollSvc.SetSubMerchant(submchSvc)                    // 注入：提交微信 + 查申请单状态
+	channelEnrollSvc.SetSubMerchant(submchSvc)             // 服务商通道商户进件线共用同一微信引擎（全自动 applyment4sub）
 	enrollSvc.SetAgentRepo(agentSvc.Repo())               // 注入：路径一进件成功扣名额
 	agentSvc.SetEnrollRepo(enrollRepo)                    // 注入：删代理守卫查名下进件单/邀请足迹
 	enrollSvc.SetPayService(paySvc)                        // 注入：付费前置下开户费收款单
@@ -250,6 +257,7 @@ func main() {
 		Channel:        handler.NewChannelHandler(channelSvc),
 		Roll:           handler.NewRollHandler(rollSvc),
 		SubChannel:     handler.NewSubChannelHandler(subChannelSvc),
+		ChannelEnroll:  handler.NewChannelEnrollHandler(channelEnrollSvc),
 		PayType:        handler.NewPayTypeHandler(payTypeSvc),
 		Weixin:         handler.NewWeixinHandler(weixinSvc),
 		Wework:         handler.NewWeworkHandler(weworkSvc),

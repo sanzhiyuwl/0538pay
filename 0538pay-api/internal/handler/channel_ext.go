@@ -207,6 +207,38 @@ func (h *SubChannelHandler) SetStatus(c *gin.Context) {
 	resp.OK(c, gin.H{"id": id, "status": req.Status})
 }
 
+// InfoForm GET /api/admin/subchannels/:id/info-fields 取某子通道的自定义参数动态表单
+// （对齐 epay ajax_user subChannelInfo：按主通道占位符 + 插件 inputs 渲染，回填当前值）。
+func (h *SubChannelHandler) InfoForm(c *gin.Context) {
+	id := idParam(c)
+	if id == 0 {
+		resp.Fail(c, 400, "子通道 ID 不合法")
+		return
+	}
+	form, err := h.svc.InfoForm(id)
+	if err != nil {
+		failFromSubErr(c, err)
+		return
+	}
+	resp.OK(c, form)
+}
+
+// InfoFormByChannel GET /api/admin/subchannels/info-fields?channel= 按主通道取空白占位字段
+// （新建子通道时预览要填哪些参数）。
+func (h *SubChannelHandler) InfoFormByChannel(c *gin.Context) {
+	channelID, err := strconv.Atoi(c.Query("channel"))
+	if err != nil || channelID <= 0 {
+		resp.Fail(c, 400, "主通道 ID 不合法")
+		return
+	}
+	form, err := h.svc.InfoFormByChannel(channelID)
+	if err != nil {
+		failFromSubErr(c, err)
+		return
+	}
+	resp.OK(c, form)
+}
+
 // Delete DELETE /api/admin/subchannels/:id 删除子通道。
 func (h *SubChannelHandler) Delete(c *gin.Context) {
 	id := idParam(c)

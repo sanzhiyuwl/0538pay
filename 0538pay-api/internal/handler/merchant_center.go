@@ -570,6 +570,14 @@ func (h *MerchantCenterHandler) DepositInfo(c *gin.Context) {
 	resp.OK(c, info)
 }
 
+// Features GET /api/merchant/features 商户端全局功能开关。
+// 商户布局挂载时拉一次，用于过滤导航/守卫页面（如保证金门槛关闭时隐藏保证金入口）。
+func (h *MerchantCenterHandler) Features(c *gin.Context) {
+	resp.OK(c, gin.H{
+		"deposit": h.svc.DepositEnabled(), // user_deposit 全局开关
+	})
+}
+
 // DepositRecharge POST /api/merchant/deposit/recharge 充值保证金
 func (h *MerchantCenterHandler) DepositRecharge(c *gin.Context) {
 	uid, ok := currentUID(c)

@@ -973,7 +973,10 @@ func (s *PayService) QueryStatus(ctx context.Context, tradeNo string) (int8, err
 	if !ok {
 		return order.Status, nil
 	}
-	cfg := s.loadChannelConfig(order.Channel)
+	// B4：查单是与上游渠道的真实通信，须按 subchannel>0 ? getSub : get 加载配置
+	// （对齐 epay Plugin::loadForPay L54），否则命中子通道的订单会用平台商户号查单，
+	// 既查不到单也构成二清风险。cron 对账 ReconcileUnpaid 复用此函数，一并修复。
+	cfg := s.loadChannelConfigForOrder(order.Channel, order.Subchannel)
 	paid, err := ch.Query(ctx, cfg, order.TradeNo)
 	if err != nil {
 		// 查单失败不改变状态，返回当前未付（收银台继续轮询）
@@ -994,18 +997,6 @@ func (s *PayService) QueryStatus(ctx context.Context, tradeNo string) (int8, err
 		}
 	}
 	return 1, nil
-}
-
-// loadChannelConfig 按通道 ID 载入其密钥配置。通道不存在或无 config 时返回零值 Config。
-func (s *PayService) loadChannelConfig(channelID int) channel.Config {
-	if channelID <= 0 {
-		return channel.Config{Extra: map[string]string{}}
-	}
-	c, err := s.channels.FindByID(uint(channelID))
-	if err != nil || c == nil {
-		return channel.Config{Extra: map[string]string{}}
-	}
-	return buildChannelConfig(c)
 }
 
 // loadChannelConfigForOrder 载入订单所用通道配置，subchannel>0 时用子通道 info 覆盖主通道 config 占位
@@ -1256,16 +1247,21 @@ func (s *PayService) CreateInternalOrder(ctx context.Context, uid uint, tid int8
 	if amount.LessThanOrEqual(decimal.Zero) {
 		return nil, payErr("金额不合法")
 	}
-	ch, err := s.channels.FindEnabledByPlugin(plugin)
+	// 内部订单收款通道解析（自研扩展）：调用方传的 plugin 有两种语义——
+	//   1) 支付方式（alipay/wxpay/qqpay/bank）：平台内部收款统一走配置的 internal_pay_plugin
+	//      通道（如七相聚合），该支付方式仅作 typename 透传给聚合渠道分派微信/支付宝。
+	//   2) 真实通道插件 key（如 mock）：直接用该通道（向后兼容既有 mock 真跑路径）。
+	// 空 plugin 也按内部收款通道兜底。payMethod 为最终透传给渠道的支付方式英文名。
+	channelPlugin, payMethod := s.resolveInternalChannel(plugin)
+	ch, err := s.channels.FindEnabledByPlugin(channelPlugin)
 	if err != nil {
 		return nil, err
 	}
-	channelID := 0
-	rate := decimal.Zero
-	if ch != nil {
-		channelID = int(ch.ID)
-		rate = ch.Rate
+	if ch == nil {
+		return nil, payErr("内部收款通道不可用：请在支付通道里配置并开启「" + channelPlugin + "」通道")
 	}
+	channelID := int(ch.ID)
+	rate := ch.Rate
 	// 费率计算（B1-53，对齐 epay submit2.php:35）：内部订单同样按 tid 维度加费——
 	//   · tid==2 余额充值：无论商户 mode 都走加费（买家多付手续费 realmoney=money*(200-rate)/100、getmoney=money 全额到账）；
 	//   · tid==4 购买用户组：即便 mode==1 也强制平台代收（不加费）；
@@ -1289,9 +1285,9 @@ func (s *PayService) CreateInternalOrder(ctx context.Context, uid uint, tid int8
 		RealMoney:  &realMoney,
 		GetMoney:   getMoney,
 		Type:       0,
-		TypeName:   plugin,
+		TypeName:   payMethod,
 		Channel:    channelID,
-		Plugin:     plugin,
+		Plugin:     channelPlugin,
 		AddTime:    now,
 		Status:     0,
 		Tid:        tid,
@@ -1302,7 +1298,32 @@ func (s *PayService) CreateInternalOrder(ctx context.Context, uid uint, tid int8
 	if err := s.orders.Create(order); err != nil {
 		return nil, err
 	}
-	return s.dispatch(ctx, order, plugin)
+	// 透传支付方式（payMethod）给聚合渠道分派微信/支付宝；mock 通道忽略之。
+	return s.dispatch(ctx, order, payMethod)
+}
+
+// internalPayMethods 内部订单里被当作「支付方式」而非通道 key 的取值集合（对齐渠道 typename 语义）。
+var internalPayMethods = map[string]bool{"alipay": true, "wxpay": true, "qqpay": true, "bank": true}
+
+// resolveInternalChannel 解析内部订单实际收款通道与透传支付方式。
+//   - 传支付方式(alipay/wxpay/…) 或空：通道取配置 internal_pay_plugin（默认 qixiang），payMethod=该方式（空则 alipay）。
+//   - 传真实通道 key（如 mock）：通道就是它，payMethod 同值（mock 渠道忽略 typename）。
+func (s *PayService) resolveInternalChannel(plugin string) (channelPlugin, payMethod string) {
+	plugin = strings.TrimSpace(plugin)
+	if plugin == "" || internalPayMethods[plugin] {
+		cp := "qixiang"
+		if s.cfg != nil {
+			if v := strings.TrimSpace(s.cfg.Str("internal_pay_plugin")); v != "" {
+				cp = v
+			}
+		}
+		pm := plugin
+		if pm == "" {
+			pm = "alipay"
+		}
+		return cp, pm
+	}
+	return plugin, plugin
 }
 
 // calcInternalFee 内部订单费率计算，对齐 epay submit2.php:35 的 tid 维度加费判定。
@@ -1444,9 +1465,15 @@ type sceneParams struct {
 
 // sceneFromParams 从原始请求参数提取下单场景参数。
 func sceneFromParams(params map[string]string) *sceneParams {
+	// device：商户 API 显式传的优先（epay mapi 的 device 入参）；页面下单未传时兜底用 handler 按 UA
+	// 推断的 _scene_device（微信内/手机/PC），供聚合渠道按形态自动分派（对齐 epay 插件现场 checkwechat/checkmobile）。
+	device := params["device"]
+	if device == "" {
+		device = params["_scene_device"]
+	}
 	return &sceneParams{
 		Method:    params["method"],
-		Device:    params["device"],
+		Device:    device,
 		SubOpenID: params["sub_openid"],
 		SubAppID:  params["sub_appid"],
 		AuthCode:  params["auth_code"],

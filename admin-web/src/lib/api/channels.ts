@@ -27,6 +27,10 @@ export interface ChannelSaveReq {
   daytop: number
   paymin: string
   paymax: string
+  /** 通道开通的支付形态集（逗号分隔形态编码，聚合门面渠道 wxpay/wxpayv2 下单分派用） */
+  apptype?: string
+  /** 商户白名单（自研扩展，逗号分隔商户号；非空=该通道仅名单内商户可用，空=不限制） */
+  merchant_whitelist?: string
 }
 
 /** 新增通道，返回新建 ID */
@@ -105,6 +109,7 @@ export interface PluginMeta {
   can_transfer: boolean
   configurable: boolean
   enabled: boolean // 是否启用（后台开关，禁用后收单选通道跳过该插件）
+  delegate?: boolean // 是否为已退役的形态包（仅作聚合门面委托目标，建通道下拉过滤）
 }
 
 /** 拉取所有已注册渠道插件的能力/配置元数据（后台按插件动态渲染密钥表单） */

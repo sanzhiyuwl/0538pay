@@ -283,3 +283,43 @@ func hasPic(v any, want string) bool {
 	return false
 }
 
+
+// TestIsWxAreaDistrictCode 校验门店 biz_address_code 的区县级形态判定（纯函数，不依赖 DB）。
+func TestIsWxAreaDistrictCode(t *testing.T) {
+	cases := []struct {
+		code string
+		want bool
+	}{
+		{"370902", true},  // 泰安市泰山区，合法区县码
+		{"110101", true},  // 北京东城区
+		{"110000", false}, // 省级，应拒
+		{"370000", false}, // 省级
+		{"110100", true},  // 市级：基础形态校验只拦省级(0000结尾)，市级放过（前端级联只能选到区县，此处仅兜底形态）
+		{"37090", false},  // 少一位
+		{"3709021", false},// 多一位
+		{"37090a", false}, // 含字母
+		{"", false},       // 空
+	}
+	for _, c := range cases {
+		if got := isWxAreaDistrictCode(c.code); got != c.want {
+			t.Errorf("isWxAreaDistrictCode(%q)=%v 期望 %v", c.code, got, c.want)
+		}
+	}
+}
+
+// TestMaskNameSingle 校验超管姓名脱敏只隐藏一个字（用于「谁来扫码签约」提示）。
+func TestMaskNameSingle(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", ""},
+		{"王", "王"},
+		{"张伟", "张*"},
+		{"徐志坤", "徐*坤"},
+		{"欧阳娜娜", "欧阳*娜"},
+		{" 李雷 ", "李*"}, // 前后空白先 Trim
+	}
+	for _, c := range cases {
+		if got := maskNameSingle(c.in); got != c.want {
+			t.Errorf("maskNameSingle(%q)=%q 期望 %q", c.in, got, c.want)
+		}
+	}
+}

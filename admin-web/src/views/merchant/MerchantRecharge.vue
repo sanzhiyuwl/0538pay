@@ -11,16 +11,16 @@ import { formatMoney } from '@/lib/utils'
 const toast = useToast()
 const auth = useMerchantAuthStore()
 
-// 充值走渠道下单 → 收银台支付 → 回调入账。mock 渠道可真跑，真实渠道待凭证。
+// 充值走平台内部收款通道（后台「支付设置·内部收款通道」配置，默认七相聚合）→ 收银台支付 → 回调入账。
+// 这里只选支付方式（微信/支付宝），后端据此让聚合通道分派对应收款。
 const plugins = [
-  { value: 'mock', label: '模拟支付（测试）' },
-  { value: 'alipay', label: '支付宝（待凭证）' },
-  { value: 'wxpay', label: '微信支付（待凭证）' },
+  { value: 'alipay', label: '支付宝' },
+  { value: 'wxpay', label: '微信支付' },
 ]
 
 const balance = computed(() => Number(auth.info?.money ?? 0))
 const amount = ref('')
-const plugin = ref('mock')
+const plugin = ref('alipay')
 const busy = ref(false)
 const canSubmit = computed(() => (Number(amount.value) || 0) > 0)
 

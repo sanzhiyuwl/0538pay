@@ -193,6 +193,8 @@ type EnrollMaterialView struct {
 	HasAccountName   bool `json:"has_account_name"`
 	HasAccountNumber bool `json:"has_account_number"`
 	HasContactName   bool `json:"has_contact_name"`
+	// 超管姓名脱敏回显（只隐藏一个字：张*/徐*坤），用于提示「谁来扫码签约」；非明文，不破脱敏红线。
+	ContactNameMasked string `json:"contact_name_masked"`
 	HasContactIDNumber bool `json:"has_contact_id_number"`
 	HasMobilePhone   bool `json:"has_mobile_phone"`
 	HasContactEmail  bool `json:"has_contact_email"`

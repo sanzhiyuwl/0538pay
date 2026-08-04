@@ -16,6 +16,7 @@ import SiteHome from '@/views/site/SiteHome.vue'
 const StyleGuide = () => import('@/views/StyleGuide.vue')
 const Orders = () => import('@/views/Orders.vue')
 const Merchants = () => import('@/views/Merchants.vue')
+const ChannelEnrolls = () => import('@/views/ChannelEnrolls.vue')
 const Settle = () => import('@/views/Settle.vue')
 const ProfitSharing = () => import('@/views/ProfitSharing.vue')
 const Groups = () => import('@/views/Groups.vue')
@@ -96,6 +97,7 @@ const MerchantApply = () => import('@/views/merchant/MerchantApply.vue')
 const MerchantApi = () => import('@/views/merchant/MerchantApi.vue')
 const MerchantProfile = () => import('@/views/merchant/MerchantProfile.vue')
 const MerchantCertificate = () => import('@/views/merchant/MerchantCertificate.vue')
+const MerchantChannelEnroll = () => import('@/views/merchant/MerchantChannelEnroll.vue')
 const MerchantDomains = () => import('@/views/merchant/MerchantDomains.vue')
 const MerchantOnecode = () => import('@/views/merchant/MerchantOnecode.vue')
 const MerchantTransfer = () => import('@/views/merchant/MerchantTransfer.vue')
@@ -161,6 +163,7 @@ function suffixFor(path: string, siteName: string): string {
 const realPages: Record<string, any> = {
   '/admin/orders': Orders,
   '/admin/merchants': Merchants,
+  '/admin/channel-enrolls': ChannelEnrolls,
   '/admin/settle': Settle,
   '/admin/profit-sharing': ProfitSharing,
   '/admin/groups': Groups,
@@ -271,6 +274,7 @@ const merchantPages: Record<string, any> = {
   '/m/api': MerchantApi,
   '/m/profile': MerchantProfile,
   '/m/certificate': MerchantCertificate,
+  '/m/channel-enroll': MerchantChannelEnroll,
   '/m/domains': MerchantDomains,
   '/m/onecode': MerchantOnecode,
   '/m/transfer': MerchantTransfer,

@@ -18,6 +18,8 @@ export interface Channel {
   daytop: number // 单日限额（0=无）
   paymin: string // 单笔最小
   paymax: string // 单笔最大
+  apptype?: string // 通道开通的支付形态集（逗号分隔，聚合门面渠道回填勾选用）
+  merchant_whitelist?: string // 商户白名单（自研扩展，逗号分隔商户号；空=不限制）
   today: string // 今日收款
   yesterday: string // 昨日收款
   status: 0 | 1 // 0=关闭 1=开启

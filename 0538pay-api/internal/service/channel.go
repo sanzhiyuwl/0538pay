@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
@@ -195,6 +196,13 @@ func applyForm(c *model.Channel, req dto.ChannelSaveReq) error {
 	c.CostRate = costRate
 	c.PayMin = strings.TrimSpace(req.PayMin)
 	c.PayMax = strings.TrimSpace(req.PayMax)
+	c.AppType = strings.TrimSpace(req.AppType) // 通道开通的支付形态集（聚合门面渠道下单分派用，对齐 epay apptype）
+	// 商户白名单（自研扩展）：逗号分隔商户号，规整为「去空格、去空段、仅数字」的紧凑串；非法项报错。
+	wl, err := normalizeMerchantWhitelist(req.MerchantWhitelist)
+	if err != nil {
+		return err
+	}
+	c.MerchantWhitelist = wl
 	// 商户直清(mode=1)不加入余额，单日限额无意义 → 置 0（对齐 epay 表单 mode>0 时禁用 daytop）
 	if req.Mode == 1 {
 		c.DayTop = 0
@@ -206,6 +214,34 @@ func applyForm(c *model.Channel, req dto.ChannelSaveReq) error {
 	c.TypeName = tm.name
 	c.TypeShow = tm.showname
 	return nil
+}
+
+// normalizeMerchantWhitelist 规整商户白名单串：按逗号拆分，去空格/空段，校验每段为正整数商户号，
+// 去重后按逗号重新拼接。空输入返回空串（=不限制）。任一非法段返回错误。
+func normalizeMerchantWhitelist(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, 4)
+	for _, seg := range strings.Split(raw, ",") {
+		seg = strings.TrimSpace(seg)
+		if seg == "" {
+			continue
+		}
+		n, err := strconv.Atoi(seg)
+		if err != nil || n <= 0 {
+			return "", chErr("商户白名单只能填正整数商户号，逗号分隔：" + seg)
+		}
+		key := strconv.Itoa(n)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return strings.Join(out, ","), nil
 }
 
 type typeMetaEntry struct {
@@ -231,6 +267,11 @@ func channelTypeMeta(typeID int) typeMetaEntry {
 
 // Create 新增通道，返回新建 ID。
 func (s *ChannelService) Create(req dto.ChannelSaveReq) (uint, error) {
+	// 退役形态包（wxnative/wxjsapi/… 已被 wxpay/wxpayv2 门面聚合）不再直接建通道，
+	// 仅作门面委托目标。挡在此处，前端下拉也据 PluginMeta.Delegate 过滤（单一数据源）。
+	if channel.Describe(strings.TrimSpace(req.Plugin)).Delegate {
+		return 0, chErr("该微信形态已并入聚合渠道，请改用「微信支付」通道并勾选支付形态")
+	}
 	var c model.Channel
 	if err := applyForm(&c, req); err != nil {
 		return 0, err
@@ -266,6 +307,8 @@ func (s *ChannelService) Update(id uint, req dto.ChannelSaveReq) error {
 		"day_top":   exist.DayTop,
 		"pay_min":   exist.PayMin,
 		"pay_max":   exist.PayMax,
+		"apptype":   exist.AppType,           // 支付形态集（聚合门面下单分派用）
+		"merchant_whitelist": exist.MerchantWhitelist, // 商户白名单（自研；空=不限制，用 map 显式写空串才能清除）
 	}
 	return s.repo.Update(id, fields)
 }
@@ -354,6 +397,8 @@ func toChannelView(c *model.Channel) dto.ChannelView {
 		DayTop:    c.DayTop,
 		PayMin:    c.PayMin,
 		PayMax:    c.PayMax,
+		AppType:   c.AppType,
+		MerchantWhitelist: c.MerchantWhitelist,
 		Today:     "0.00", // 派生统计，接订单聚合后补
 		Yesterday: "0.00",
 		Status:    c.Status,

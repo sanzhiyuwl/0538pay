@@ -109,6 +109,26 @@ func deviceFromUA(c *gin.Context) string {
 	return ""
 }
 
+// sceneDeviceFromUA 细分买家环境，返回下单分派用的场景标识（对齐 epay checkwechat/checkmobile）：
+//   - "wechat"：微信内置浏览器（UA 含 MicroMessenger 且非 Windows 桌面微信），门面渠道据此优先 JSAPI
+//   - "mobile"：普通手机浏览器，门面渠道据此走 H5
+//   - ""：PC，门面渠道走 Native 扫码
+//
+// 比 deviceFromUA 多区分「微信内 vs 普通手机」，供微信聚合渠道按形态自动分派（批次一）。
+func sceneDeviceFromUA(c *gin.Context) string {
+	ua := strings.ToLower(c.GetHeader("User-Agent"))
+	// 微信内置浏览器：含 micromessenger 且非桌面版微信（windowswechat），对齐 epay checkwechat()。
+	if strings.Contains(ua, "micromessenger") && !strings.Contains(ua, "windowswechat") {
+		return "wechat"
+	}
+	for _, kw := range []string{"android", "iphone", "ipad", "ipod", "windows phone", "mobile", "alipayclient"} {
+		if strings.Contains(ua, kw) {
+			return "mobile"
+		}
+	}
+	return ""
+}
+
 // errMsg 提取 service 业务错误消息（MerchantAuthError/RiskError 携带友好提示）。
 func errMsg(err error) string {
 	type msgErr interface{ Error() string }

@@ -222,6 +222,7 @@ type PluginMeta struct {
 	CanTransfer  bool `json:"can_transfer"` // 是否实现 Transferer
 	Configurable bool `json:"configurable"` // 是否实现 Configurable
 	Enabled      bool `json:"enabled"`      // 是否启用（后台开关，禁用后收单/选通道跳过；由 service 据 plugin_disabled 覆盖，默认 true）
+	Delegate     bool `json:"delegate"`     // 是否为已退役的形态包（仅作聚合门面委托目标，不再直接建通道；前端建通道下拉过滤）
 }
 
 // Meta 返回某渠道的能力元数据（key 未注册返回 ok=false）。
@@ -231,7 +232,7 @@ func Meta(key string) (PluginMeta, bool) {
 		return PluginMeta{}, false
 	}
 	d := Describe(key)
-	m := PluginMeta{Key: key, ShowName: d.ShowName, Brand: d.Brand, Protocol: d.Protocol, Form: d.Form, Methods: d.Methods, Enabled: true}
+	m := PluginMeta{Key: key, ShowName: d.ShowName, Brand: d.Brand, Protocol: d.Protocol, Form: d.Form, Methods: d.Methods, Delegate: d.Delegate, Enabled: true}
 	if _, ok := c.(Refunder); ok {
 		m.CanRefund = true
 	}

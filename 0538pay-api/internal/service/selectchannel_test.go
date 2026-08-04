@@ -3,8 +3,58 @@ package service
 import (
 	"testing"
 
+	"github.com/epvia/api/internal/model"
 	"github.com/shopspring/decimal"
 )
+
+// TestChannelAllowsMerchant 校验商户白名单过滤（自研扩展）：空=放行；非空按 uid 命中；uid=0 有名单时拒绝。
+func TestChannelAllowsMerchant(t *testing.T) {
+	cases := []struct {
+		wl   string
+		uid  uint
+		want bool
+	}{
+		{"", 1000, true},        // 空名单：不限制
+		{"", 0, true},           // 空名单 + 无上下文：仍放行
+		{"1000", 1000, true},    // 命中
+		{"1000", 1001, false},   // 未命中
+		{"1000,1002", 1002, true}, // 多商户命中
+		{" 1000 , 1002 ", 1000, true}, // 带空格命中
+		{"1000", 0, false},      // 有名单但无商户上下文：拒绝
+		{"1000", 999, false},    // 未命中
+	}
+	for _, c := range cases {
+		got := channelAllowsMerchant(&model.Channel{MerchantWhitelist: c.wl}, c.uid)
+		if got != c.want {
+			t.Errorf("channelAllowsMerchant(wl=%q,uid=%d)=%v，期望%v", c.wl, c.uid, got, c.want)
+		}
+	}
+}
+
+// TestNormalizeMerchantWhitelist 校验白名单规整：去空段/去空格/去重/校验正整数。
+func TestNormalizeMerchantWhitelist(t *testing.T) {
+	ok := map[string]string{
+		"":                  "",
+		"1000":              "1000",
+		" 1000 , 1002 ":     "1000,1002",
+		"1000,,1002,":       "1000,1002",
+		"1000,1000,1002":    "1000,1002", // 去重
+	}
+	for in, want := range ok {
+		got, err := normalizeMerchantWhitelist(in)
+		if err != nil {
+			t.Errorf("normalizeMerchantWhitelist(%q) 意外报错: %v", in, err)
+		}
+		if got != want {
+			t.Errorf("normalizeMerchantWhitelist(%q)=%q，期望%q", in, got, want)
+		}
+	}
+	for _, bad := range []string{"abc", "1000,x", "-5", "0"} {
+		if _, err := normalizeMerchantWhitelist(bad); err == nil {
+			t.Errorf("normalizeMerchantWhitelist(%q) 应报错", bad)
+		}
+	}
+}
 
 // TestParseGroupInfo 校验用户组 info 解析：typeid 键 + 分配对象。
 func TestParseGroupInfo(t *testing.T) {

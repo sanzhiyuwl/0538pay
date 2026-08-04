@@ -31,6 +31,7 @@ const props = defineProps<{
       <div class="flex items-center gap-2 px-6 py-4">
         <h3 class="text-[15px] font-semibold tracking-tight">{{ title }}</h3>
         <span v-if="subtitle" class="text-xs text-muted-foreground">{{ subtitle }}</span>
+        <slot name="title-extra" />
         <div class="flex-1" />
         <slot name="actions" />
       </div>

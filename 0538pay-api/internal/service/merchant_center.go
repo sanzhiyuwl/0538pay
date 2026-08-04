@@ -81,10 +81,16 @@ func (s *MerchantCenterService) DepositInfo(uid uint) (*dto.DepositInfo, error) 
 		return nil, maErr("商户不存在")
 	}
 	return &dto.DepositInfo{
+		Enabled:    userDepositOn,
 		Deposit:    m.Deposit.InexactFloat64(),
 		DepositMin: depositMin.InexactFloat64(),
 		Money:      m.Money.InexactFloat64(),
 	}, nil
+}
+
+// DepositEnabled 返回保证金门槛全局开关（user_deposit）。商户端导航/页面据此决定是否隐藏保证金入口。
+func (s *MerchantCenterService) DepositEnabled() bool {
+	return userDepositOn
 }
 
 // DepositRecharge 保证金充值。余额支付路径即时划转(money→deposit)；渠道支付待凭证(返回错误提示)。

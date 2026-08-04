@@ -122,6 +122,8 @@ type ChannelView struct {
 	DayTop    int    `json:"daytop"`
 	PayMin    string `json:"paymin"`
 	PayMax    string `json:"paymax"`
+	AppType   string `json:"apptype"`   // 通道开通的支付形态集（聚合门面渠道回填勾选用）
+	MerchantWhitelist string `json:"merchant_whitelist"` // 商户白名单（自研扩展，逗号分隔商户号；空=不限制）
 	Today     string `json:"today"`     // 今日收款（派生）
 	Yesterday string `json:"yesterday"` // 昨日收款（派生）
 	SuccessRate string `json:"success_rate"` // 今日成功率%（派生，两位小数）
@@ -140,6 +142,13 @@ type ChannelSaveReq struct {
 	DayTop   int    `json:"daytop"`   // 单日限额（mode=1 时置 0）
 	PayMin   string `json:"paymin"`
 	PayMax   string `json:"paymax"`
+	// AppType 通道开通的支付形态集（逗号分隔形态编码，对齐 epay pay_channel.apptype）。
+	// 聚合门面渠道（wxpay/wxpayv2）据此在下单时按买家场景分派 Native/JSAPI/H5/APP/付款码；
+	// 单形态渠道可空。前端在配置抽屉据插件 Products() 勾选。
+	AppType string `json:"apptype"`
+	// MerchantWhitelist 商户白名单（自研扩展，epay 无）：逗号分隔商户号(uid)。
+	// 非空时该通道仅对名单内商户可用（下单选通道各分支 + 收银台可见性统一过滤）；空=不限制。
+	MerchantWhitelist string `json:"merchant_whitelist"`
 }
 
 // ChannelStatusReq 状态切换入参。
@@ -1163,6 +1172,7 @@ type RechargeReq struct {
 
 // DepositInfo 保证金页信息（当前保证金/门槛/可用余额）。
 type DepositInfo struct {
+	Enabled    bool    `json:"enabled"`    // 保证金门槛全局开关（user_deposit）；关闭时商户端隐藏保证金入口/页面
 	Deposit    float64 `json:"deposit"`    // 当前保证金
 	DepositMin float64 `json:"depositMin"` // 最低保证金要求
 	Money      float64 `json:"money"`      // 可用余额
@@ -1356,6 +1366,25 @@ type SubChannelSaveReq struct {
 // SubChannelStatusReq 子通道状态切换入参。
 type SubChannelStatusReq struct {
 	Status int8 `json:"status"`
+}
+
+// SubChannelInfoField 子通道自定义参数表单的单个字段（对齐 epay ajax_user.php:704-740 subChannelInfo：
+// 只对主通道 config 里值以 '[' 开头的占位字段渲染，字段名取占位 key，元数据取插件 inputs）。
+type SubChannelInfoField struct {
+	Key      string   `json:"key"`      // 占位 key（存入 info 的键 + 主 config 占位符去括号，如 appmchid）
+	Label    string   `json:"label"`    // 显示名（取插件 FieldInput.Label，缺失回退 key）
+	Type     string   `json:"type"`     // 控件类型 text/password/textarea/select（缺失默认 text）
+	Options  []string `json:"options"`  // type=select 的可选项
+	Tip      string   `json:"tip"`      // 输入提示（取插件 FieldInput.Tip）
+	Value    string   `json:"value"`    // 子通道 info 当前值（编辑回填；新建为空）
+}
+
+// SubChannelInfoForm 子通道自定义参数动态表单（后台按主通道占位符渲染，避免手填错 key）。
+type SubChannelInfoForm struct {
+	Channel     int                   `json:"channel"`     // 归属主通道ID
+	ChannelName string                `json:"channelname"` // 主通道名
+	Plugin      string                `json:"plugin"`      // 主通道插件 key
+	Fields      []SubChannelInfoField `json:"fields"`      // 占位字段（含当前值）；空数组=该通道 config 无占位符
 }
 
 // ===== 用户组通道分配（后台，对齐 epay pre_group.info 的 {typeid:{type,channel,rate}}）=====
@@ -1738,4 +1767,81 @@ type MonthlyBill struct {
 // BillingResult 账单中心响应：近 N 期账单，倒序（最新在前）。
 type BillingResult struct {
 	Bills []MonthlyBill `json:"bills"`
+}
+
+// ===== 服务商通道商户进件（epay 精仿线，pay_channel_enroll；只走商户进件不走二清，0730 阶段1）=====
+//
+// 阶段1 半自动：商户在 /m 自助填料 → 提交待审 → 平台后台人工审核 → 通过则系统自动建/更新子通道
+// 并把上游开出的子商户号写进占位符 key、置 status=1、回填 apply_id。敏感字段（证件号/银行账号）
+// RSA 加密可逆落库，后台审核时脱敏展示，需要时解密报送上游。
+
+// ChannelEnrollView 进件单列表/详情视图（不含敏感原文，敏感只回 has_*）。
+type ChannelEnrollView struct {
+	ID           uint   `json:"id"`
+	EnrollNo     string `json:"enroll_no"`
+	UID          uint   `json:"uid"`
+	MerchantName string `json:"merchant_name"` // 商户/主体名称
+	SubjectType  string `json:"subject_type"`  // 主体类型
+	ContactPhone string `json:"contact_phone"` // 联系手机（明文）
+	ChannelID    int    `json:"channel_id"`    // 归属服务商主通道
+	ChannelName  string `json:"channel_name"`  // 主通道名（派生）
+	Plugin       string `json:"plugin"`        // 主通道插件 key
+	Status       string `json:"status"`        // 本地状态机 draft/submitted/approved/rejected
+	StatusText   string `json:"status_text"`   // 状态中文文案
+	SubMchID     string `json:"sub_mchid"`     // 微信子商户号（approved 后有）
+	SubChannelID uint   `json:"subchannel_id"` // 建/更新的子通道 id
+	RejectReason string `json:"reject_reason"` // 驳回原因
+	AuditAdmin   string `json:"audit_admin"`   // 审核人（全自动阶段可空）
+	// 微信 applyment4sub 直提交状态（全自动化）
+	BusinessCode  string `json:"business_code"`   // 业务申请编号
+	WxApplymentID string `json:"wx_applyment_id"` // 微信申请单号
+	WxState       string `json:"wx_state"`        // 微信侧状态原值
+	WxStateText   string `json:"wx_state_text"`   // 微信侧状态中文
+	SignURL       string `json:"sign_url"`        // 超管签约链接（待签约阶段）
+	AddTime       string `json:"add_time"`
+	SubmitTime    string `json:"submit_time"`
+	AuditTime     string `json:"audit_time"`
+	UpdateTime    string `json:"update_time"`       // 最近更新时间（审核完成时间优先，否则提交时间，均无回退建单时间）
+	SubChannelStatus int8 `json:"subchannel_status"` // 已开通单的子通道启停：1启用/0停用；-1=未开通不适用（支付开关列用）
+}
+
+// ChannelEnrollMaterialReq 填料入参（阶段2 全自动化：直接复用代理线 EnrollMaterialReq 的完整微信
+// applyment4sub 五大块字段，敏感字段明文传，后端 RSA-OAEP 用微信平台公钥加密后组装报文提交微信）。
+// ContactPhone/Remark 是商户线专属字段（本平台展示与售后用，不入微信报文）。
+type ChannelEnrollMaterialReq struct {
+	EnrollMaterialReq        // 完整微信 applyment4sub 报文字段（主体/身份/银行/结算/经营场景/UBO/补充材料）
+	ContactPhone string `json:"contact_phone"` // 商户联系手机（本平台售后匹配用；非微信 applyment 字段）
+	Remark       string `json:"remark"`        // 备注/补充说明（本平台留档用）
+}
+
+// ChannelEnrollMaterialView 填料回显（★敏感字段只回是否已填，绝不回原文）。
+// 与 EnrollMaterialView 同结构 + 商户线专属字段。
+type ChannelEnrollMaterialView struct {
+	EnrollMaterialView          // 完整回显（Filled/主体/证件 has_*/结算/经营场景/UBO/补充材料）
+	MerchantName string `json:"merchant_name"` // 主体名称（冗余 business_merchant_name/cert_merchant_name 首选值，列表检索用）
+	ContactPhone string `json:"contact_phone"` // 商户联系手机
+	Remark       string `json:"remark"`        // 备注/补充说明
+}
+
+// ChannelEnrollCreateReq 商户端建单入参（选主通道，第一步只需最基础信息，随后填料）。
+type ChannelEnrollCreateReq struct {
+	ChannelID    int    `json:"channel_id" binding:"required"` // 归属服务商主通道
+	MerchantName string `json:"merchant_name"`                 // 商户名称（可后续在填料改）
+	ContactPhone string `json:"contact_phone"`                 // 联系手机
+}
+
+// ChannelEnrollApproveReq 后台审核通过入参。子商户号必填（写进子通道占位 key）。
+type ChannelEnrollApproveReq struct {
+	SubMchID string `json:"sub_mchid" binding:"required"` // 上游开出的子商户号
+}
+
+// ChannelEnrollRejectReq 后台审核驳回入参。
+type ChannelEnrollRejectReq struct {
+	Reason string `json:"reason" binding:"required"` // 驳回原因
+}
+
+// ChannelEnrollDetail 进件单详情（视图 + 填料回显）。
+type ChannelEnrollDetail struct {
+	ChannelEnrollView
+	Material ChannelEnrollMaterialView `json:"material"`
 }
