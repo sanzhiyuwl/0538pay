@@ -18,6 +18,7 @@ const Orders = () => import('@/views/Orders.vue')
 const Merchants = () => import('@/views/Merchants.vue')
 const ChannelEnrolls = () => import('@/views/ChannelEnrolls.vue')
 const RiskControls = () => import('@/views/RiskControls.vue')
+const Complaints = () => import('@/views/Complaints.vue')
 const Settle = () => import('@/views/Settle.vue')
 const ProfitSharing = () => import('@/views/ProfitSharing.vue')
 const Groups = () => import('@/views/Groups.vue')
@@ -99,6 +100,7 @@ const MerchantApi = () => import('@/views/merchant/MerchantApi.vue')
 const MerchantProfile = () => import('@/views/merchant/MerchantProfile.vue')
 const MerchantCertificate = () => import('@/views/merchant/MerchantCertificate.vue')
 const MerchantChannelEnroll = () => import('@/views/merchant/MerchantChannelEnroll.vue')
+const MerchantComplaints = () => import('@/views/merchant/MerchantComplaints.vue')
 const MerchantDomains = () => import('@/views/merchant/MerchantDomains.vue')
 const MerchantOnecode = () => import('@/views/merchant/MerchantOnecode.vue')
 const MerchantTransfer = () => import('@/views/merchant/MerchantTransfer.vue')
@@ -166,6 +168,7 @@ const realPages: Record<string, any> = {
   '/admin/merchants': Merchants,
   '/admin/channel-enrolls': ChannelEnrolls,
   '/admin/risk-controls': RiskControls,
+  '/admin/wx-complaints': Complaints,
   '/admin/settle': Settle,
   '/admin/profit-sharing': ProfitSharing,
   '/admin/groups': Groups,
@@ -272,6 +275,7 @@ const merchantPages: Record<string, any> = {
   '/m/orders': MerchantOrders,
   '/m/records': MerchantRecords,
   '/m/settle': MerchantSettle,
+  '/m/complaints': MerchantComplaints,
   '/m/apply': MerchantApply,
   '/m/api': MerchantApi,
   '/m/profile': MerchantProfile,

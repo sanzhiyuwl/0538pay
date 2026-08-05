@@ -298,6 +298,10 @@ var configGroups = map[string][]string{
 		"ocr_provider", "ocr_aliyun_id", "ocr_aliyun_key",
 		"ocr_tencent_id", "ocr_tencent_key", "ocr_tencent_region",
 	},
+	// 微信支付消费者投诉2.0（自研扩展，挂服务商进件线；存回调地址期望值自管理）
+	"wx_complaint": {
+		"wx_complaint_notify_url",
+	},
 }
 
 // Load 从 DB 全量加载配置进内存缓存（启动时调一次）。缺省键补默认值。

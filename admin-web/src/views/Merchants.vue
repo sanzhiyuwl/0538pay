@@ -5,7 +5,7 @@ import {
   Search,
   RotateCcw,
   UserPlus,
-  MoreHorizontal,
+  ChevronDown,
   Pencil,
   Wallet,
   KeyRound,
@@ -16,7 +16,6 @@ import {
   AlertCircle,
   Network,
   Plus,
-  LogIn,
   ReceiptText,
   ScrollText,
   Landmark,
@@ -682,8 +681,8 @@ async function confirmDelete() {
               <th class="w-[17%]">结算账号 / 姓名</th>
               <th class="w-[15%]">联系方式</th>
               <th class="w-[18%]">域名 / 添加时间</th>
-              <th class="col-center w-[15%]">状态</th>
-              <th class="col-center w-[10%]">操作</th>
+              <th class="col-center w-[12%]">状态</th>
+              <th class="col-center w-[13%]">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -739,10 +738,19 @@ async function confirmDelete() {
                 </div>
               </td>
               <td class="col-center">
+                <div class="inline-flex items-center gap-2.5">
+                <button
+                  class="text-[13px] text-primary transition-colors hover:text-primary/80"
+                  @click.stop="ssoInto(m)"
+                >登入</button>
+                <span class="h-3 w-px bg-border/70" aria-hidden="true"></span>
                 <div class="relative inline-block">
-                  <Button variant="ghost" size="sm" @click.stop="toggleMenu(m.uid, $event)">
-                    操作 <MoreHorizontal class="size-4" />
-                  </Button>
+                  <button
+                    class="inline-flex items-center gap-0.5 text-[13px] text-primary transition-colors hover:text-primary/80"
+                    @click.stop="toggleMenu(m.uid, $event)"
+                  >
+                    操作 <ChevronDown class="size-3.5 transition-transform" :class="{ 'rotate-180': openMenu === m.uid }" />
+                  </button>
                   <div
                     v-if="openMenu === m.uid"
                     class="menu-panel absolute right-0 z-20 w-40"
@@ -763,9 +771,6 @@ async function confirmDelete() {
                     </button>
                     <button class="menu-item" @click="openSubChannels(m)">
                       <Network class="size-4 shrink-0 opacity-70" /><span class="flex-1">子通道管理</span>
-                    </button>
-                    <button class="menu-item" @click="ssoInto(m)">
-                      <LogIn class="size-4 shrink-0 opacity-70" /><span class="flex-1">进入商户端</span>
                     </button>
                     <button class="menu-item" @click="openTrail(m)">
                       <Activity class="size-4 shrink-0 opacity-70" /><span class="flex-1">操作轨迹</span>
@@ -806,6 +811,7 @@ async function confirmDelete() {
                       <Trash2 class="size-4 shrink-0 opacity-70" /><span class="flex-1">删除商户</span>
                     </button>
                   </div>
+                </div>
                 </div>
               </td>
             </tr>

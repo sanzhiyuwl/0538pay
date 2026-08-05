@@ -26,6 +26,9 @@ type Deps struct {
 	ChannelEnroll  *handler.ChannelEnrollHandler
 	ChannelControl *handler.ChannelControlHandler
 	ChannelCtrlNotify *handler.ChannelControlNotifyHandler
+	WxComplaint       *handler.WxComplaintHandler
+	WxComplaintNotify *handler.WxComplaintNotifyHandler
+	MerchantComplaint *handler.MerchantComplaintHandler
 	PayType        *handler.PayTypeHandler
 	Weixin         *handler.WeixinHandler
 	Wework         *handler.WeworkHandler
@@ -206,6 +209,23 @@ func Setup(r *gin.Engine, d Deps) {
 				authed.GET("/channel-controls/:id/flows", d.ChannelControl.Flows) // 管控流水时间线（风控第三段）
 			}
 
+			// 微信支付消费者投诉2.0（自研扩展，挂服务商进件线；admin 全量统一台）
+			if d.WxComplaint != nil {
+				authed.GET("/wx-complaints", d.WxComplaint.List)
+				authed.GET("/wx-complaints/notify-url", d.WxComplaint.GetNotifyURL)     // 回调地址自管理（须在 :id 前）
+				authed.PUT("/wx-complaints/notify-url", d.WxComplaint.SetNotifyURL)
+				authed.DELETE("/wx-complaints/notify-url", d.WxComplaint.DeleteNotifyURL)
+				authed.POST("/wx-complaints/upload", d.WxComplaint.UploadImage)         // 商户反馈图片上传（须在 :id 前）
+				authed.POST("/wx-complaints/reconcile", d.WxComplaint.Reconcile)        // 手动轮询兜底对账
+				authed.GET("/wx-complaints/:id", d.WxComplaint.Detail)
+				authed.POST("/wx-complaints/:id/sync", d.WxComplaint.Sync)              // 现查微信覆盖本地
+				authed.GET("/wx-complaints/:id/history", d.WxComplaint.History)         // 协商历史
+				authed.POST("/wx-complaints/:id/reply", d.WxComplaint.Reply)            // 回复用户
+				authed.POST("/wx-complaints/:id/complete", d.WxComplaint.Complete)      // 反馈处理完成
+				authed.POST("/wx-complaints/:id/refund", d.WxComplaint.UpdateRefund)    // 退款审批
+				authed.POST("/wx-complaints/:id/immediate", d.WxComplaint.ReplyImmediate) // 即时服务回复
+			}
+
 			// 支付方式 pay_type
 			authed.GET("/paytypes", d.PayType.List)
 			authed.POST("/paytypes", d.PayType.Create)
@@ -366,6 +386,11 @@ func Setup(r *gin.Engine, d Deps) {
 		}
 	}
 
+	// 微信支付消费者投诉2.0 回调（自研扩展，公开无 JWT，靠 WECHATPAY2-SHA256-RSA2048 验签鉴权）。
+	if d.WxComplaintNotify != nil {
+		api.POST("/notify/wx-complaint", d.WxComplaintNotify.Notify)
+	}
+
 	// V2 REST 接口族（对齐 epay api.php?s= → ApiHelper 反射分发）。
 	// 公开(无 JWT)，靠 MD5/RSA 签名鉴权 + timestamp 防重放。路径 /api/mapi/:class/:action。
 	mapi := api.Group("/mapi")
@@ -496,6 +521,18 @@ func Setup(r *gin.Engine, d Deps) {
 				mAuthed.POST("/channel-enrolls/:id/sync", d.ChannelEnroll.MySync)     // 拉取微信进件状态
 				mAuthed.POST("/channel-enrolls/:id/toggle", d.ChannelEnroll.MyToggle)   // 支付开关：启停已开通渠道
 				mAuthed.DELETE("/channel-enrolls/:id", d.ChannelEnroll.MyDelete)       // 删除进件单（提交前放弃，仅草稿/被驳回）
+			}
+			// 消费者投诉2.0 商户端自助（自研扩展，挂进件线；只看/处理自己名下投诉，无回调地址/对账运维）
+			if d.MerchantComplaint != nil {
+				mAuthed.GET("/complaints", d.MerchantComplaint.MyList)
+				mAuthed.POST("/complaints/upload", d.MerchantComplaint.MyUploadImage) // 反馈图片上传（须在 :id 前）
+				mAuthed.GET("/complaints/:id", d.MerchantComplaint.MyDetail)
+				mAuthed.GET("/complaints/:id/history", d.MerchantComplaint.MyHistory)
+				mAuthed.POST("/complaints/:id/sync", d.MerchantComplaint.MySync)
+				mAuthed.POST("/complaints/:id/reply", d.MerchantComplaint.MyReply)
+				mAuthed.POST("/complaints/:id/complete", d.MerchantComplaint.MyComplete)
+				mAuthed.POST("/complaints/:id/refund", d.MerchantComplaint.MyUpdateRefund)
+				mAuthed.POST("/complaints/:id/immediate", d.MerchantComplaint.MyReplyImmediate)
 			}
 		}
 	}

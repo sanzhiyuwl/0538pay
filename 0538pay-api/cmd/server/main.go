@@ -201,6 +201,10 @@ func main() {
 	profitSvc.SetControlGuard(channelControlGuard)         // 分账提交/自动执行(NO_PROFIT_SHARING)
 	settleSvc.SetControlGuard(channelControlGuard)         // 自动结算跳过被关闭提现的商户(NO_WITHDRAWAL)
 	// V2 REST 退款(mapi_pay PayRefund)经 s.pay.GuardOrderRefund 复用 paySvc 上的守卫，无需单独注入。
+	// 微信支付消费者投诉2.0（自研扩展，挂服务商进件线）：回调收下 → 按 complainted_mchid 反查本地商户 → 落库分发。
+	wxComplaintSvc := service.NewWxComplaintService(
+		repository.NewWxComplaintRepo(db), repository.NewWxComplaintNotifyRepo(db),
+		channelEnrollRepo, submchSvc, configSvc)
 	enrollSvc.SetAgentRepo(agentSvc.Repo())               // 注入：路径一进件成功扣名额
 	agentSvc.SetEnrollRepo(enrollRepo)                    // 注入：删代理守卫查名下进件单/邀请足迹
 	enrollSvc.SetPayService(paySvc)                        // 注入：付费前置下开户费收款单
@@ -225,6 +229,7 @@ func main() {
 	sch.SetMaintenanceRepos(regCodeRepo, blacklistRepo) // B-7 清理过期验证码/黑名单
 	sch.SetChannelRepo(channelRepo) // 单日限额 daystatus 每日重置（对齐 epay cron.php:152）
 	sch.SetEnrollService(enrollSvc) // 代理进件超时关单 + 邀请链接过期（随超时关单任务一起跑）
+	sch.SetWxComplaintService(wxComplaintSvc) // 消费者投诉2.0 轮询兜底对账（回调不能作唯一数据源）
 	// V2 REST 接口族（mapi）：统一验签 + 回包 RSA 签名，复用 Pay/Transfer 核心。
 	refundOrderRepo := repository.NewRefundOrderRepo(db)
 	orderSvc.SetRefundRepo(refundOrderRepo)          // 后台 API 退款落 pay_refundorder（对齐 epay Order::refund api=1）
@@ -277,6 +282,9 @@ func main() {
 		ChannelEnroll:  handler.NewChannelEnrollHandler(channelEnrollSvc),
 		ChannelControl: handler.NewChannelControlHandler(channelControlSvc),
 		ChannelCtrlNotify: handler.NewChannelControlNotifyHandler(channelControlNotifySvc),
+		WxComplaint:       handler.NewWxComplaintHandler(wxComplaintSvc),
+		WxComplaintNotify: handler.NewWxComplaintNotifyHandler(wxComplaintSvc),
+		MerchantComplaint: handler.NewMerchantComplaintHandler(wxComplaintSvc),
 		PayType:        handler.NewPayTypeHandler(payTypeSvc),
 		Weixin:         handler.NewWeixinHandler(weixinSvc),
 		Wework:         handler.NewWeworkHandler(weworkSvc),

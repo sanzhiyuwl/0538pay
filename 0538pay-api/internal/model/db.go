@@ -78,6 +78,9 @@ func AutoMigrate(db *gorm.DB) error {
 		&ChannelControl{},
 		// 子商户管控流水（风控第三段：处置/管控订阅回调追加型时间线）
 		&ChannelControlFlow{},
+		// 微信支付消费者投诉2.0（自研扩展，挂服务商进件线：主表 + 回调流水）
+		&WxComplaint{},
+		&WxComplaintNotify{},
 		// 代理进件平台（自研扩展，epay 无）
 		&Agent{},
 		&AgentQuotaWallet{},

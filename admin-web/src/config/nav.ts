@@ -59,6 +59,7 @@ export const navMenu: NavNode[] = [
       { title: '商户列表', to: '/admin/merchants' },
       { title: '通道进件审核', to: '/admin/channel-enrolls' },
       { title: '商户风控管控', to: '/admin/risk-controls' },
+      { title: '消费者投诉', to: '/admin/wx-complaints' },
       { title: '用户组 / 套餐', to: '/admin/groups' },
       { title: '邀请码管理', to: '/admin/invite-codes' },
       { title: '授权域名', to: '/admin/domains' },
@@ -239,6 +240,7 @@ export const merchantNav: NavNode[] = [
       { title: '订单记录', to: '/m/orders' },
       { title: '资金明细', to: '/m/records' },
       { title: '结算记录', to: '/m/settle' },
+      { title: '消费者投诉', to: '/m/complaints' },
       // { title: '申请提现', to: '/m/apply' }, // 隐藏（路由保留）
       { title: '余额充值', to: '/m/recharge' },
     ],

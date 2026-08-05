@@ -25,6 +25,7 @@ type Scheduler struct {
 	blacks   *repository.BlacklistRepo // 过期黑名单清理（可空，B-7）
 	channels *repository.ChannelRepo   // 单日限额 daystatus 每日重置（可空）
 	enroll   *service.EnrollService    // 代理进件超时关单 + 邀请链接过期（可空）
+	wxComplaint *service.WxComplaintService // 消费者投诉2.0 轮询兜底对账（可空，回调不能作唯一数据源）
 	cancel   context.CancelFunc
 	done     chan struct{}
 
@@ -38,6 +39,7 @@ type Scheduler struct {
 	settleInterval    time.Duration
 	profitInterval    time.Duration
 	riskInterval      time.Duration
+	wxComplaintInterval time.Duration
 	batchLimit        int
 	settleLimit       int
 	profitLimit       int
@@ -57,6 +59,7 @@ func New(pay *service.PayService, settle *service.SettleService) *Scheduler {
 		settleInterval:    1 * time.Hour,    // 每小时检查一次自动结算（服务层每日只跑一次）
 		profitInterval:    5 * time.Minute,  // 每 5 分钟自动执行一次待分账单
 		riskInterval:      10 * time.Minute, // 每 10 分钟跑一次风控自动关停检查
+		wxComplaintInterval: 30 * time.Minute, // 每 30 分钟轮询兜底对账投诉单（补回调遗漏，超频有限速）
 		batchLimit:        20,               // 每批处理条数，对齐 epay limit=20
 		settleLimit:       100,              // 单次自动结算处理商户数上限
 		profitLimit:       50,               // 单次自动分账处理条数上限
@@ -81,6 +84,9 @@ func (s *Scheduler) SetChannelRepo(c *repository.ChannelRepo) { s.channels = c }
 
 // SetEnrollService 注入代理进件服务（超时关单 + 邀请链接过期，随超时关单任务一起跑）。nil 则不跑。
 func (s *Scheduler) SetEnrollService(e *service.EnrollService) { s.enroll = e }
+
+// SetWxComplaintService 注入消费者投诉2.0 服务（轮询兜底对账，回调不能作唯一数据源）。nil 则不跑。
+func (s *Scheduler) SetWxComplaintService(w *service.WxComplaintService) { s.wxComplaint = w }
 
 // Start 启动后台任务协程。非阻塞。
 func (s *Scheduler) Start() {
@@ -110,6 +116,7 @@ func (s *Scheduler) run(ctx context.Context) {
 	settleTicker := time.NewTicker(s.settleInterval)
 	profitTicker := time.NewTicker(s.profitInterval)
 	riskTicker := time.NewTicker(s.riskInterval)
+	wxComplaintTicker := time.NewTicker(s.wxComplaintInterval)
 	defer notifyTicker.Stop()
 	defer notify2Ticker.Stop()
 	defer reconcileTicker.Stop()
@@ -117,6 +124,7 @@ func (s *Scheduler) run(ctx context.Context) {
 	defer settleTicker.Stop()
 	defer profitTicker.Stop()
 	defer riskTicker.Stop()
+	defer wxComplaintTicker.Stop()
 
 	for {
 		select {
@@ -136,6 +144,8 @@ func (s *Scheduler) run(ctx context.Context) {
 			s.runProfit()
 		case <-riskTicker.C:
 			s.runRiskAuto()
+		case <-wxComplaintTicker.C:
+			s.runWxComplaintReconcile(ctx)
 		}
 	}
 }
@@ -159,6 +169,8 @@ func (s *Scheduler) RunTask(task string) bool {
 		s.runProfit()
 	case "check", "risk":
 		s.runRiskAuto()
+	case "wxcomplaint", "complaint":
+		s.runWxComplaintReconcile(ctx)
 	default:
 		return false
 	}
@@ -238,6 +250,25 @@ func (s *Scheduler) runReconcile(ctx context.Context) {
 	}
 	if n > 0 {
 		log.Printf("[scheduler] 对账处理 %d 单", n)
+	}
+}
+
+// runWxComplaintReconcile 轮询兜底对账消费者投诉单（回调不能作唯一数据源）。
+// 拉最近两天窗口（跨度≤30天限制内）逐条 Upsert；服务未注入或凭证未配齐则静默跳过。
+func (s *Scheduler) runWxComplaintReconcile(ctx context.Context) {
+	if s.wxComplaint == nil {
+		return
+	}
+	now := time.Now()
+	begin := now.AddDate(0, 0, -1).Format("2006-01-02")
+	end := now.Format("2006-01-02")
+	n, err := s.wxComplaint.Reconcile(ctx, begin, end)
+	if err != nil {
+		log.Printf("[scheduler] 投诉单对账出错: %v", err)
+		return
+	}
+	if n > 0 {
+		log.Printf("[scheduler] 投诉单对账处理 %d 单", n)
 	}
 }
 

@@ -90,6 +90,25 @@ func EncryptOAEP(plain, pubPEM string) (string, error) {
 	return base64.StdEncoding.EncodeToString(cipherText), nil
 }
 
+// DecryptOAEP 用商户私钥做 RSA-OAEP(SHA-1) 解密微信下发的敏感字段密文（Base64）。
+// 对齐微信「使用API证书解密敏感字段」：微信用商户平台证书公钥 RSA/ECB/OAEPWithSHA-1AndMGF1Padding
+// 加密（如消费者投诉 payer_phone），商户用对应私钥解密。与 EncryptOAEP(SHA-1) 对称。
+func DecryptOAEP(cipherB64, privPEM string) (string, error) {
+	priv, err := ParsePrivateKey(privPEM)
+	if err != nil {
+		return "", err
+	}
+	cipherText, err := base64.StdEncoding.DecodeString(strings.TrimSpace(cipherB64))
+	if err != nil {
+		return "", fmt.Errorf("敏感字段密文 Base64 解码失败: %w", err)
+	}
+	plain, err := rsa.DecryptOAEP(sha1.New(), rand.Reader, priv, cipherText, nil)
+	if err != nil {
+		return "", fmt.Errorf("敏感字段解密失败: %w", err)
+	}
+	return string(plain), nil
+}
+
 // signMessage 用私钥对消息做 SHA256withRSA 签名，返回 Base64。
 func signMessage(priv *rsa.PrivateKey, message string) (string, error) {
 	h := sha256.Sum256([]byte(message))
