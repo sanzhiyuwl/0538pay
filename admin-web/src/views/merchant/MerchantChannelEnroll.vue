@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   Plus, FileText, CheckCircle2, X, RefreshCw, QrCode, Trash2, Copy,
-  PencilLine, Send, Clock, ShieldCheck, ChevronRight, AlertTriangle, ChevronDown,
+  PencilLine, Send, Clock, ShieldCheck, ShieldAlert, ChevronRight, AlertTriangle, ChevronDown, ExternalLink,
 } from 'lucide-vue-next'
 import QRCodeLib from 'qrcode'
 import { Panel, Button, Badge, Drawer, Select } from '@/components/ui'
 import WechatIcon from '@/components/site/icons/WechatIcon.vue'
 import EnrollMaterialDrawer from '@/views/enroll/EnrollMaterialDrawer.vue'
+import { merchantGetChannelControl, type ChannelControlView } from '@/lib/api/merchantChannelControl'
 import {
   myEnrollableChannels,
   myListChannelEnrolls,
@@ -31,6 +33,7 @@ import { useConfirm } from '@/composables/useConfirm'
 
 const toast = useToast()
 const confirm = useConfirm()
+const router = useRouter()
 
 const channels = ref<EnrollableChannel[]>([])
 const list = ref<ChannelEnrollView[]>([])
@@ -236,11 +239,27 @@ async function openDetail(id: number) {
   try {
     detail.value = await myGetChannelEnroll(id)
     detailOpen.value = true
+    if (detail.value.status === 'approved') loadControlView(id)
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '加载详情失败')
   }
 }
 const detailMaterial = computed(() => detail.value?.material)
+
+// 业务受限就地快照（风控第二段商户端，两处不重复造轮子：与 /m/channel-controls 共用同一份快照）。
+const controlView = ref<ChannelControlView | null>(null)
+async function loadControlView(id: number) {
+  controlView.value = null
+  try {
+    const res = await merchantGetChannelControl(id)
+    controlView.value = res.view
+  } catch {
+    /* 查询失败静默，详情页不因此块阻塞 */
+  }
+}
+function gotoChannelControls() {
+  router.push('/m/channel-controls')
+}
 
 // 详情抽屉顶部步骤条：复用列表的 stepIndex/stepState 语义，只是数据源换成 detail。
 const detailStepIdx = computed(() => (detail.value ? stepIndex(detail.value.status, detail.value.wx_state) : 0))
@@ -570,6 +589,17 @@ async function copySignURL() {
         <div v-if="detail.status === 'approved'" class="flex items-center gap-2 bg-success/[0.07] px-4 py-3 text-sm">
           <CheckCircle2 class="size-5 text-success" />
           <span class="text-success font-medium">进件已开通，子商户号 {{ detail.sub_mchid }}，该通道已为您启用。</span>
+        </div>
+        <!-- 业务受限就地快照（风控第二段：已开通子商户被微信管控时的能力/原因摘要，跳转「业务受限」页看全貌） -->
+        <div v-if="detail.status === 'approved' && controlView && (controlView.state === 'controlled' || controlView.state === 'delayed')" class="border-l-2 border-destructive bg-destructive/[0.05] px-4 py-2.5 text-xs">
+          <div class="flex items-center gap-2 text-muted-foreground">
+            <ShieldAlert class="size-4 shrink-0 text-destructive" />
+            <span class="text-foreground">{{ controlView.state_text }}</span>
+            <span v-if="controlView.limited_function_texts?.length">{{ controlView.limited_function_texts.join('、') }}</span>
+            <button class="ml-auto shrink-0 inline-flex items-center gap-1 text-primary hover:text-primary/80" @click="gotoChannelControls">
+              查看详情<ExternalLink class="size-3" />
+            </button>
+          </div>
         </div>
         <!-- 待签约：二维码直接内嵌，超管扫码即签约，无需另开网页 -->
         <div v-if="detail.sign_url" class="flex gap-4 bg-warning/[0.08] px-4 py-4">

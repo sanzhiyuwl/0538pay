@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/epvia/api/internal/dto"
 	"github.com/epvia/api/pkg/wxpayv3"
 )
 
@@ -602,6 +603,238 @@ func (s *SubMerchantService) QuerySettlementApplication(ctx context.Context, sub
 		return nil, raw, fmt.Errorf("解析结算账户修改申请状态应答失败: %w", err)
 	}
 	return &r, raw, nil
+}
+
+// —— 主体资料变更（风控第二段解脱代办：recover_way=MODIFY_SUBJECT_INFORMATION）——
+//
+// 接口：POST /v3/mchalterapply/mchsubjectalterapplyment（官方 4014090649）。
+// 与「提交申请单」applyment4sub 是两个独立产品，字段命名不同（UBO 用 card_* 而非 ubo_id_doc_*），
+// 不复用 buildApplymentBody/EnrollUBO。同一商户同一时间只能有一笔流程中的申请单，若被驳回可用
+// 相同 out_request_no 覆盖重提（官方语义，与 applyment4sub 的 business_code 重提一致）。
+
+// ModifySubjectInfo 为商户提交主体资料变更申请，返回微信分配的申请单号 apply_id。
+// outRequestNo 为服务商自定义业务申请编号（幂等键；驳回重提传相同值覆盖原单）。
+func (s *SubMerchantService) ModifySubjectInfo(ctx context.Context, merchantCode, outRequestNo string, req dto.SubjectAlterReq) (string, []byte, error) {
+	body, err := s.buildSubjectAlterBody(merchantCode, outRequestNo, req)
+	if err != nil {
+		return "", nil, err
+	}
+	bs, err := json.Marshal(body)
+	if err != nil {
+		return "", nil, err
+	}
+	raw, code, err := s.doRequest(ctx, http.MethodPost, "/v3/mchalterapply/mchsubjectalterapplyment", string(bs))
+	if err != nil {
+		return "", raw, err
+	}
+	if code < 200 || code >= 300 {
+		return "", raw, smErr("提交主体资料变更申请失败: " + wxErrMsg(raw))
+	}
+	var r struct {
+		ApplyID string `json:"apply_id"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return "", raw, fmt.Errorf("解析主体资料变更应答失败: %w", err)
+	}
+	if r.ApplyID == "" {
+		return "", raw, smErr("主体资料变更应答无 apply_id")
+	}
+	return r.ApplyID, raw, nil
+}
+
+// buildSubjectAlterBody 组装 mchsubjectalterapplyment 请求体（敏感字段 RSA-OAEP 加密）。
+func (s *SubMerchantService) buildSubjectAlterBody(merchantCode, outRequestNo string, req dto.SubjectAlterReq) (map[string]any, error) {
+	if strings.TrimSpace(merchantCode) == "" {
+		return nil, smErr("商户号不能为空")
+	}
+	if strings.TrimSpace(outRequestNo) == "" {
+		return nil, smErr("业务申请编号不能为空")
+	}
+	body := map[string]any{
+		"merchant_code":   strings.TrimSpace(merchantCode),
+		"out_request_no":  strings.TrimSpace(outRequestNo),
+	}
+	scope := strings.TrimSpace(req.AlterScope)
+	if scope == "" {
+		scope = "ALTER_SCOPE_FULL"
+	}
+	body["alter_scope"] = scope
+	uboOnly := scope == "ALTER_SCOPE_UBO"
+
+	if ot := strings.TrimSpace(req.OrganizationType); ot != "" {
+		body["organization_type"] = ot
+	} else if !uboOnly {
+		return nil, smErr("请填写主体类型")
+	}
+	if req.FinanceInstitution != nil {
+		body["finance_institution"] = *req.FinanceInstitution
+	}
+
+	if !uboOnly {
+		organizationType := strings.TrimSpace(req.OrganizationType)
+		isCertSubject := organizationType == "SUBJECT_TYPE_GOVERNMENT" ||
+			organizationType == "SUBJECT_TYPE_INSTITUTIONS_CLONED" || organizationType == "SUBJECT_TYPE_OTHERS"
+		if isCertSubject {
+			if strings.TrimSpace(req.CertType) == "" || strings.TrimSpace(req.CertCopy) == "" ||
+				strings.TrimSpace(req.CertNumber) == "" || strings.TrimSpace(req.CertMerchantName) == "" ||
+				strings.TrimSpace(req.CertCompanyAddress) == "" || strings.TrimSpace(req.CertLegalPerson) == "" ||
+				strings.TrimSpace(req.CertPeriodBegin) == "" || strings.TrimSpace(req.CertPeriodEnd) == "" {
+				return nil, smErr("政府机关/事业单位/社会组织需完整填写登记证书信息")
+			}
+			body["certificate_info"] = map[string]any{
+				"cert_type":       strings.TrimSpace(req.CertType),
+				"cert_number":     strings.TrimSpace(req.CertNumber),
+				"cert_copy":       strings.TrimSpace(req.CertCopy),
+				"merchant_name":   strings.TrimSpace(req.CertMerchantName),
+				"company_address": strings.TrimSpace(req.CertCompanyAddress),
+				"legal_person":    strings.TrimSpace(req.CertLegalPerson),
+				"cert_period_begin": strings.TrimSpace(req.CertPeriodBegin),
+				"cert_period_end":   strings.TrimSpace(req.CertPeriodEnd),
+			}
+		} else if organizationType == "SUBJECT_TYPE_ENTERPRISE" || organizationType == "SUBJECT_TYPE_INDIVIDUAL" {
+			if strings.TrimSpace(req.LicenseNumber) == "" || strings.TrimSpace(req.LicenseCopy) == "" ||
+				strings.TrimSpace(req.BusinessMerchantName) == "" || strings.TrimSpace(req.LegalPerson) == "" {
+				return nil, smErr("请完整填写营业执照信息（注册号/照片/商户名称/法人）")
+			}
+			lic := map[string]any{
+				"license_number": strings.TrimSpace(req.LicenseNumber),
+				"license_copy":   strings.TrimSpace(req.LicenseCopy),
+				"merchant_name":  strings.TrimSpace(req.BusinessMerchantName),
+				"legal_person":   strings.TrimSpace(req.LegalPerson),
+			}
+			if v := strings.TrimSpace(req.CompanyAddress); v != "" {
+				lic["company_address"] = v
+			}
+			if v := strings.TrimSpace(req.LicensePeriodBegin); v != "" {
+				lic["license_period_begin"] = v
+			}
+			if v := strings.TrimSpace(req.LicensePeriodEnd); v != "" {
+				lic["license_period_end"] = v
+			}
+			body["business_license_info"] = lic
+		}
+
+		if fi := req.FinanceInstitution; fi != nil && *fi {
+			if strings.TrimSpace(req.FinanceType) == "" || len(req.FinanceLicensePics) == 0 {
+				return nil, smErr("主体为金融机构时需填写金融机构类型及许可证图片")
+			}
+			body["finance_institution_info"] = map[string]any{
+				"finance_type":         strings.TrimSpace(req.FinanceType),
+				"finance_license_pics": req.FinanceLicensePics,
+			}
+		}
+
+		// 法人身份信息（敏感字段加密）。
+		holderType := strings.TrimSpace(req.IDHolderType)
+		if holderType == "" {
+			holderType = "LEGAL"
+		}
+		if holderType != "LEGAL" && holderType != "SUPER" {
+			return nil, smErr("证件持有人类型只能为 LEGAL（经营者/法人）或 SUPER（经办人）")
+		}
+		if holderType == "SUPER" && strings.TrimSpace(req.AuthorizeLetterCopy) == "" {
+			return nil, smErr("证件持有人类型为经办人时需上传法定代表人说明函")
+		}
+		cardName, err := s.EncryptSensitive(req.CardName)
+		if err != nil {
+			return nil, fmt.Errorf("加密法人证件姓名失败: %w", err)
+		}
+		cardNumber, err := s.EncryptSensitive(req.CardNumber)
+		if err != nil {
+			return nil, fmt.Errorf("加密法人证件号码失败: %w", err)
+		}
+		cardAddress, err := s.EncryptSensitive(req.CardAddress)
+		if err != nil {
+			return nil, fmt.Errorf("加密法人证件地址失败: %w", err)
+		}
+		legalInfo := map[string]any{"id_holder_type": holderType}
+		if v := strings.TrimSpace(req.IDDocType); v != "" {
+			legalInfo["id_doc_type"] = v
+		}
+		if v := strings.TrimSpace(req.AuthorizeLetterCopy); v != "" {
+			legalInfo["authorize_letter_copy"] = v
+		}
+		if v := strings.TrimSpace(req.CardFront); v != "" {
+			legalInfo["card_front"] = v
+		}
+		if v := strings.TrimSpace(req.CardBack); v != "" {
+			legalInfo["card_back"] = v
+		}
+		if cardName != "" {
+			legalInfo["card_name"] = cardName
+		}
+		if cardNumber != "" {
+			legalInfo["card_number"] = cardNumber
+		}
+		if cardAddress != "" {
+			legalInfo["card_address"] = cardAddress
+		}
+		if v := strings.TrimSpace(req.CardPeriodBegin); v != "" {
+			legalInfo["card_period_begin"] = v
+		}
+		if v := strings.TrimSpace(req.CardPeriodEnd); v != "" {
+			legalInfo["card_period_end"] = v
+		}
+		if req.AsUBO != nil {
+			legalInfo["as_ubo"] = *req.AsUBO
+		}
+		body["legal_person_info"] = legalInfo
+	}
+
+	// 最终受益人列表（企业/社会组织；变更范围含主体资料时才带，跳过空条目）。
+	if ubos := s.buildSubjectAlterUBOs(req.UBOList); len(ubos) > 0 {
+		body["ubo_info_list"] = ubos
+	}
+
+	// 补充材料（非空才带）。
+	addition := map[string]any{}
+	if len(req.BankOpenAccountLicense) > 0 {
+		addition["bank_openaccount_license"] = req.BankOpenAccountLicense
+	}
+	if len(req.OpenAccountApproval) > 0 {
+		addition["openaccount_approval"] = req.OpenAccountApproval
+	}
+	if len(req.LegalOtherProve) > 0 {
+		addition["legal_other_prove"] = req.LegalOtherProve
+	}
+	if len(req.AgencyProve) > 0 {
+		addition["agency_prove"] = req.AgencyProve
+	}
+	if len(req.UBOProve) > 0 {
+		addition["ubo_prove"] = req.UBOProve
+	}
+	if len(addition) > 0 {
+		body["addition"] = addition
+	}
+	return body, nil
+}
+
+// buildSubjectAlterUBOs 组装最终受益人列表（★字段名 card_* 与 applyment4sub 的 ubo_id_doc_* 不同，
+// 敏感字段加密；跳过关键字段全空的条目）。
+func (s *SubMerchantService) buildSubjectAlterUBOs(list []dto.SubjectAlterUBO) []map[string]any {
+	var out []map[string]any
+	for _, u := range list {
+		if strings.TrimSpace(u.CardName) == "" && strings.TrimSpace(u.CardNumber) == "" {
+			continue
+		}
+		name, _ := s.EncryptSensitive(u.CardName)
+		number, _ := s.EncryptSensitive(u.CardNumber)
+		address, _ := s.EncryptSensitive(u.CardAddress)
+		m := map[string]any{
+			"id_doc_type":  strings.TrimSpace(u.IDDocType),
+			"card_front":   strings.TrimSpace(u.CardFront),
+			"card_name":    name,
+			"card_number":  number,
+			"card_address": address,
+			"period_begin": strings.TrimSpace(u.PeriodBegin),
+			"period_end":   strings.TrimSpace(u.PeriodEnd),
+		}
+		if v := strings.TrimSpace(u.CardBack); v != "" {
+			m["card_back"] = v
+		}
+		out = append(out, m)
+	}
+	return out
 }
 
 // wxErrMsg 从微信错误应答体里提取 message，便于回传给运营定位。

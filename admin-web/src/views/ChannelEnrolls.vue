@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { Search, Eye, CheckCircle2, XCircle, RefreshCw, ShieldCheck, QrCode, ArrowUp, ArrowDown, Copy } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import { Search, Eye, CheckCircle2, XCircle, RefreshCw, ShieldCheck, ShieldAlert, QrCode, ArrowUp, ArrowDown, Copy, ExternalLink } from 'lucide-vue-next'
 import QRCodeLib from 'qrcode'
 import { Panel, Button, Badge, Drawer, Pagination } from '@/components/ui'
 import {
@@ -12,10 +13,12 @@ import {
   type ChannelEnrollView,
   type ChannelEnrollDetail,
 } from '@/lib/api/channelEnroll'
+import { adminGetChannelControl, type ChannelControlView } from '@/lib/api/riskControl'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/composables/useToast'
 
 const toast = useToast()
+const router = useRouter()
 
 const list = ref<ChannelEnrollView[]>([])
 const total = ref(0)
@@ -109,6 +112,22 @@ const detail = ref<ChannelEnrollDetail | null>(null)
 const busy = ref(false)
 const material = computed(() => detail.value?.material)
 
+// 业务受限就地快照（风控第二段，两处不重复造轮子：与 admin/risk-controls 共用同一份快照，
+// 仅按 enroll_id 取一条）。已开通(approved)单才拉，未开通没有子商户号无从查管控。
+const controlView = ref<ChannelControlView | null>(null)
+async function loadControlView(id: number) {
+  controlView.value = null
+  try {
+    const res = await adminGetChannelControl(id)
+    controlView.value = res.view
+  } catch {
+    /* 未配凭证/查询失败静默，详情页不因此块阻塞 */
+  }
+}
+function gotoRiskControls() {
+  router.push('/admin/risk-controls')
+}
+
 // 待签约二维码：内嵌显示，超管扫码即签约。
 // 微信有两种 sign_url 形态：
 //   ① 图片直链：`https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=...` —— 本身就是二维码 PNG，直接当图显示，
@@ -148,6 +167,7 @@ async function openDetail(id: number) {
   try {
     detail.value = await adminGetChannelEnroll(id)
     drawerOpen.value = true
+    if (detail.value.status === 'approved') loadControlView(id)
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '加载详情失败')
   }
@@ -374,6 +394,18 @@ async function doReject() {
               <dd class="min-w-0 flex-1 text-muted-foreground">{{ a.reject_reason || '—' }}</dd>
             </div>
           </dl>
+        </div>
+
+        <!-- 业务受限就地快照（风控第二段：已开通子商户被微信管控时的能力/原因摘要，跳转风控页看全貌） -->
+        <div v-if="detail.status === 'approved' && controlView && (controlView.state === 'controlled' || controlView.state === 'delayed')" class="border-l-2 border-destructive bg-destructive/[0.05] px-4 py-2.5 text-xs">
+          <div class="flex items-center gap-2 text-muted-foreground">
+            <ShieldAlert class="size-4 shrink-0 text-destructive" />
+            <span class="text-foreground">{{ controlView.state_text }}</span>
+            <span v-if="controlView.limited_function_texts?.length">{{ controlView.limited_function_texts.join('、') }}</span>
+            <button class="ml-auto shrink-0 inline-flex items-center gap-1 text-primary hover:text-primary/80" @click="gotoRiskControls">
+              查看详情<ExternalLink class="size-3" />
+            </button>
+          </div>
         </div>
 
         <!-- 待签约：二维码直接内嵌，超管扫码即签约，无需另开网页 -->

@@ -101,6 +101,7 @@ const MerchantProfile = () => import('@/views/merchant/MerchantProfile.vue')
 const MerchantCertificate = () => import('@/views/merchant/MerchantCertificate.vue')
 const MerchantChannelEnroll = () => import('@/views/merchant/MerchantChannelEnroll.vue')
 const MerchantComplaints = () => import('@/views/merchant/MerchantComplaints.vue')
+const MerchantChannelControls = () => import('@/views/merchant/MerchantChannelControls.vue')
 const MerchantDomains = () => import('@/views/merchant/MerchantDomains.vue')
 const MerchantOnecode = () => import('@/views/merchant/MerchantOnecode.vue')
 const MerchantTransfer = () => import('@/views/merchant/MerchantTransfer.vue')
@@ -276,6 +277,7 @@ const merchantPages: Record<string, any> = {
   '/m/records': MerchantRecords,
   '/m/settle': MerchantSettle,
   '/m/complaints': MerchantComplaints,
+  '/m/channel-controls': MerchantChannelControls,
   '/m/apply': MerchantApply,
   '/m/api': MerchantApi,
   '/m/profile': MerchantProfile,

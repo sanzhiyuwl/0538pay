@@ -1899,6 +1899,12 @@ type ChannelControlView struct {
 	Queried    bool   `json:"queried"`      // 是否已刷新过（有快照）
 	LastQueryAt string `json:"last_query_at"` // 最近刷新时间（未刷新为空）
 	LastError  string `json:"last_error,omitempty"` // 最近刷新失败原因
+
+	// 解脱路径主动代办留痕（0804 方案补遗：服务商直接调 API 代办，非引导商户去小程序自助）。
+	LastSettleApplyNo  string `json:"last_settle_apply_no,omitempty"`  // 最近一次改结算账户申请单号
+	LastSettleApplyAt  string `json:"last_settle_apply_at,omitempty"`
+	LastSubjectApplyNo string `json:"last_subject_apply_no,omitempty"` // 最近一次改主体资料申请单号
+	LastSubjectApplyAt string `json:"last_subject_apply_at,omitempty"`
 }
 
 // ChannelControlOverview 风控总览概览卡数据。

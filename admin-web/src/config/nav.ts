@@ -233,6 +233,7 @@ export const merchantNav: NavNode[] = [
     ],
   },
   { title: '渠道申请', icon: Plug, to: '/m/channel-enroll' },
+  { title: '业务受限', icon: ShieldAlert, to: '/m/channel-controls' },
   {
     title: '交易查询',
     icon: ListOrdered,

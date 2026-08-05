@@ -154,12 +154,27 @@ func computeControlState(r *MchLimitationResp) string {
 	}
 }
 
-// List 风控总览：已开通子商户全集 + 各自快照 + 概览统计。
+// List 风控总览：已开通子商户全集 + 各自快照 + 概览统计（admin，全量）。
 func (s *ChannelControlService) List(ctx context.Context) (*dto.ChannelControlListResp, error) {
 	enrolls, err := s.enrolls.ListApproved()
 	if err != nil {
 		return nil, err
 	}
+	return s.buildListResp(enrolls)
+}
+
+// ListForMerchant 商户端「业务受限」面板：只读，强制按登录商户 uid 隔离，只看自己名下已开通子商户。
+// 与 admin List 共用 buildListResp（★两处不重复造轮子：同一份快照数据，仅数据源维度不同）。
+func (s *ChannelControlService) ListForMerchant(ctx context.Context, uid uint) (*dto.ChannelControlListResp, error) {
+	enrolls, err := s.enrolls.ListApprovedByUID(uid)
+	if err != nil {
+		return nil, err
+	}
+	return s.buildListResp(enrolls)
+}
+
+// buildListResp 由进件单集合 + 各自快照拼装列表应答 + 概览统计（admin/商户端共用）。
+func (s *ChannelControlService) buildListResp(enrolls []model.ChannelEnroll) (*dto.ChannelControlListResp, error) {
 	ids := make([]uint, 0, len(enrolls))
 	for i := range enrolls {
 		ids = append(ids, enrolls[i].ID)
@@ -170,13 +185,11 @@ func (s *ChannelControlService) List(ctx context.Context) (*dto.ChannelControlLi
 	}
 	nameCache := map[int]string{}
 	phoneCache := map[uint]string{}
-	nameMap := map[uint]string{} // uid → 主体名（进件单自带）
 	views := make([]dto.ChannelControlView, 0, len(enrolls))
 	var ov dto.ChannelControlOverview
 	ov.ApprovedTotal = int64(len(enrolls))
 	for i := range enrolls {
 		e := &enrolls[i]
-		nameMap[e.UID] = e.MerchantName
 		v := s.buildView(e, snaps[e.ID], nameCache, phoneCache)
 		switch v.State {
 		case model.ChannelControlControlled:
@@ -192,6 +205,35 @@ func (s *ChannelControlService) List(ctx context.Context) (*dto.ChannelControlLi
 		views = append(views, v)
 	}
 	return &dto.ChannelControlListResp{Overview: ov, List: views}, nil
+}
+
+// GetByEnrollID 单个进件单的管控快照视图（进件详情抽屉「业务受限」就地快照用；
+// 未刷新过也返回 Queried=false 的视图，不报错——这是「两处不重复造轮子」的落点，
+// 与风控总览页共用同一份快照数据，仅按 enroll_id 取一条而非全量列表）。
+// enroll 未开通（非 approved 或无 sub_mchid）返回 nil, nil（详情页判空跳过展示）。
+func (s *ChannelControlService) GetByEnrollID(enrollID uint) (*dto.ChannelControlView, error) {
+	e, err := s.enrolls.FindByID(enrollID)
+	if err != nil {
+		return nil, nil
+	}
+	if e.Status != model.ChannelEnrollApproved || e.SubMchID == "" {
+		return nil, nil
+	}
+	snap, err := s.controls.FindByEnrollID(enrollID)
+	if err != nil {
+		return nil, err
+	}
+	v := s.buildView(e, snap, map[int]string{}, map[uint]string{})
+	return &v, nil
+}
+
+// GetByEnrollIDForMerchant 商户端就地快照：先归属校验（enroll_id 须属登录商户 uid）再委托 GetByEnrollID。
+func (s *ChannelControlService) GetByEnrollIDForMerchant(enrollID, uid uint) (*dto.ChannelControlView, error) {
+	e, err := s.enrolls.FindByID(enrollID)
+	if err != nil || e.UID != uid {
+		return nil, ccErr("进件单不存在或不在你名下")
+	}
+	return s.GetByEnrollID(enrollID)
 }
 
 // buildView 由进件单 + 快照拼装对外视图。
@@ -226,13 +268,26 @@ func (s *ChannelControlService) buildView(e *model.ChannelEnroll, snap *model.Ch
 	if snap == nil {
 		return v // 尚未刷新过：Queried=false，态按正常展示（不代表真正正常，UI 提示「未刷新」）
 	}
-	v.Queried = true
-	v.State = snap.State
-	v.StateText = channelControlStateText(snap.State)
-	v.OtherLimitedFunctions = snap.OtherLimitedFunctions
-	v.LastError = snap.LastError
+	// ★ recordApply 可能先于管控刷新建出一条只带代办留痕、LastQueryAt 为空的快照壳——
+	//   仍按「未刷新过」处理管控态，不要因快照记录存在就误判 Queried=true。
 	if snap.LastQueryAt != nil && !snap.LastQueryAt.IsZero() {
+		v.Queried = true
+		v.State = snap.State
+		v.StateText = channelControlStateText(snap.State)
+		v.OtherLimitedFunctions = snap.OtherLimitedFunctions
+		v.LastError = snap.LastError
 		v.LastQueryAt = snap.LastQueryAt.Format(timeLayout)
+	}
+	if snap.LastSettleApplyNo != "" && snap.LastSettleApplyAt != nil {
+		v.LastSettleApplyNo = snap.LastSettleApplyNo
+		v.LastSettleApplyAt = snap.LastSettleApplyAt.Format(timeLayout)
+	}
+	if snap.LastSubjectApplyNo != "" && snap.LastSubjectApplyAt != nil {
+		v.LastSubjectApplyNo = snap.LastSubjectApplyNo
+		v.LastSubjectApplyAt = snap.LastSubjectApplyAt.Format(timeLayout)
+	}
+	if !v.Queried {
+		return v
 	}
 	if snap.LimitedFunctions != "" {
 		var fns []string
@@ -366,6 +421,16 @@ func (s *ChannelControlService) RefreshOne(ctx context.Context, enrollID uint) (
 	return &dto.ChannelControlRefreshResp{Refreshed: 1, Failed: 0, Views: []dto.ChannelControlView{v}}, nil
 }
 
+// RefreshOneForMerchant 商户端刷新自己名下单个子商户的管控状态（归属校验后才委托 RefreshOne；
+// 不开放批量——商户端只给「我自己这一家」的操作面，批量刷新是平台运维能力，仅 admin）。
+func (s *ChannelControlService) RefreshOneForMerchant(ctx context.Context, enrollID, uid uint) (*dto.ChannelControlRefreshResp, error) {
+	e, err := s.enrolls.FindByID(enrollID)
+	if err != nil || e.UID != uid {
+		return nil, ccErr("进件单不存在或不在你名下")
+	}
+	return s.RefreshOne(ctx, enrollID)
+}
+
 // controlRefreshThrottle 批量刷新时每笔间隔（限速，避免微信 429 RATELIMIT_EXCEEDED）。
 const controlRefreshThrottle = 250 * time.Millisecond
 
@@ -398,4 +463,55 @@ func (s *ChannelControlService) RefreshAll(ctx context.Context) (*dto.ChannelCon
 		resp.Views = append(resp.Views, v)
 	}
 	return resp, nil
+}
+
+// —— 解脱路径主动代办（0804 方案第五部分补遗：recover_way=修改主体资料/修改结算账户时，
+//    服务商可直接调 API 为商户发起变更，比只引导商户去「微信支付商家助手」小程序自助处理更高效）——
+
+// mustEnrolled 取进件单并校验已开通（approved + sub_mchid 非空），代办前置校验共用。
+func (s *ChannelControlService) mustEnrolled(enrollID uint) (*model.ChannelEnroll, error) {
+	e, err := s.enrolls.FindByID(enrollID)
+	if err != nil {
+		return nil, ccErr("进件单不存在")
+	}
+	if e.Status != model.ChannelEnrollApproved || e.SubMchID == "" {
+		return nil, ccErr("该商户尚未开通子商户号，无法代办变更")
+	}
+	return e, nil
+}
+
+// ModifySettlementFor 代该商户修改结算银行账户（recover_way=MODIFY_SETTLE_ACCOUNT_INFORMATION）。
+// 复用 SubMerchantService.ModifySettlement（进件成功后售后接口，与本次风控页操作项共用同一实现）。
+func (s *ChannelControlService) ModifySettlementFor(ctx context.Context, enrollID uint, req ModifySettlementReq) (string, error) {
+	if s.submch == nil || !s.submch.Configured() {
+		return "", ccErr("微信服务商凭证未配置，无法代办变更")
+	}
+	e, err := s.mustEnrolled(enrollID)
+	if err != nil {
+		return "", err
+	}
+	appNo, _, err := s.submch.ModifySettlement(ctx, e.SubMchID, req)
+	if err != nil {
+		return "", ccErr(err.Error())
+	}
+	_ = s.controls.RecordSettleApply(e.ID, e.UID, e.ChannelID, e.SubMchID, appNo) // 留痕失败不影响本次代办已提交成功
+	return appNo, nil
+}
+
+// ModifySubjectInfoFor 代该商户提交主体资料变更申请（recover_way=MODIFY_SUBJECT_INFORMATION）。
+// outRequestNo 由调用方生成（业务申请编号，幂等键；驳回重提传相同值覆盖原单）。
+func (s *ChannelControlService) ModifySubjectInfoFor(ctx context.Context, enrollID uint, outRequestNo string, req dto.SubjectAlterReq) (string, error) {
+	if s.submch == nil || !s.submch.Configured() {
+		return "", ccErr("微信服务商凭证未配置，无法代办变更")
+	}
+	e, err := s.mustEnrolled(enrollID)
+	if err != nil {
+		return "", err
+	}
+	applyID, _, err := s.submch.ModifySubjectInfo(ctx, e.SubMchID, outRequestNo, req)
+	if err != nil {
+		return "", ccErr(err.Error())
+	}
+	_ = s.controls.RecordSubjectApply(e.ID, e.UID, e.ChannelID, e.SubMchID, applyID) // 留痕失败不影响本次代办已提交成功
+	return applyID, nil
 }

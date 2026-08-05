@@ -41,6 +41,39 @@ func (r *ChannelControlRepo) Upsert(c *model.ChannelControl) error {
 	}).Error
 }
 
+// RecordSettleApply 记录一次「代办修改结算账户」留痕（application_no + 时间）。
+// 快照不存在（从未刷新过管控状态）时先建一条空快照壳，仅为承载留痕字段，不影响管控态判定。
+func (r *ChannelControlRepo) RecordSettleApply(enrollID, uid uint, channelID int, subMchID, applyNo string) error {
+	return r.recordApply(enrollID, uid, channelID, subMchID, map[string]any{
+		"last_settle_apply_no": applyNo,
+		"last_settle_apply_at": time.Now(),
+	})
+}
+
+// RecordSubjectApply 记录一次「代办修改主体资料」留痕（apply_id + 时间）。
+func (r *ChannelControlRepo) RecordSubjectApply(enrollID, uid uint, channelID int, subMchID, applyID string) error {
+	return r.recordApply(enrollID, uid, channelID, subMchID, map[string]any{
+		"last_subject_apply_no": applyID,
+		"last_subject_apply_at": time.Now(),
+	})
+}
+
+func (r *ChannelControlRepo) recordApply(enrollID, uid uint, channelID int, subMchID string, fields map[string]any) error {
+	var existing model.ChannelControl
+	err := r.db.Where("enroll_id = ?", enrollID).First(&existing).Error
+	if err == gorm.ErrRecordNotFound {
+		c := &model.ChannelControl{EnrollID: enrollID, UID: uid, ChannelID: channelID, SubMchID: subMchID, State: model.ChannelControlNormal}
+		if err := r.db.Create(c).Error; err != nil {
+			return err
+		}
+		return r.db.Model(&model.ChannelControl{}).Where("id = ?", c.ID).Updates(fields).Error
+	}
+	if err != nil {
+		return err
+	}
+	return r.db.Model(&model.ChannelControl{}).Where("id = ?", existing.ID).Updates(fields).Error
+}
+
 // FindByEnrollID 取某进件单的管控快照。未找到返回 (nil, nil)。
 func (r *ChannelControlRepo) FindByEnrollID(enrollID uint) (*model.ChannelControl, error) {
 	var c model.ChannelControl

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/epvia/api/internal/model"
@@ -29,7 +30,11 @@ type WxComplaintService struct {
 	submch  *SubMerchantService // 复用服务商凭证（验签公钥 + APIv3 解密 + 私钥解敏感字段）
 	client  *WxComplaintClient  // 14 接口 REST 子客户端
 	cfg     *ConfigService      // 回调地址自管理状态存 wx_complaint 分组
+	notice  *NoticeService      // 对外通知中枢（可空；SetNoticeService 注入。新投诉/状态变化商户通知，scene=complain）
 }
+
+// SetNoticeService 注入通知中枢（对齐 epay MsgNotice::send('complain', uid, param) 语义）。
+func (s *WxComplaintService) SetNoticeService(n *NoticeService) { s.notice = n }
 
 func NewWxComplaintService(
 	repo *repository.WxComplaintRepo,
@@ -159,6 +164,9 @@ func (s *WxComplaintService) verifyAndDecrypt(h NotifyHeaders, body []byte) (*co
 // RefreshOne 按 complaint_id 查微信详情并 Upsert 主表（回调 + admin 手动刷新 + 轮询兜底共用）。
 // actionType/eventType 为回调触发时的最近动作（无回调场景传空）。
 func (s *WxComplaintService) RefreshOne(ctx context.Context, complaintID, actionType, eventType string) (*model.WxComplaint, error) {
+	// 落库前先取旧记录（判定新增/状态变化，站内信通知用；查不到视为新增，不影响主流程）。
+	old, _ := s.repo.FindByComplaintID(complaintID)
+
 	detail, raw, err := s.client.GetComplaint(ctx, complaintID)
 	if err != nil {
 		return nil, err
@@ -173,7 +181,46 @@ func (s *WxComplaintService) RefreshOne(ctx context.Context, complaintID, action
 	if err := s.repo.Upsert(c); err != nil {
 		return nil, wcErr("投诉单落库失败: " + err.Error())
 	}
+	s.notifyMerchant(old, c)
 	return c, nil
+}
+
+// notifyMerchant 新投诉/状态变化时站内信提醒商户（对齐 epay MsgNotice::send('complain', uid, param)，
+// 见 includes/lib/MsgNotice.php complain 分支：title=投诉原因/content=投诉详情/ordername=商品名称）。
+// 仅新增或状态变化才发，避免同状态重复刷新（回调重推/轮询兜底）造成骚扰式通知。
+func (s *WxComplaintService) notifyMerchant(old *model.WxComplaint, c *model.WxComplaint) {
+	if s.notice == nil || c.MerchantID == 0 {
+		return // 未反查到本平台名下商户（非本服务商名下子商户），无通知对象
+	}
+	isNew := old == nil
+	stateChanged := old != nil && old.ComplaintState != c.ComplaintState
+	if !isNew && !stateChanged {
+		return
+	}
+	noticeType := "您有新的支付交易投诉"
+	if stateChanged {
+		noticeType = "您的投诉状态已更新为「" + model.WxComplaintStateText(c.ComplaintState) + "」"
+	}
+	var money string
+	var ordername string
+	if c.ComplaintOrderInfo != "" {
+		var orders []ComplaintOrder
+		if json.Unmarshal([]byte(c.ComplaintOrderInfo), &orders) == nil && len(orders) > 0 {
+			ordername = orders[0].OutTradeNo
+			if orders[0].Amount > 0 {
+				money = fmt.Sprintf("%.2f", float64(orders[0].Amount)/100)
+			}
+		}
+	}
+	go s.notice.Send("complain", c.MerchantID, map[string]string{
+		"type":      noticeType,
+		"trade_no":  c.ComplaintID,
+		"title":     c.ProblemType,
+		"content":   c.ComplaintDetail,
+		"ordername": ordername,
+		"money":     money,
+		"time":      c.ComplaintTime,
+	})
 }
 
 // fromDetail 把微信投诉详情映射为本地主表模型（反查归属 + 敏感字段加密落库/脱敏 + JSON 序列化）。

@@ -26,6 +26,7 @@ type Deps struct {
 	ChannelEnroll  *handler.ChannelEnrollHandler
 	ChannelControl *handler.ChannelControlHandler
 	ChannelCtrlNotify *handler.ChannelControlNotifyHandler
+	MerchantChannelControl *handler.MerchantChannelControlHandler
 	WxComplaint       *handler.WxComplaintHandler
 	WxComplaintNotify *handler.WxComplaintNotifyHandler
 	MerchantComplaint *handler.MerchantComplaintHandler
@@ -206,7 +207,12 @@ func Setup(r *gin.Engine, d Deps) {
 				authed.GET("/channel-controls", d.ChannelControl.List)
 				authed.POST("/channel-controls/refresh-all", d.ChannelControl.RefreshAll) // 批量刷新（须在 :id 前）
 				authed.POST("/channel-controls/:id/refresh", d.ChannelControl.Refresh)
+				authed.GET("/channel-controls/:id", d.ChannelControl.Get)         // 单个进件单管控快照（进件详情就地快照用）
 				authed.GET("/channel-controls/:id/flows", d.ChannelControl.Flows) // 管控流水时间线（风控第三段）
+				// 解脱路径主动代办（0804 方案补遗：修改结算账户/修改主体资料，服务商直接调 API 代办）
+				authed.POST("/channel-controls/upload", d.ChannelControl.UploadMedia) // 代办表单资料图片上传（须在 :id 前）
+				authed.POST("/channel-controls/:id/modify-settlement", d.ChannelControl.ModifySettlement)
+				authed.POST("/channel-controls/:id/modify-subject", d.ChannelControl.ModifySubjectInfo)
 			}
 
 			// 微信支付消费者投诉2.0（自研扩展，挂服务商进件线；admin 全量统一台）
@@ -533,6 +539,12 @@ func Setup(r *gin.Engine, d Deps) {
 				mAuthed.POST("/complaints/:id/complete", d.MerchantComplaint.MyComplete)
 				mAuthed.POST("/complaints/:id/refund", d.MerchantComplaint.MyUpdateRefund)
 				mAuthed.POST("/complaints/:id/immediate", d.MerchantComplaint.MyReplyImmediate)
+			}
+			// 子商户管控「业务受限」面板（风控第二段商户端自助，只看/只刷新自己名下，无批量/无解脱代办）
+			if d.MerchantChannelControl != nil {
+				mAuthed.GET("/channel-controls", d.MerchantChannelControl.MyList)
+				mAuthed.GET("/channel-controls/:id", d.MerchantChannelControl.MyGet)
+				mAuthed.POST("/channel-controls/:id/refresh", d.MerchantChannelControl.MyRefresh)
 			}
 		}
 	}

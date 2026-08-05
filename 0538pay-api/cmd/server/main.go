@@ -264,6 +264,8 @@ func main() {
 	merchantRegSvc.SetNoticeService(noticeSvc)     // regaudit 新注册待审核管理员通知
 	merchantRegSvc.SetOTPServices(smsSvc, mailSvc) // reg_otp=1 注册校验真实短信/邮箱验证码
 	merchantAuthSvc.SetNoticeService(noticeSvc)    // login 登录提醒
+	wxComplaintSvc.SetNoticeService(noticeSvc)         // complain 新投诉/状态变化商户通知
+	channelControlNotifySvc.SetNoticeService(noticeSvc) // mchrisk 处置流水商户通知
 	merchantAuthHandler.SetRegMethodDeps(mailSvc, configSvc) // 注册方式开关 + 邮箱验证码
 	configHandler := handler.NewConfigHandler(configSvc)
 	configHandler.SetMailService(mailSvc) // K-3 后台「发送测试邮件」
@@ -280,8 +282,9 @@ func main() {
 		Roll:           handler.NewRollHandler(rollSvc),
 		SubChannel:     handler.NewSubChannelHandler(subChannelSvc),
 		ChannelEnroll:  handler.NewChannelEnrollHandler(channelEnrollSvc),
-		ChannelControl: handler.NewChannelControlHandler(channelControlSvc),
+		ChannelControl: handler.NewChannelControlHandler(channelControlSvc, submchSvc),
 		ChannelCtrlNotify: handler.NewChannelControlNotifyHandler(channelControlNotifySvc),
+		MerchantChannelControl: handler.NewMerchantChannelControlHandler(channelControlSvc),
 		WxComplaint:       handler.NewWxComplaintHandler(wxComplaintSvc),
 		WxComplaintNotify: handler.NewWxComplaintNotifyHandler(wxComplaintSvc),
 		MerchantComplaint: handler.NewMerchantComplaintHandler(wxComplaintSvc),

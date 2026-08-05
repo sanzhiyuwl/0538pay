@@ -33,6 +33,13 @@ type ChannelControl struct {
 	LastQueryAt *time.Time `gorm:"column:last_query_at" json:"-"` // 最近一次刷新时间
 	LastError   string     `gorm:"column:last_error;size:512" json:"-"` // 最近一次刷新失败原因（成功时清空）
 
+	// 解脱路径主动代办留痕（0804 方案补遗：recover_way=修改主体资料/修改结算账户时，服务商直接调 API 代办）。
+	// ★同一商户同一时间只能有一笔流程中的申请单（微信语义），此处只留「最近一次」，与快照表逐商户覆盖式设计一致。
+	LastSettleApplyNo string     `gorm:"column:last_settle_apply_no;size:64" json:"-"` // 最近一次改结算账户申请单号（application_no）
+	LastSettleApplyAt *time.Time `gorm:"column:last_settle_apply_at" json:"-"`
+	LastSubjectApplyNo string     `gorm:"column:last_subject_apply_no;size:64" json:"-"` // 最近一次改主体资料申请单号（apply_id）
+	LastSubjectApplyAt *time.Time `gorm:"column:last_subject_apply_at" json:"-"`
+
 	CreatedAt time.Time `json:"-"`
 	UpdatedAt time.Time `json:"-"`
 }

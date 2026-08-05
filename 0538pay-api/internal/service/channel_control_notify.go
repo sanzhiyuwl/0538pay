@@ -33,6 +33,7 @@ type ChannelControlNotifyService struct {
 	enrolls *repository.ChannelEnrollRepo
 	submch  *SubMerchantService    // 复用服务商凭证（平台公钥验签 + APIv3 密钥解密）
 	control *ChannelControlService // 回调后异步触发第二段查询核实并刷新快照（可空）
+	notice  *NoticeService         // 对外通知中枢（可空；SetNoticeService 注入。处置流水商户通知，scene=mchrisk）
 }
 
 func NewChannelControlNotifyService(
@@ -43,6 +44,9 @@ func NewChannelControlNotifyService(
 ) *ChannelControlNotifyService {
 	return &ChannelControlNotifyService{flows: flows, enrolls: enrolls, submch: submch, control: control}
 }
+
+// SetNoticeService 注入通知中枢（对齐 epay MsgNotice::send('mchrisk', uid, param) 语义）。
+func (s *ChannelControlNotifyService) SetNoticeService(n *NoticeService) { s.notice = n }
 
 // ChannelNotifyError 携带业务提示（handler 据此返回失败应答，触发微信重推）。
 type ChannelNotifyError struct{ Msg string }
@@ -220,5 +224,45 @@ func (s *ChannelControlNotifyService) persistAndRefresh(ctx context.Context, flo
 			}
 		}()
 	}
+	if enroll != nil {
+		s.notifyMerchant(enroll, flow)
+	}
 	return nil
+}
+
+// notifyMerchant 处置流水落库后站内信提醒商户（对齐 epay MsgNotice::send('mchrisk', uid, param)，
+// 见 includes/lib/MsgNotice.php mchrisk 分支：mchid=渠道子商户号/mchname=商户名称/risk_desc=风险类型/
+// punish_type=处罚方案/punish_desc=处罚描述/punish_time=记录时间）。两套机制（A处置通知/B管控流水）
+// 字段来源不同，各自取有值的字段拼给同一模板，取不到的用摘要/落库时间兜底。
+func (s *ChannelControlNotifyService) notifyMerchant(enroll *model.ChannelEnroll, flow *model.ChannelControlFlow) {
+	if s.notice == nil || enroll.UID == 0 {
+		return
+	}
+	riskDesc := flow.RiskType
+	if riskDesc == "" {
+		riskDesc = flow.RiskDescription
+	}
+	punishType := flow.PunishPlan
+	if punishType == "" {
+		punishType = enumText(channelFlowStateText, flow.BusinessState)
+	}
+	punishDesc := flow.PunishDescription
+	if punishDesc == "" {
+		punishDesc = flow.Summary
+	}
+	punishTime := flow.PunishTime
+	if punishTime == "" {
+		punishTime = flow.BusinessTime
+	}
+	if punishTime == "" {
+		punishTime = flow.CreatedAt.Format(timeLayout)
+	}
+	go s.notice.Send("mchrisk", enroll.UID, map[string]string{
+		"mchid":       flow.SubMchID,
+		"mchname":     enroll.MerchantName,
+		"risk_desc":   riskDesc,
+		"punish_type": punishType,
+		"punish_desc": punishDesc,
+		"punish_time": punishTime,
+	})
 }
